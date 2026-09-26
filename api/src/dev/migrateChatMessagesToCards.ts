@@ -500,12 +500,6 @@ async function main(): Promise<void> {
           inputVersion: `card_phrase_index_v1:${embeddingInputHash}`,
           payload: { schemaVersion: 1 },
         },
-        {
-          jobType: "detect_progress_phrases",
-          inputHash: embeddingInputHash,
-          inputVersion: `progress_phrase_detection_v1:${embeddingInputHash}`,
-          payload: { schemaVersion: 1, billingExemptReason: MIGRATION_BILLING_EXEMPTION },
-        },
       ] as const) {
         await ensureEnrichmentJob(tx, {
           userId: user.id,

@@ -1754,7 +1754,13 @@ export class CardService {
       "reply",
       ...entry.images.filter((image) => image.descriptionText).map((image) => imageDescriptionContentType(image.id)),
     ];
-    const alignedOriginalSegments = rewriteAlignedOriginalSegments(entry);
+    const alignedOriginalGroups = rewriteAlignedOriginalGroups(entry);
+    const alignedOriginalSegments = alignedOriginalGroups.map((group) => ({
+      ordinal: group.targetOrdinals[group.targetOrdinals.length - 1]!,
+      text: group.text,
+      startUtf16: group.startUtf16,
+      endUtf16: group.endUtf16,
+    }));
     const alignedOriginalLanguageCode = entry.originalText
       ? inferLearningTextLanguage(entry.originalText, entry.appLocaleSnapshot)
       : null;
@@ -1801,6 +1807,7 @@ export class CardService {
         auxiliarySegments,
         auxiliaryLanguageCode,
         alignedOriginalSegments: typedContentType === "rewrite" ? alignedOriginalSegments : [],
+        alignedOriginalGroups: typedContentType === "rewrite" ? alignedOriginalGroups : [],
         alignedOriginalLanguageCode: typedContentType === "rewrite" ? alignedOriginalLanguageCode : null,
         learningAccess,
       }))];
@@ -2514,7 +2521,13 @@ function contentLanguageCode(entry: CardEntryEntity, contentType: CardLearningCo
   return entry.images.find((image) => image.id === imageId)?.descriptionLanguageCode ?? entry.languageCode;
 }
 
-export function rewriteAlignedOriginalSegments(entry: CardEntryEntity): Array<{ ordinal: number; text: string; startUtf16: number; endUtf16: number }> {
+export function rewriteAlignedOriginalGroups(entry: CardEntryEntity): Array<{
+  targetOrdinals: number[];
+  text: string;
+  startUtf16: number;
+  endUtf16: number;
+  alignment: "exact" | "fallback";
+}> {
   const sourceSegments = entry.contentSegments
     .filter((segment) => segment.contentType === "original")
     .sort((left, right) => left.ordinal - right.ordinal);
@@ -2524,7 +2537,13 @@ export function rewriteAlignedOriginalSegments(entry: CardEntryEntity): Array<{ 
   const originalText = entry.originalText?.trim();
   if (!originalText || !targetSegments.length) return [];
   const fallbackStart = entry.originalText!.indexOf(originalText);
-  const fallback = [{ ordinal: targetSegments[targetSegments.length - 1]!.ordinal, text: originalText, startUtf16: Math.max(0, fallbackStart), endUtf16: Math.max(0, fallbackStart) + originalText.length }];
+  const fallback = [{
+    targetOrdinals: targetSegments.map((segment) => segment.ordinal),
+    text: originalText,
+    startUtf16: Math.max(0, fallbackStart),
+    endUtf16: Math.max(0, fallbackStart) + originalText.length,
+    alignment: "fallback" as const,
+  }];
   const value = entry.rewriteAlignment;
   if (!value || typeof value !== "object" || Array.isArray(value)) return fallback;
   const alignment = value as {
@@ -2556,7 +2575,14 @@ export function rewriteAlignedOriginalSegments(entry: CardEntryEntity): Array<{ 
   const seenTarget = new Set<number>();
   let previousSourceOrdinals: number[] | null = null;
   let previousTargetOrdinal = -1;
-  const rows: Array<{ ordinal: number; text: string; startUtf16: number; endUtf16: number }> = [];
+  let previousSourceEnd = -1;
+  const groups: Array<{
+    targetOrdinals: number[];
+    text: string;
+    startUtf16: number;
+    endUtf16: number;
+    alignment: "exact";
+  }> = [];
   for (const rawGroup of alignment.groups) {
     if (!rawGroup || typeof rawGroup !== "object" || Array.isArray(rawGroup)) return fallback;
     const sourceOrdinals = (rawGroup as { sourceOrdinals?: unknown }).sourceOrdinals;
@@ -2570,16 +2596,13 @@ export function rewriteAlignedOriginalSegments(entry: CardEntryEntity): Array<{ 
     if (typedSourceOrdinals.some((ordinal, index) => index > 0 && ordinal !== typedSourceOrdinals[index - 1]! + 1)
       || typedTargetOrdinals.some((ordinal, index) => index > 0 && ordinal !== typedTargetOrdinals[index - 1]! + 1)
       || typedTargetOrdinals[0]! <= previousTargetOrdinal) return fallback;
-    let repeatsPreviousSourceRange = false;
-    if (previousSourceOrdinals) {
-      repeatsPreviousSourceRange = previousSourceOrdinals.length === typedSourceOrdinals.length
-        && previousSourceOrdinals.every((ordinal, index) => ordinal === typedSourceOrdinals[index]);
-      const sourceRangesOverlap = typedSourceOrdinals[0]! <= previousSourceOrdinals[previousSourceOrdinals.length - 1]!;
-      if (sourceRangesOverlap && !repeatsPreviousSourceRange) return fallback;
-    }
+    const repeatsPreviousSourceRange = previousSourceOrdinals !== null
+      && previousSourceOrdinals.length === typedSourceOrdinals.length
+      && previousSourceOrdinals.every((ordinal, index) => ordinal === typedSourceOrdinals[index]);
+    if (typedSourceOrdinals[0]! <= previousSourceEnd && !repeatsPreviousSourceRange) return fallback;
     typedTargetOrdinals.forEach((ordinal) => seenTarget.add(ordinal));
     if (repeatsPreviousSourceRange) {
-      rows[rows.length - 1]!.ordinal = typedTargetOrdinals[typedTargetOrdinals.length - 1]!;
+      groups[groups.length - 1]!.targetOrdinals.push(...typedTargetOrdinals);
       previousTargetOrdinal = typedTargetOrdinals[typedTargetOrdinals.length - 1]!;
       continue;
     }
@@ -2589,17 +2612,28 @@ export function rewriteAlignedOriginalSegments(entry: CardEntryEntity): Array<{ 
     const text = rawText.trim();
     const leadingWhitespace = rawText.indexOf(text);
     const startUtf16 = first.startUtf16 + Math.max(0, leadingWhitespace);
-    rows.push({
-      ordinal: typedTargetOrdinals[typedTargetOrdinals.length - 1]!,
+    groups.push({
+      targetOrdinals: [...typedTargetOrdinals],
       text,
       startUtf16,
       endUtf16: startUtf16 + text.length,
+      alignment: "exact",
     });
     previousSourceOrdinals = typedSourceOrdinals;
+    previousSourceEnd = typedSourceOrdinals[typedSourceOrdinals.length - 1]!;
     previousTargetOrdinal = typedTargetOrdinals[typedTargetOrdinals.length - 1]!;
   }
-  if (seenTarget.size !== targetSegments.length || rows.some((row) => !row.text)) return fallback;
-  return rows;
+  if (seenTarget.size !== targetSegments.length || groups.some((group) => !group.text)) return fallback;
+  return groups;
+}
+
+export function rewriteAlignedOriginalSegments(entry: CardEntryEntity): Array<{ ordinal: number; text: string; startUtf16: number; endUtf16: number }> {
+  return rewriteAlignedOriginalGroups(entry).map((group) => ({
+    ordinal: group.targetOrdinals[group.targetOrdinals.length - 1]!,
+    text: group.text,
+    startUtf16: group.startUtf16,
+    endUtf16: group.endUtf16,
+  }));
 }
 
 function defaultLearningContentType(entry: CardEntryEntity): CardLearningContentType | null {

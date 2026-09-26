@@ -45,6 +45,13 @@ export interface CardContentBlockView {
   auxiliarySegments: Array<{ ordinal: number; text: string }>;
   auxiliaryLanguageCode: string | null;
   alignedOriginalSegments: Array<{ ordinal: number; text: string; startUtf16?: number; endUtf16?: number }>;
+  alignedOriginalGroups: Array<{
+    targetOrdinals: number[];
+    text: string;
+    startUtf16?: number;
+    endUtf16?: number;
+    alignment: "exact" | "fallback";
+  }>;
   alignedOriginalLanguageCode: string | null;
   learningAccess: "enabled" | "pro_required" | "language_mismatch";
 }

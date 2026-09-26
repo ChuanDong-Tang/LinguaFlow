@@ -888,7 +888,7 @@ export function MemoryRoundScreen({
 
   if (phase === "loading") return <SafeAreaView style={styles.page}><Header onClose={onClose} /><View style={styles.center}><ActivityIndicator color="#5E7C6A" /><Text style={styles.loadingText}>{t("memory_round.loading")}</Text></View></SafeAreaView>;
   if (phase === "error") return <SafeAreaView style={styles.page}><Header onClose={onClose} /><View style={styles.center}><Text style={styles.emptyTitle}>{t("memory_round.load_failed")}</Text><Pressable style={({ pressed }) => [styles.lightButton, pressed && styles.controlPressed]} onPress={() => void start()}><Text style={styles.lightButtonText}>{t("common.retry")}</Text></Pressable></View></SafeAreaView>;
-  if (phase === "empty") return <SafeAreaView style={styles.page}><Header onClose={onClose} /><View style={styles.center}><View style={styles.emptyGlyph}><Ionicons name="sparkles-outline" size={28} color="#7A6E9D" /></View><Text style={styles.emptyTitle}>{t("memory_round.empty_title")}</Text><Text style={styles.emptyText}>{t("memory_round.empty_text")}</Text><Pressable style={({ pressed }) => [styles.lightButton, pressed && styles.controlPressed]} onPress={onOpenLibrary}><Text style={styles.lightButtonText}>{t("memory_round.go_cards")}</Text><Ionicons name="arrow-forward" size={17} color="#4F6557" /></Pressable></View></SafeAreaView>;
+  if (phase === "empty") return <SafeAreaView style={styles.page}><Header onClose={onClose} /><View style={styles.center}><View style={styles.emptyGlyph}><Ionicons name="albums-outline" size={28} color="#7A6E9D" /></View><Text style={styles.emptyTitle}>{t("memory_round.empty_title")}</Text><Text style={styles.emptyText}>{t("memory_round.empty_text")}</Text><Pressable style={({ pressed }) => [styles.lightButton, pressed && styles.controlPressed]} onPress={onOpenLibrary}><Text style={styles.lightButtonText}>{t("memory_round.go_cards")}</Text><Ionicons name="arrow-forward" size={17} color="#4F6557" /></Pressable></View></SafeAreaView>;
   if (phase === "retry_offer") return (
     <SafeAreaView style={styles.summaryPage}>
       <Header onClose={onClose} />
@@ -928,7 +928,7 @@ export function MemoryRoundScreen({
           {nextCard ? <>
             <Text style={styles.cardCompleteLabel}>{nextCard.relationHint ? t("memory_round.next_related").replace("{topic}", nextCard.relationHint) : t("memory_round.next_card_ready")}</Text>
             <View style={[styles.cardRouteCard, styles.nextCardRouteCard]}>
-              {nextCard.thumbnailUrl ? <Image source={{ uri: nextCard.thumbnailUrl }} style={styles.cardRouteImage} /> : <View style={[styles.cardRouteImage, styles.cardRouteImageFallback]}><Ionicons name="sparkles-outline" size={25} color="#6D8178" /></View>}
+              {nextCard.thumbnailUrl ? <Image source={{ uri: nextCard.thumbnailUrl }} style={styles.cardRouteImage} /> : <View style={[styles.cardRouteImage, styles.cardRouteImageFallback]}><Ionicons name="document-text-outline" size={25} color="#6D8178" /></View>}
               {nextCard.title.trim() ? <View style={styles.cardRouteCopy}><Text numberOfLines={2} style={styles.cardRouteTitle}>{nextCard.title}</Text></View> : null}
             </View>
             <View style={styles.cardCompleteActions}>
@@ -977,7 +977,7 @@ export function MemoryRoundScreen({
             </Animated.View>
           </Animated.View>
           <View style={[styles.coachBubble, meaningExpanded && meaningStatus === "ready" && styles.coachBubbleExpanded, feedbackState === "correct" && styles.coachBubbleSuccess, feedbackState === "wrong" && styles.coachBubbleWrong]}>
-            {feedbackState === "correct" ? <View style={styles.coachFeedback}><Ionicons name="sparkles" size={19} color="#43816E" /><Text style={styles.coachSuccessText}>{t("memory_round.coach_correct")}</Text></View> : <>
+            {feedbackState === "correct" ? <View style={styles.coachFeedback}><Ionicons name="checkmark-circle" size={19} color="#43816E" /><Text style={styles.coachSuccessText}>{t("memory_round.coach_correct")}</Text></View> : <>
               {feedbackState === "wrong" ? <View style={styles.coachHintHeading}><Ionicons name="refresh" size={16} color="#B75F5F" /><Text style={[styles.coachHintTitle, styles.coachWrongText]}>{t("memory_round.coach_wrong")}</Text></View> : null}
               {question.task !== "meaning_sentence" ? <View style={styles.coachHintActions}>
                 <Pressable accessibilityRole="button" accessibilityLabel={t("memory_round.play_audio")} disabled={audioLoading || speechBusy} style={({ pressed }) => [styles.coachHintButton, styles.coachAudioButton, (audioLoading || speechBusy) && styles.buttonDisabled, pressed && styles.controlPressed]} onPress={() => void playSentence()}>

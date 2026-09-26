@@ -22,6 +22,13 @@ export interface CardEmbeddingSource {
   rewrittenText: string;
 }
 
+export interface PhraseEmbeddingSource {
+  userId: string;
+  phraseId: string;
+  languageCode: string;
+  canonicalText: string;
+}
+
 export interface CardTopicSource {
   userId: string;
   sourceId: string;
@@ -83,22 +90,6 @@ export interface CardPhraseIndexOccurrence extends PhraseIndexOccurrence {
   phraseId: string;
 }
 
-export interface ProgressPhraseDetectionSource {
-  userId: string;
-  sourceKind: "card";
-  sourceId: string;
-  languageCode: string;
-  cardCreatedAt: Date;
-  originalText: string;
-  billingExemptReason?: "chat_history_migration";
-}
-
-export interface ProgressPhraseDetectionResult {
-  surfaceText: string;
-  normalizedText: string;
-  occurrences: Array<{ startUtf16: number; endUtf16: number; surfaceText: string }>;
-}
-
 export interface CardEnrichmentRepository {
   enqueueMissingImageDescriptionJobs(input: {
     limit: number;
@@ -124,6 +115,9 @@ export interface CardEnrichmentRepository {
   claimNextEmbeddingJob(workerId: string, leaseExpiresAt: Date): Promise<CardEnrichmentJobEntity | null>;
   loadEmbeddingSource(job: CardEnrichmentJobEntity): Promise<CardEmbeddingSource | null>;
   completeEmbeddingJob(job: CardEnrichmentJobEntity, result: EmbeddingResult): Promise<boolean>;
+  claimNextPhraseEmbeddingJob(workerId: string, leaseExpiresAt: Date): Promise<CardEnrichmentJobEntity | null>;
+  loadPhraseEmbeddingSource(job: CardEnrichmentJobEntity): Promise<PhraseEmbeddingSource | null>;
+  completePhraseEmbeddingJob(job: CardEnrichmentJobEntity, result: EmbeddingResult): Promise<boolean>;
   completeWithoutResult(job: CardEnrichmentJobEntity, reason: string): Promise<boolean>;
   completeJob(job: CardEnrichmentJobEntity): Promise<boolean>;
   rescheduleOrFail(
@@ -156,11 +150,4 @@ export interface CardEnrichmentRepository {
   loadCardPhraseIndexSource(job: CardEnrichmentJobEntity, cursor?: string, limit?: number): Promise<CardPhraseIndexSource | null>;
   upsertCardPhraseIndexOccurrences(job: CardEnrichmentJobEntity, occurrences: CardPhraseIndexOccurrence[]): Promise<void>;
   completeCardPhraseIndexJob(job: CardEnrichmentJobEntity, occurrences: CardPhraseIndexOccurrence[]): Promise<boolean>;
-  claimNextProgressPhraseDetectionJob(workerId: string, leaseExpiresAt: Date): Promise<CardEnrichmentJobEntity | null>;
-  loadProgressPhraseDetectionSource(job: CardEnrichmentJobEntity): Promise<ProgressPhraseDetectionSource | null>;
-  completeProgressPhraseDetectionJob(
-    job: CardEnrichmentJobEntity,
-    phrases: ProgressPhraseDetectionResult[],
-    normalizerVersion: string,
-  ): Promise<boolean>;
 }

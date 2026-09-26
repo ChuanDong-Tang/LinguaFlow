@@ -121,9 +121,8 @@ type CardBlankActionAnchor = { pageX: number; pageY: number; width: number; heig
 type CardContentBinding = { contentType: CardLearningContentType; contentVersion: string };
 type ClozeOnboardingTarget = { x: number; y: number; width: number; height: number };
 type CardRelationItem = { recordId: string; topic: string | null; card: CardRelationPreview | null; reasons: CardRelationReason[] };
-type ProgressRelationReason = Extract<CardRelationReason, { type: "progress" }>;
-type ProgressMoment = { relation: CardRelationItem; reason: ProgressRelationReason };
-type ProgressTextHighlight = { start: number; end: number; moment: ProgressMoment };
+type PhraseRelationReason = Extract<CardRelationReason, { type: "phrase" }>;
+type LanguageRelation = { relation: CardRelationItem; reason: PhraseRelationReason };
 
 function shuffleRecommendationOptions(values: string[]): string[] {
   const shuffled = [...new Set(values.map((value) => value.trim()).filter(Boolean))];
@@ -134,7 +133,7 @@ function shuffleRecommendationOptions(values: string[]): string[] {
   return shuffled;
 }
 
-export function CardDetailModal({ detail, loading, imageAdding = false, transitionOrigin, draft, draftSafeArea, draftLimits, draftCollections = [], initialTab = "review", initialEditing = false, closeAfterEditing = false, onClose, returnLabel, onReplaceImage, onRemoveImage, onCoverPositionChange, onDraftChange, onDraftFieldChange, onDraftEnabledLayersChange, onDraftImageDescriptionChange, onDraftCollectionChange, onDraftCreateCollection, onDraftRenameCollection, onDraftDeleteCollection, onDraftSave, onDraftChooseImage, onDraftTakePhoto, onDraftSelectImage, onDraftRemoveImage, onDraftCoverPositionChange, canGoBack = false, canGoForward = false, onBack, onForward, onOpenRelated, hideRelations = false, hidePhraseRecommendation = false, onUpdateContent, onUpdateMetadata, onEditCard, pendingGenerationTargets = [], failedGenerationTargets = [], retryingGenerationTarget = null, onRetryGeneration, onGeneratePhraseRecommendation, onActivateLearningContent, recallPosition, recallPreviousDetail, recallNextDetail, onRecallPrevious, onRecallNext, onRecallFinish, onClozeAttempt, onClozeStateChange }: {
+export function CardDetailModal({ detail, loading, imageAdding = false, transitionOrigin, draft, draftSafeArea, draftLimits, draftCollections = [], initialTab = "review", initialEditing = false, closeAfterEditing = false, onClose, returnLabel, onReplaceImage, onRemoveImage, onCoverPositionChange, onDraftChange, onDraftFieldChange, onDraftEnabledLayersChange, onDraftImageDescriptionChange, onDraftCollectionChange, onDraftCreateCollection, onDraftRenameCollection, onDraftDeleteCollection, onDraftSave, onDraftChooseImage, onDraftTakePhoto, onDraftSelectImage, onDraftRemoveImage, onDraftCoverPositionChange, canGoBack = false, canGoForward = false, onBack, onForward, onOpenRelated, relationFocusSentence = null, hideRelations = false, hidePhraseRecommendation = false, onUpdateContent, onUpdateMetadata, onEditCard, pendingGenerationTargets = [], failedGenerationTargets = [], retryingGenerationTarget = null, onRetryGeneration, onGeneratePhraseRecommendation, onActivateLearningContent, recallPosition, recallPreviousDetail, recallNextDetail, onRecallPrevious, onRecallNext, onRecallFinish, onClozeAttempt, onClozeStateChange }: {
   detail: CardRecordDetail | null;
   loading: boolean;
   imageAdding?: boolean;
@@ -174,6 +173,7 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
   onBack?: () => void;
   onForward?: () => void;
   onOpenRelated?: (recordId: string, reasons: CardRelationReason[]) => void;
+  relationFocusSentence?: string | null;
   hideRelations?: boolean;
   hidePhraseRecommendation?: boolean;
   onUpdateContent?: (input: { title: string | null; originalText: string; collectionId: string | null; selectedTargets: Array<"expression" | "translation" | "reply"> }) => Promise<boolean | void>;
@@ -618,7 +618,7 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
         </View>
         {detailActionMenuVisible ? <View style={styles.detailActionLayer}><Pressable style={StyleSheet.absoluteFill} onPress={() => setDetailActionMenuVisible(false)} /><View style={styles.detailActionMenu}><Pressable style={styles.detailActionItem} onPress={() => { setDetailActionMenuVisible(false); (onEditCard ?? (() => setEditing(true)))(); }}><Ionicons name="create-outline" size={17} color={theme.colors.textSecondary} /><Text style={styles.detailActionText}>编辑</Text></Pressable><View style={styles.detailActionDivider} /><Pressable style={styles.detailActionItem} onPress={() => { setDetailActionMenuVisible(false); Alert.alert("移入回收站？", "卡片将在回收站保留 30 天，期间可以随时恢复。", [{ text: t("common.cancel"), style: "cancel" }, { text: "移入回收站", style: "destructive", onPress: () => { if (detail) void deleteCardRecord(detail.id).then(onClose); } }]); }}><Ionicons name="trash-outline" size={17} color={theme.colors.danger} /><Text style={[styles.detailActionText, { color: theme.colors.danger }]}>删除</Text></Pressable></View></View> : null}
         {loading && !detail ? <ActivityIndicator color={theme.colors.accentStrong} style={styles.loader} /> : null}
-        {practiceDetail && contentBinding && tab === "review" ? <Review onLanguageControlChange={updateLanguageControl} hidePhraseRecommendation={hidePhraseRecommendation} key={practiceDetail.id} detail={practiceDetail} imageAdding={imageAdding} contentBinding={contentBinding} playbackMode={playbackMode} practiceEnabled={canPracticeActiveBlock} canUseDictation={!detail?.isSample && hasProAccess === true} autoStartClozePractice={clozeEntryModeRef.current.autoStart} clozeState={resolvedClozeState} clozeVersion={resolvedClozeVersion} onClozeChange={updateCloze} onLearningContentClozeChange={updateLearningContentCloze} onSelectLearningContent={setSelectedLearningContentType} onActivateLearningContent={onActivateLearningContent} onSaveOriginal={onUpdateContent ? async (originalText) => { const accepted = await onUpdateContent({ title: practiceDetail.title ?? null, originalText, collectionId: practiceDetail.collectionId ?? null, selectedTargets: practiceDetail.mode === "corpus" ? [] : practiceDetail.replyText ? ["expression", "reply"] : ["expression"] }); if (accepted === false) throw new Error(t("card_detail.error.try_again")); } : undefined} onUpdateMetadata={onUpdateMetadata} onRemoveImage={onRemoveImage} onCoverPositionChange={onCoverPositionChange} relations={relations} onOpenRelated={onOpenRelated} onOpenDictation={() => setTab("dictation")} pendingGenerationTargets={pendingGenerationTargets} failedGenerationTargets={failedGenerationTargets} retryingGenerationTarget={retryingGenerationTarget} onRetryGeneration={onRetryGeneration} onGeneratePhraseRecommendation={onGeneratePhraseRecommendation} onRecallFinish={onRecallFinish} onClozeAttempt={onClozeAttempt} onPendingClozeCheckHandlerChange={registerPendingClozeCheck} onInteractionLockChange={(locked) => { setDetailInteractionLocked(locked); if (recallPosition) setRecallInteractionLocked(locked); }} onImageSwipeContextChange={(active, index) => { imageSwipeContextRef.current = { active, index }; }} focusLearningContent={clozeTipEligible && clozeGuideStep === 1} onLearningTargetReady={handleClozeLearningTargetReady} focusActionBar={clozeTipEligible && clozeGuideStep === 2} onActionBarTargetReady={handleClozeActionBarTargetReady} /> : null}
+        {practiceDetail && contentBinding && tab === "review" ? <Review onLanguageControlChange={updateLanguageControl} hidePhraseRecommendation={hidePhraseRecommendation} key={practiceDetail.id} detail={practiceDetail} imageAdding={imageAdding} contentBinding={contentBinding} playbackMode={playbackMode} practiceEnabled={canPracticeActiveBlock} canUseDictation={!detail?.isSample && hasProAccess === true} autoStartClozePractice={clozeEntryModeRef.current.autoStart} clozeState={resolvedClozeState} clozeVersion={resolvedClozeVersion} onClozeChange={updateCloze} onLearningContentClozeChange={updateLearningContentCloze} onSelectLearningContent={setSelectedLearningContentType} onActivateLearningContent={onActivateLearningContent} onSaveOriginal={onUpdateContent ? async (originalText) => { const accepted = await onUpdateContent({ title: practiceDetail.title ?? null, originalText, collectionId: practiceDetail.collectionId ?? null, selectedTargets: practiceDetail.mode === "corpus" ? [] : practiceDetail.replyText ? ["expression", "reply"] : ["expression"] }); if (accepted === false) throw new Error(t("card_detail.error.try_again")); } : undefined} onUpdateMetadata={onUpdateMetadata} onRemoveImage={onRemoveImage} onCoverPositionChange={onCoverPositionChange} relations={relations} onOpenRelated={onOpenRelated} relationFocusSentence={relationFocusSentence} onOpenDictation={() => setTab("dictation")} pendingGenerationTargets={pendingGenerationTargets} failedGenerationTargets={failedGenerationTargets} retryingGenerationTarget={retryingGenerationTarget} onRetryGeneration={onRetryGeneration} onGeneratePhraseRecommendation={onGeneratePhraseRecommendation} onRecallFinish={onRecallFinish} onClozeAttempt={onClozeAttempt} onPendingClozeCheckHandlerChange={registerPendingClozeCheck} onInteractionLockChange={(locked) => { setDetailInteractionLocked(locked); if (recallPosition) setRecallInteractionLocked(locked); }} onImageSwipeContextChange={(active, index) => { imageSwipeContextRef.current = { active, index }; }} focusLearningContent={clozeTipEligible && clozeGuideStep === 1} onLearningTargetReady={handleClozeLearningTargetReady} focusActionBar={clozeTipEligible && clozeGuideStep === 2} onActionBarTargetReady={handleClozeActionBarTargetReady} /> : null}
         {practiceDetail && contentBinding && tab === "dictation" && hasProAccess === true ? <Dictation detail={practiceDetail} contentBinding={contentBinding} /> : null}
       </SafeAreaView>
       {recallPosition && (recallHandoff?.direction === "next" ? recallHandoff.detail : recallNextDetail) ? <View pointerEvents="none" style={[styles.recallAdjacentPage, { left: windowWidth }]}><RecallAdjacentCard detail={(recallHandoff?.direction === "next" ? recallHandoff.detail : recallNextDetail)!} position={recallHandoff?.direction === "next" ? recallHandoff.position : { index: recallPosition.index + 1, total: recallPosition.total }} canUseDictation={!detail?.isSample && hasProAccess === true} /></View> : null}
@@ -1941,7 +1941,7 @@ function detailGalleryImages(images: NonNullable<CardRecordDetail["images"]>, le
   }));
 }
 
-function Review({ onLanguageControlChange, hidePhraseRecommendation = true, detail, imageAdding, contentBinding, playbackMode, practiceEnabled, canUseDictation, autoStartClozePractice, clozeState, clozeVersion, onClozeChange, onLearningContentClozeChange, onSelectLearningContent, onActivateLearningContent, onSaveOriginal, onUpdateMetadata, onRemoveImage, onCoverPositionChange, relations, onOpenRelated, onOpenDictation, pendingGenerationTargets = [], failedGenerationTargets = [], retryingGenerationTarget = null, onRetryGeneration, onGeneratePhraseRecommendation, onRecallFinish, onClozeAttempt, onPendingClozeCheckHandlerChange, onInteractionLockChange, onImageSwipeContextChange, focusLearningContent = false, onLearningTargetReady, focusActionBar = false, onActionBarTargetReady }: {
+function Review({ onLanguageControlChange, hidePhraseRecommendation = true, detail, imageAdding, contentBinding, playbackMode, practiceEnabled, canUseDictation, autoStartClozePractice, clozeState, clozeVersion, onClozeChange, onLearningContentClozeChange, onSelectLearningContent, onActivateLearningContent, onSaveOriginal, onUpdateMetadata, onRemoveImage, onCoverPositionChange, relations, onOpenRelated, relationFocusSentence = null, onOpenDictation, pendingGenerationTargets = [], failedGenerationTargets = [], retryingGenerationTarget = null, onRetryGeneration, onGeneratePhraseRecommendation, onRecallFinish, onClozeAttempt, onPendingClozeCheckHandlerChange, onInteractionLockChange, onImageSwipeContextChange, focusLearningContent = false, onLearningTargetReady, focusActionBar = false, onActionBarTargetReady }: {
   detail: CardRecordDetail;
   imageAdding: boolean;
   contentBinding: CardContentBinding;
@@ -1963,6 +1963,7 @@ function Review({ onLanguageControlChange, hidePhraseRecommendation = true, deta
   onCoverPositionChange?: (imageId: string, focusX: number, focusY: number) => Promise<void>;
   relations: CardRelationItem[];
   onOpenRelated?: (recordId: string, reasons: CardRelationReason[]) => void;
+  relationFocusSentence?: string | null;
   onOpenDictation: () => void;
   pendingGenerationTargets?: CardGenerationTarget[];
   failedGenerationTargets?: CardGenerationTarget[];
@@ -1987,7 +1988,7 @@ function Review({ onLanguageControlChange, hidePhraseRecommendation = true, deta
   const flipCardScrollYRef = useRef(0);
   const actionBarRef = useRef<View>(null);
   const [relationsVisible, setRelationsVisible] = useState(false);
-  const [progressMoment, setProgressMoment] = useState<ProgressMoment | null>(null);
+  const [languageRelationVisible, setLanguageRelationVisible] = useState(false);
   const images = useMemo(
     () => detail.images?.length ? detail.images : detail.image ? [detail.image] : [],
     [detail.images, detail.image],
@@ -2022,8 +2023,16 @@ function Review({ onLanguageControlChange, hidePhraseRecommendation = true, deta
     : asCardClozeState(block.practice?.clozeState).blanks;
   const wholeCardBlanks = wholeCardPracticeBlocks.flatMap(practiceBlanksForBlock);
   const wholeCardBlankCount = wholeCardBlanks.length;
-  const associationRelations = useMemo(() => relations.filter((relation) => relation.reasons.some((reason) => reason.type !== "progress")), [relations]);
-  const progressMoments = useMemo(() => relations.flatMap((relation) => relation.reasons.flatMap((reason) => reason.type === "progress" && reason.isFirstUserProduced ? [{ relation, reason }] : [])), [relations]);
+  const contentRelations = useMemo(() => relations.filter((relation) => relation.reasons.some((reason) => reason.type === "topic")), [relations]);
+  const languageRelation = useMemo<LanguageRelation | null>(() => {
+    const candidates = relations.flatMap((relation) => relation.reasons.flatMap((reason) =>
+      reason.type === "phrase" && reason.currentSegmentId ? [{ relation, reason }] : [],
+    ));
+    return candidates.sort((left, right) => {
+      const mode = Number(right.reason.matchMode === "semantic") - Number(left.reason.matchMode === "semantic");
+      return mode || (right.reason.semanticScore ?? 0) - (left.reason.semanticScore ?? 0);
+    })[0] ?? null;
+  }, [relations]);
   const [savingCloze, setSavingCloze] = useState(false);
   const [recommendationTaskVisible, setRecommendationTaskVisible] = useState(false);
   const [recommendationLoading, setRecommendationLoading] = useState(false);
@@ -2093,7 +2102,9 @@ function Review({ onLanguageControlChange, hidePhraseRecommendation = true, deta
     return () => { active = false; };
   }, []);
   const [answersVisible, setAnswersVisible] = useState(false);
-  const [displayMode, setDisplayMode] = useState<ContentDisplayMode>(detail.isSample ? "bilingual" : "target");
+  const defaultDisplayMode = detail.mode === "rewrite" && detail.originalText.trim() ? "bilingual" as const : "target" as const;
+  const [displayMode, setDisplayMode] = useState<ContentDisplayMode>(defaultDisplayMode);
+  useEffect(() => { setDisplayMode(defaultDisplayMode); }, [detail.id]);
   const [auxiliaryLoading, setAuxiliaryLoading] = useState(false);
   const auxiliaryDisplayLanguage = playbackPrimaryBlock?.contentType === "rewrite"
     ? playbackPrimaryBlock.alignedOriginalLanguageCode ?? getLanguage()
@@ -2440,17 +2451,11 @@ function Review({ onLanguageControlChange, hidePhraseRecommendation = true, deta
   useEffect(() => {
     if (clozeMode !== "choice") { setSelectedChoiceBlankId(null); return; }
     if (practiceBlankQueue.some((item) => item.ownerKey === activeChoiceOwnerKey && item.blankId === selectedChoiceBlankId)) return;
-    const next = practiceBlankQueue.find((item) => !completedChoiceBlankKeysRef.current.has(`${item.ownerKey}:${item.blankId}`));
-    if (next) {
-      activateChoiceOwner(next.ownerKey);
-      setSelectedChoiceBlankId(next.blankId);
-      return;
-    }
     activeChoiceOwnerKeyRef.current = null;
     setActiveChoiceOwnerKey(null);
     setSelectedChoiceBlankId(null);
     setChoiceTrayState(null);
-  }, [clozeMode, detail.id, practiceQueueKey, activeChoiceOwnerKey, selectedChoiceBlankId, activateChoiceOwner]);
+  }, [clozeMode, detail.id, practiceQueueKey, activeChoiceOwnerKey, selectedChoiceBlankId]);
   const cancelPendingPracticeKeyboardDismiss = () => {
     if (!practiceKeyboardDismissTimerRef.current) return;
     clearTimeout(practiceKeyboardDismissTimerRef.current);
@@ -2475,14 +2480,13 @@ function Review({ onLanguageControlChange, hidePhraseRecommendation = true, deta
     if (clozeInputMode === "keyboard") dismissKeyboardAfterPracticePanelCloses();
   };
   const advanceChoiceBlank = (ownerKey: string, blankId: string) => {
-    const index = practiceBlankQueue.findIndex((item) => item.ownerKey === ownerKey && item.blankId === blankId);
     completedChoiceBlankKeysRef.current.add(`${ownerKey}:${blankId}`);
-    const next = index >= 0
-      ? practiceBlankQueue.slice(index + 1).find((item) => !completedChoiceBlankKeysRef.current.has(`${item.ownerKey}:${item.blankId}`))
-      : undefined;
-    if (next) {
-      activateChoiceOwner(next.ownerKey);
-      setSelectedChoiceBlankId(next.blankId);
+    const hasRemaining = practiceBlankQueue.some((item) => !completedChoiceBlankKeysRef.current.has(`${item.ownerKey}:${item.blankId}`));
+    if (hasRemaining) {
+      activeChoiceOwnerKeyRef.current = null;
+      setActiveChoiceOwnerKey(null);
+      setSelectedChoiceBlankId(null);
+      setChoiceTrayState(null);
       return;
     }
     finishClozePractice();
@@ -2577,11 +2581,10 @@ function Review({ onLanguageControlChange, hidePhraseRecommendation = true, deta
     setAnswersVisible(false);
     if (mode === "choice") {
       completedChoiceBlankKeysRef.current.clear();
-      const first = practiceBlankQueue[0];
-      if (first) {
-        activateChoiceOwner(first.ownerKey);
-        setSelectedChoiceBlankId(first.blankId);
-      }
+      activeChoiceOwnerKeyRef.current = null;
+      setActiveChoiceOwnerKey(null);
+      setSelectedChoiceBlankId(null);
+      setChoiceTrayState(null);
     }
     if (mode !== "keyboard") {
       setActiveKeyboardOwnerKey(null);
@@ -3347,27 +3350,6 @@ function Review({ onLanguageControlChange, hidePhraseRecommendation = true, deta
       practice: block.practice,
     };
   };
-  const progressHighlightsForBlock = (block: CardRecordDetail["contentBlocks"][number]): Map<number, ProgressTextHighlight[]> => {
-    const result = new Map<number, ProgressTextHighlight[]>();
-    if (block.contentType !== "rewrite") return result;
-    for (const segment of block.alignedOriginalSegments ?? []) {
-      const highlights = progressMoments.flatMap((moment) => {
-        const segmentStart = segment.startUtf16;
-        const segmentEnd = segment.endUtf16;
-        if (segmentStart !== undefined && segmentEnd !== undefined
-          && moment.reason.currentStartUtf16 !== undefined
-          && moment.reason.currentEndUtf16 !== undefined
-          && moment.reason.currentStartUtf16 >= segmentStart
-          && moment.reason.currentEndUtf16 <= segmentEnd) {
-          return [{ start: moment.reason.currentStartUtf16 - segmentStart, end: moment.reason.currentEndUtf16 - segmentStart, moment }];
-        }
-        const index = segment.text.toLocaleLowerCase().indexOf(moment.reason.currentExpression.toLocaleLowerCase());
-        return index >= 0 ? [{ start: index, end: index + moment.reason.currentExpression.length, moment }] : [];
-      }).sort((left, right) => left.start - right.start || left.end - right.end);
-      if (highlights.length) result.set(segment.ordinal, highlights);
-    }
-    return result;
-  };
   const renderLearningBlock = (block: CardRecordDetail["contentBlocks"][number]) => {
     const ownerKey = learningBlockKey(block);
     const state = learningBlockState(block);
@@ -3402,8 +3384,11 @@ function Review({ onLanguageControlChange, hidePhraseRecommendation = true, deta
       onChoiceTrayChange={(state) => updateChoiceTrayState(ownerKey, state)}
       onChoiceAnswerHandlerChange={(handler) => registerChoiceAnswerHandler(ownerKey, handler)}
       onChoiceSentenceFocus={focusChoiceSentence}
-      auxiliaryProgressHighlights={progressHighlightsForBlock(block)}
-      onOpenProgressMoment={setProgressMoment}
+      relationFocusSentence={block.contentType === "rewrite" ? relationFocusSentence : null}
+      onRelationSentenceFocus={focusChoiceSentence}
+      alignedOriginalGroups={block.contentType === "rewrite" ? block.alignedOriginalGroups ?? [] : []}
+      languageRelation={block.contentType === "rewrite" ? languageRelation : null}
+      onOpenLanguageRelation={() => setLanguageRelationVisible(true)}
       activeKeyboardOwnerKey={activeKeyboardOwnerKey}
       onActivateKeyboardOwner={(state) => {
         cancelPendingPracticeKeyboardDismiss();
@@ -3472,7 +3457,7 @@ function Review({ onLanguageControlChange, hidePhraseRecommendation = true, deta
               {onUpdateMetadata ? <Ionicons name="chevron-down" size={13} color={theme.colors.textMuted} /> : null}
             </Pressable>
           </View>
-          {associationRelations.length ? <RelationChip onPress={() => setRelationsVisible(true)} /> : null}
+          {contentRelations[0] ? <RelationChip onPress={() => setRelationsVisible(true)} /> : null}
           <CardImageGallery images={detailGalleryImages(images, detail.thumbnail?.url)} loading={imageAdding} dateLabel={`${formatDate(detail.dateKey)} · ${formatTime(recordedAt)}`} onRemove={onRemoveImage} onCoverPositionChange={onCoverPositionChange} onSwipeContextChange={onImageSwipeContextChange} onIndexChange={(index) => {
             setImageIndex(index);
             const image = images[index];
@@ -3598,19 +3583,20 @@ function Review({ onLanguageControlChange, hidePhraseRecommendation = true, deta
     </View>
     <RelationSheet
       visible={relationsVisible}
-      relations={associationRelations}
+      relations={contentRelations}
       onClose={() => setRelationsVisible(false)}
       onOpen={(relation) => {
         setRelationsVisible(false);
         onOpenRelated?.(relation.recordId, relation.reasons);
       }}
     />
-    <ProgressMomentSheet
-      moment={progressMoment}
-      onClose={() => setProgressMoment(null)}
-      onOpen={(moment) => {
-        setProgressMoment(null);
-        onOpenRelated?.(moment.relation.recordId, moment.relation.reasons);
+    <RelationSheet
+      visible={languageRelationVisible}
+      relations={languageRelation ? [languageRelation.relation] : []}
+      onClose={() => setLanguageRelationVisible(false)}
+      onOpen={(relation) => {
+        setLanguageRelationVisible(false);
+        onOpenRelated?.(relation.recordId, relation.reasons);
       }}
     />
     <Modal visible={recommendationTaskVisible} transparent animationType="fade" statusBarTranslucent onRequestClose={() => { if (!recommendationLoading && !savingCloze) setRecommendationTaskVisible(false); }}>
@@ -3795,7 +3781,7 @@ function CollapsibleCardSection({ label, tone = "default", collapsed, onToggle, 
         {action === "loading"
           ? <ActivityIndicator size="small" color={iconColor} />
           : action === "generate"
-            ? <View style={styles.sectionGenerateAction}>{!imageDescriptionGenerate ? <Ionicons name="sparkles-outline" size={17} color={iconColor} /> : null}<Text style={[styles.sectionGenerateText, { color: iconColor }]}>{imageDescriptionGenerate ? t("quick_note.image_description_on") : t("card_detail.generate")}</Text></View>
+            ? <View style={styles.sectionGenerateAction}>{!imageDescriptionGenerate ? <Ionicons name="document-text-outline" size={17} color={iconColor} /> : null}<Text style={[styles.sectionGenerateText, { color: iconColor }]}>{imageDescriptionGenerate ? t("quick_note.image_description_on") : t("card_detail.generate")}</Text></View>
             : <Ionicons name={collapsed ? "chevron-down" : "chevron-up"} size={17} color={iconColor} />}
       </View>
     </Pressable>
@@ -3995,6 +3981,7 @@ function RelationChip({ onPress }: { onPress: () => void }) {
   return <Animated.View style={[styles.relationChipWrap, { opacity: progress, transform: [{ translateY: progress.interpolate({ inputRange: [0, 1], outputRange: [-5, 0] }) }, { scale: progress.interpolate({ inputRange: [0, 1], outputRange: [0.92, 1] }) }] }]}>
     <Pressable accessibilityRole="button" style={({ pressed }) => [styles.relationChip, pressed && styles.metadataPressed]} onPress={onPress}>
       <Text style={styles.relationChipText}>{t("card_detail.relation.entry")}</Text>
+      <Ionicons name="chevron-forward" size={13} color={theme.colors.accentStrong} />
     </Pressable>
   </Animated.View>;
 }
@@ -4010,7 +3997,7 @@ function RelationSheet({ visible, relations, onClose, onOpen }: { visible: boole
             <View style={styles.relationModalCopy}>
               <Text numberOfLines={1} style={styles.relationModalCardTitle}>{relation.card?.displayTitle || relation.topic || t("card_detail.another_record")}</Text>
               <RelationSheetExcerpt relation={relation} />
-              {relation.reasons.filter((reason) => reason.type !== "progress").slice(0, 2).map((reason, index) => <ReasonBadge key={`${reason.type}:${index}`} reason={reason} />)}
+              {relation.reasons.slice(0, 2).map((reason, index) => <ReasonBadge key={`${reason.type}:${index}`} reason={reason} />)}
             </View>
             <Ionicons name="chevron-forward" size={17} color={theme.colors.textMuted} />
           </Pressable>)}
@@ -4026,52 +4013,24 @@ function RelationSheetExcerpt({ relation }: { relation: CardRelationItem }) {
   if (!text) return null;
   const match = phrase?.surfaceText ?? "";
   const index = match ? text.toLocaleLowerCase().indexOf(match.toLocaleLowerCase()) : -1;
-  return <Text numberOfLines={2} style={styles.relationModalExcerpt}>{index < 0 ? text : <>{text.slice(0, index)}<Text style={styles.relationMatch}>{text.slice(index, index + match.length)}</Text>{text.slice(index + match.length)}</>}</Text>;
-}
-
-function ProgressMomentSheet({ moment, onClose, onOpen }: { moment: ProgressMoment | null; onClose: () => void; onOpen: (moment: ProgressMoment) => void }) {
-  if (!moment) return null;
-  const sentence = moment.reason.previousSentence || moment.relation.card?.rewrittenText || moment.reason.previousExpression;
-  const expression = moment.reason.previousExpression;
-  const matchIndex = sentence.toLocaleLowerCase().indexOf(expression.toLocaleLowerCase());
-  return <Modal visible transparent animationType="fade" statusBarTranslucent onRequestClose={onClose}>
-    <Pressable style={styles.relationModalBackdrop} onPress={onClose}>
-      <Pressable style={styles.progressMomentSheet} onPress={() => undefined}>
-        <View style={styles.relationModalHeader}><Text style={styles.relationModalTitle}>{t("card_detail.relation.progress_moment")}</Text><Pressable hitSlop={8} onPress={onClose}><Ionicons name="close" size={21} color={theme.colors.textMuted} /></Pressable></View>
-        <Pressable style={styles.progressMomentCard} onPress={() => onOpen(moment)}>
-          {moment.relation.card?.thumbnail ? <Image source={{ uri: moment.relation.card.thumbnail.url }} resizeMode="cover" style={styles.progressMomentImage} /> : null}
-          <Text style={styles.progressMomentSentence}>{matchIndex < 0 ? sentence : <>{sentence.slice(0, matchIndex)}<Text style={styles.progressMomentMatch}>{sentence.slice(matchIndex, matchIndex + expression.length)}</Text>{sentence.slice(matchIndex + expression.length)}</>}</Text>
-          {moment.relation.card ? <Text style={styles.relationDate}>{formatDate(moment.relation.card.dateKey)}</Text> : null}
-        </Pressable>
-      </Pressable>
-    </Pressable>
-  </Modal>;
-}
-
-function ProgressHighlightedText({ text, highlights, onPress }: { text: string; highlights: ProgressTextHighlight[]; onPress?: (moment: ProgressMoment) => void }) {
-  const valid = highlights.filter((item, index, all) => item.start >= 0 && item.end <= text.length && item.start < item.end && !all.slice(0, index).some((previous) => item.start < previous.end));
-  if (!valid.length) return <Text selectable style={styles.auxiliarySentence}>{text}</Text>;
-  const parts: React.ReactNode[] = [];
-  let cursor = 0;
-  valid.forEach((highlight, index) => {
-    if (highlight.start > cursor) parts.push(text.slice(cursor, highlight.start));
-    parts.push(<Text key={`progress-${index}`} suppressHighlighting style={styles.originalProgressMatch} onPress={() => onPress?.(highlight.moment)}>{text.slice(highlight.start, highlight.end)}</Text>);
-    cursor = highlight.end;
-  });
-  if (cursor < text.length) parts.push(text.slice(cursor));
-  return <Text selectable style={styles.auxiliarySentence}>{parts}</Text>;
+  const original = relation.card?.originalText.trim() ?? "";
+  return <View style={styles.relationPreviewCopy}>
+    <Text numberOfLines={3} style={styles.relationModalExcerpt}>{index < 0 ? text : <>{text.slice(0, index)}<Text style={styles.relationMatch}>{text.slice(index, index + match.length)}</Text>{text.slice(index + match.length)}</>}</Text>
+    {original && original !== text.trim() ? <Text numberOfLines={2} style={styles.relationModalOriginal}>{original}</Text> : null}
+    {relation.card ? <Text style={styles.relationDate}>{formatDate(relation.card.dateKey)}</Text> : null}
+  </View>;
 }
 
 function ReasonBadge({ reason }: { reason: CardRelationReason }) {
   const label = reason.type === "topic"
     ? t("card_detail.relation.content_related")
-    : reason.type === "phrase"
-      ? tf(reason.evidence === "clozed" ? "card_detail.relation.clozed_phrase" : "card_detail.relation.shared_phrase", { phrase: reason.phrase })
-      : tf("card_detail.relation.progress_phrase", { phrase: reason.phrase });
-  return <View style={[styles.reasonBadge, reason.type === "progress" && styles.reasonProgress, reason.type === "phrase" && styles.reasonPhrase]}><Text style={styles.reasonText}>{label}</Text></View>;
+    : reason.matchMode === "semantic"
+      ? t("card_detail.relation.similar_meaning")
+      : tf(reason.evidence === "clozed" ? "card_detail.relation.clozed_phrase" : "card_detail.relation.shared_phrase", { phrase: reason.phrase });
+  return <View style={[styles.reasonBadge, reason.type === "phrase" && styles.reasonPhrase]}><Text style={styles.reasonText}>{label}</Text></View>;
 }
 
-function Cloze({ detail, contentBinding, clozeState, clozeVersion, onClozeChange, onAddBlank, onBlankLongPress, embedded = false, fillMode = false, inputMode = "keyboard", answersVisible = false, displayMode = "target", activeSentenceKey = null, sentenceAudioLoadingKey = null, onPlaySentence, choiceOwnerKey, activeChoiceOwnerKey, selectedChoiceBlankId, onSelectChoiceBlank, onChoiceAnswered, onChoiceOwnerChange, onChoiceTrayChange, onChoiceAnswerHandlerChange, onChoiceSentenceFocus, auxiliaryProgressHighlights, onOpenProgressMoment, activeKeyboardOwnerKey, selectedKeyboardBlankId, onActivateKeyboardOwner, onKeyboardTrayChange, onKeyboardAnswered, onKeyboardAnswerHandlerChange, onPendingClozeCheckHandlerChange, onClozeAttempt, onTextSelectionStart, onTextSelectionEnd }: {
+function Cloze({ detail, contentBinding, clozeState, clozeVersion, onClozeChange, onAddBlank, onBlankLongPress, embedded = false, fillMode = false, inputMode = "keyboard", answersVisible = false, displayMode = "target", activeSentenceKey = null, sentenceAudioLoadingKey = null, onPlaySentence, choiceOwnerKey, activeChoiceOwnerKey, selectedChoiceBlankId, onSelectChoiceBlank, onChoiceAnswered, onChoiceOwnerChange, onChoiceTrayChange, onChoiceAnswerHandlerChange, onChoiceSentenceFocus, relationFocusSentence = null, onRelationSentenceFocus, alignedOriginalGroups = [], languageRelation = null, onOpenLanguageRelation, activeKeyboardOwnerKey, selectedKeyboardBlankId, onActivateKeyboardOwner, onKeyboardTrayChange, onKeyboardAnswered, onKeyboardAnswerHandlerChange, onPendingClozeCheckHandlerChange, onClozeAttempt, onTextSelectionStart, onTextSelectionEnd }: {
   detail: CardRecordDetail;
   contentBinding: CardContentBinding;
   clozeState: CardClozeState;
@@ -4096,8 +4055,11 @@ function Cloze({ detail, contentBinding, clozeState, clozeVersion, onClozeChange
   onChoiceTrayChange?: (state: ClozeChoiceTrayState | null) => void;
   onChoiceAnswerHandlerChange?: (handler: ((selectedIds: string[]) => void) | null) => void;
   onChoiceSentenceFocus?: (target: { y: number; height: number }) => void;
-  auxiliaryProgressHighlights?: Map<number, ProgressTextHighlight[]>;
-  onOpenProgressMoment?: (moment: ProgressMoment) => void;
+  relationFocusSentence?: string | null;
+  onRelationSentenceFocus?: (target: { y: number; height: number }) => void;
+  alignedOriginalGroups?: NonNullable<CardRecordDetail["contentBlocks"][number]["alignedOriginalGroups"]>;
+  languageRelation?: LanguageRelation | null;
+  onOpenLanguageRelation?: () => void;
   activeKeyboardOwnerKey?: string | null;
   selectedKeyboardBlankId?: string | null;
   onActivateKeyboardOwner?: (state: Omit<ClozeKeyboardTrayState, "ownerKey">) => void;
@@ -4113,6 +4075,11 @@ function Cloze({ detail, contentBinding, clozeState, clozeVersion, onClozeChange
     () => new Map((detail.auxiliarySegments ?? []).map((segment) => [segment.ordinal, segment.text])),
     [detail.auxiliarySegments],
   );
+  const alignedGroupByFirstTarget = useMemo(() => new Map(
+    alignedOriginalGroups.flatMap((group) => group.targetOrdinals.length
+      ? [[group.targetOrdinals[0]!, group] as const]
+      : []),
+  ), [alignedOriginalGroups]);
   const { showNotice } = useFloatingNotice();
   const sentenceRows = useMemo(() => buildCardClozeSentenceRows(detail, clozeState, embedded), [detail, clozeState, embedded]);
   const [keyboardAnswers, setKeyboardAnswers] = useState<Record<string, string>>({});
@@ -4163,6 +4130,25 @@ function Cloze({ detail, contentBinding, clozeState, clozeVersion, onClozeChange
     });
     return () => cancelAnimationFrame(frame);
   }, [activeChoiceSentenceKey, onChoiceSentenceFocus]);
+  const relationFocusRow = useMemo(() => {
+    const focus = relationFocusSentence?.trim();
+    if (!focus) return null;
+    return sentenceRows.find((row) => row.text.trim() === focus)
+      ?? sentenceRows.find((row) => row.text.includes(focus) || focus.includes(row.text.trim()))
+      ?? null;
+  }, [relationFocusSentence, sentenceRows]);
+  const [relationFocusActive, setRelationFocusActive] = useState(Boolean(relationFocusRow));
+  useEffect(() => {
+    if (!relationFocusRow) { setRelationFocusActive(false); return; }
+    setRelationFocusActive(true);
+    const frame = requestAnimationFrame(() => {
+      sentenceRowRefsRef.current.get(relationFocusRow.key)?.measureInWindow((_x, y, _width, height) => {
+        if (height > 0) onRelationSentenceFocus?.({ y, height });
+      });
+    });
+    const timer = setTimeout(() => setRelationFocusActive(false), 2200);
+    return () => { cancelAnimationFrame(frame); clearTimeout(timer); };
+  }, [onRelationSentenceFocus, relationFocusRow]);
   const selectedKeyboardIndex = selectedKeyboardBlankId === undefined
     ? activeKeyboardBlankIndex
     : clozeState.blanks.findIndex((blank) => blank.id === selectedKeyboardBlankId);
@@ -4179,7 +4165,7 @@ function Cloze({ detail, contentBinding, clozeState, clozeVersion, onClozeChange
     setSessionCheckedAnswers({});
   }, [detail.id, contentBinding.contentType, contentBinding.contentVersion]);
   useLayoutEffect(() => {
-    setActiveChoiceBlankIndex(fillMode && inputMode === "choice" && clozeState.blanks.length ? 0 : null);
+    setActiveChoiceBlankIndex(null);
     setActiveKeyboardBlankIndex(null);
     if (!fillMode) Keyboard.dismiss();
   }, [detail.id, contentBinding.contentType, contentBinding.contentVersion, fillMode, inputMode]);
@@ -4506,7 +4492,20 @@ function Cloze({ detail, contentBinding, clozeState, clozeVersion, onClozeChange
           <View style={[styles.clozeSentenceList, embedded && styles.inlineClozeSentenceList]}>{sentenceRows.map((row) => {
             const segment = detail.rewriteSegments.find((candidate) => candidate.id === row.segmentId);
             const auxiliaryText = segment ? auxiliaryByOrdinal.get(segment.ordinal) : undefined;
-            if (displayMode === "auxiliary" && !auxiliaryText) return null;
+            const alignedGroup = segment ? alignedGroupByFirstTarget.get(segment.ordinal) : undefined;
+            const languageReason = languageRelation?.reason;
+            const languageStart = languageReason?.currentStartUtf16;
+            const languageEnd = languageReason?.currentEndUtf16;
+            const relationBlank = segment?.id === languageReason?.currentSegmentId
+              ? row.blanks.find(({ blank }) => languageStart !== undefined
+                && languageEnd !== undefined
+                && blank.startUtf16 < languageEnd
+                && blank.endUtf16 > languageStart)
+              : undefined;
+            const rowHasLanguageRelation = segment?.id === languageReason?.currentSegmentId
+              && (!fillMode || !relationBlank || checkedAnswers[relationBlank.blank.id] === "correct" || answersVisible);
+            const usesAlignedGroups = alignedOriginalGroups.length > 0;
+            if (displayMode === "auxiliary" && !(alignedGroup?.text || auxiliaryText)) return null;
             const keyboardEditing = fillMode && inputMode === "keyboard"
               && effectiveActiveKeyboardBlankIndex !== null
               && row.blanks.some((item) => item.blankIndex === effectiveActiveKeyboardBlankIndex);
@@ -4516,9 +4515,20 @@ function Cloze({ detail, contentBinding, clozeState, clozeVersion, onClozeChange
                 if (node) sentenceRowRefsRef.current.set(row.key, node);
                 else sentenceRowRefsRef.current.delete(row.key);
               }}
-              style={[styles.clozeSentenceRow, embedded && styles.inlineClozeSentenceRow, keyboardEditing && styles.clozeSentenceRowEditing]}
+              style={[
+                styles.clozeSentenceRow,
+                embedded && styles.inlineClozeSentenceRow,
+                keyboardEditing && styles.clozeSentenceRowEditing,
+                relationFocusActive && row.key === relationFocusRow?.key && styles.clozeSentenceRowRelationFocus,
+              ]}
             >
               <View style={styles.clozeSentenceBody}>
+                {displayMode !== "target" && alignedGroup?.text ? <View style={[
+                  styles.alignedOriginalGroup,
+                  alignedGroup.alignment === "fallback" && styles.alignedOriginalGroupFallback,
+                ]}>
+                  <Text selectable style={styles.auxiliarySentence}>{alignedGroup.text}</Text>
+                </View> : null}
                 <StableCardSentence
                   row={row}
                   contentType={contentBinding.contentType}
@@ -4534,6 +4544,7 @@ function Cloze({ detail, contentBinding, clozeState, clozeVersion, onClozeChange
                   activeChoiceBlankIndex={effectiveActiveChoiceBlankIndex}
                   activeKeyboardBlankIndex={effectiveActiveKeyboardBlankIndex}
                   onPlay={onPlaySentence ? () => onPlaySentence(row) : undefined}
+                  onOpenLanguageRelation={rowHasLanguageRelation ? onOpenLanguageRelation : undefined}
                   onLookup={(term, start, end, anchor) => lookupInSentence(row, term, start, end, anchor)}
                   onAddBlank={segment && !saving && onAddBlank ? (payload) => onAddBlank(segment, payload) : undefined}
                   onBlankLongPress={onBlankLongPress}
@@ -4568,7 +4579,7 @@ function Cloze({ detail, contentBinding, clozeState, clozeVersion, onClozeChange
                   }}
                   onCheckKeyboardAnswer={submitKeyboardAnswer}
                 />
-                {displayMode !== "target" && auxiliaryText ? <ProgressHighlightedText text={auxiliaryText} highlights={auxiliaryProgressHighlights?.get(segment?.ordinal ?? -1) ?? []} onPress={onOpenProgressMoment} /> : null}
+                {!usesAlignedGroups && displayMode !== "target" && auxiliaryText ? <Text selectable style={styles.auxiliarySentence}>{auxiliaryText}</Text> : null}
               </View>
             </View>;
           })}
@@ -4582,7 +4593,7 @@ function Cloze({ detail, contentBinding, clozeState, clozeVersion, onClozeChange
   return <View style={styles.reviewPage}><KeyboardAwareScrollView bottomOffset={16} extraKeyboardSpace={12} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" contentContainerStyle={styles.practiceContent} alwaysBounceVertical={false}>{practice}</KeyboardAwareScrollView>{dictionaryPopover}</View>;
 }
 
-function StableCardSentence({ row, contentType, answers, checkedAnswers, revealed, saving, active, loading, fillMode, showTarget = true, inputMode, activeChoiceBlankIndex, activeKeyboardBlankIndex, onLookup, onAddBlank, onBlankLongPress, onPlay, onActivateChoiceBlank, onActivateKeyboardBlank, onChangeKeyboardAnswer, onCheckKeyboardAnswer, onTextSelectionStart, onTextSelectionEnd }: {
+function StableCardSentence({ row, contentType, answers, checkedAnswers, revealed, saving, active, loading, fillMode, showTarget = true, inputMode, activeChoiceBlankIndex, activeKeyboardBlankIndex, onLookup, onAddBlank, onBlankLongPress, onPlay, onOpenLanguageRelation, onActivateChoiceBlank, onActivateKeyboardBlank, onChangeKeyboardAnswer, onCheckKeyboardAnswer, onTextSelectionStart, onTextSelectionEnd }: {
   row: CardClozeSentenceRow;
   contentType: CardLearningContentType;
   answers: Record<string, string>;
@@ -4600,6 +4611,7 @@ function StableCardSentence({ row, contentType, answers, checkedAnswers, reveale
   onAddBlank?: (payload: NativeTextSelectionPayload) => void;
   onBlankLongPress?: (blank: CardClozeState["blanks"][number], anchor?: CardBlankActionAnchor) => void;
   onPlay?: () => void;
+  onOpenLanguageRelation?: () => void;
   onActivateChoiceBlank: (blankIndex: number) => void;
   onActivateKeyboardBlank: (blankIndex: number, anchor?: CardBlankActionAnchor) => void;
   onChangeKeyboardAnswer: (blankIndex: number, value: string) => void;
@@ -4640,6 +4652,13 @@ function StableCardSentence({ row, contentType, answers, checkedAnswers, reveale
         {loading
           ? <ActivityIndicator size="small" color={theme.colors.textSecondary} />
           : <Ionicons name={active ? "stop" : "play"} size={14} color={theme.colors.textSecondary} />}
+      </Pressable> : null}
+      {onOpenLanguageRelation ? <Pressable
+        accessibilityLabel={t("card_detail.relation.entry")}
+        style={({ pressed }) => [styles.inlineLanguageRelation, pressed && styles.inlineLanguageRelationPressed]}
+        onPress={onOpenLanguageRelation}
+      >
+        <Ionicons name="link-outline" size={13} color={theme.colors.accentStrong} />
       </Pressable> : null}
     </> : null}
   </View>;
@@ -5245,6 +5264,7 @@ const styles = StyleSheet.create({
   clozeSentenceList: { paddingVertical: 8 },
   clozeSentenceRow: { minHeight: 52, marginHorizontal: -8, paddingHorizontal: 8, paddingVertical: 9, borderRadius: theme.radius.control, flexDirection: "row", alignItems: "flex-start" },
   clozeSentenceRowEditing: { position: "relative", zIndex: 40 },
+  clozeSentenceRowRelationFocus: { backgroundColor: theme.colors.accentSoft, borderLeftWidth: 2, borderLeftColor: theme.colors.accentStrong },
   inlineClozePractice: { marginTop: 14 },
   inlineClozeSentenceList: { paddingVertical: 0 },
   inlineClozeSentenceRow: { minHeight: 0, marginHorizontal: 0, paddingHorizontal: 0, paddingVertical: 5 },
@@ -5258,6 +5278,8 @@ const styles = StyleSheet.create({
   stableSentence: { alignSelf: "stretch", overflow: "visible", flexDirection: "row", alignItems: "flex-end" },
   stableSentenceContent: { flex: 1, minWidth: 0, zIndex: 10, overflow: "visible" },
   inlineSentencePlayTrailing: { width: 24, height: 24, marginLeft: 5, marginBottom: 2, borderRadius: 12, backgroundColor: theme.colors.surfaceMuted, alignItems: "center", justifyContent: "center", flexShrink: 0 },
+  inlineLanguageRelation: { width: 24, height: 24, marginLeft: 4, marginBottom: 2, borderRadius: 12, borderWidth: StyleSheet.hairlineWidth, borderColor: "rgba(82,121,108,0.30)", backgroundColor: theme.colors.accentSoft, alignItems: "center", justifyContent: "center", flexShrink: 0 },
+  inlineLanguageRelationPressed: { opacity: 0.68, transform: [{ scale: 0.94 }] },
   stableSentenceActive: { borderRadius: 7, backgroundColor: theme.colors.surfaceMuted },
   inlineSentenceActions: { minHeight: 34, marginTop: 4, flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 8 },
   inlineSentenceActionSpacer: { flex: 1 },
@@ -5272,6 +5294,8 @@ const styles = StyleSheet.create({
   originalLearningSentence: { color: theme.colors.text },
   replyLearningSentence: { color: theme.colors.text },
   auxiliarySentence: { marginTop: 3, color: "#666666", fontSize: 13, lineHeight: 20 },
+  alignedOriginalGroup: { marginBottom: 5, paddingLeft: 8, borderLeftWidth: 2, borderLeftColor: "rgba(82,121,108,0.32)" },
+  alignedOriginalGroupFallback: { borderLeftColor: theme.colors.border },
   imageDescriptionSection: { gap: 7 },
   imageDescriptionBody: { paddingHorizontal: 6, paddingTop: 2, paddingBottom: 6 },
   imageIntegratedSection: { marginTop: 0, paddingTop: 7, borderTopWidth: 0 },
@@ -5320,11 +5344,10 @@ const styles = StyleSheet.create({
   relationsEntryIcon: { width: 28, height: 28, borderRadius: 14, backgroundColor: theme.colors.surface, alignItems: "center", justifyContent: "center" },
   relationsEntryText: { flex: 1, color: theme.colors.accentStrong, fontSize: 14, fontWeight: "700" },
   relationChipWrap: { alignSelf: "flex-end", marginTop: 8, marginBottom: 2 },
-  relationChip: { minHeight: 28, paddingHorizontal: 12, borderRadius: 14, borderWidth: StyleSheet.hairlineWidth, borderColor: "#CABF9C", backgroundColor: "#FFFBEF", alignItems: "center", justifyContent: "center" },
-  relationChipText: { color: "#806A2D", fontSize: 12, fontWeight: "700", letterSpacing: 1 },
+  relationChip: { minHeight: 28, paddingLeft: 12, paddingRight: 8, borderRadius: 14, borderWidth: StyleSheet.hairlineWidth, borderColor: "rgba(82,121,108,0.26)", backgroundColor: theme.colors.accentSoft, flexDirection: "row", alignItems: "center", gap: 2 },
+  relationChipText: { color: theme.colors.accentStrong, fontSize: 12, fontWeight: "700", letterSpacing: 1 },
   relationModalBackdrop: { flex: 1, paddingHorizontal: 18, paddingBottom: 28, backgroundColor: "rgba(25, 29, 27, 0.35)", justifyContent: "flex-end" },
   relationModalSheet: { maxHeight: "64%", padding: 18, borderRadius: 22, backgroundColor: theme.colors.surface },
-  progressMomentSheet: { padding: 18, borderRadius: 22, backgroundColor: theme.colors.surface },
   relationModalHeader: { minHeight: 32, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   relationModalTitle: { color: theme.colors.text, fontSize: 16, fontWeight: "700" },
   relationModalList: { paddingTop: 8, paddingBottom: 4 },
@@ -5333,32 +5356,26 @@ const styles = StyleSheet.create({
   relationModalThumbnailFallback: { alignItems: "center", justifyContent: "center" },
   relationModalCopy: { flex: 1, minWidth: 0, alignItems: "flex-start", gap: 4 },
   relationModalCardTitle: { color: theme.colors.text, fontSize: 14, fontWeight: "600" },
+  relationPreviewCopy: { alignSelf: "stretch", gap: 4 },
   relationModalExcerpt: { color: theme.colors.textSecondary, fontSize: 13, lineHeight: 18 },
-  progressMomentCard: { marginTop: 8, overflow: "hidden", borderRadius: 14, borderWidth: StyleSheet.hairlineWidth, borderColor: "#DCC98E", backgroundColor: "#FFFCF2" },
-  progressMomentImage: { width: "100%", aspectRatio: 16 / 8, backgroundColor: theme.colors.surfaceMuted },
-  progressMomentSentence: { paddingHorizontal: 14, paddingTop: 13, color: theme.colors.text, fontSize: 16, lineHeight: 24 },
-  progressMomentMatch: { color: "#806019", backgroundColor: "#F5E5A5", fontWeight: "700" },
-  originalProgressMatch: { color: "#806019", backgroundColor: "#F5E5A5", fontWeight: "700" },
+  relationModalOriginal: { color: theme.colors.textMuted, fontSize: 12, lineHeight: 17 },
   relationsSection: { marginTop: 34, paddingTop: 16, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.border },
   relationsHeader: { minHeight: 40, flexDirection: "row", alignItems: "center" },
   relationsSectionTitle: { flex: 1, color: theme.colors.textSecondary, fontSize: 13, fontWeight: "400" },
   relationRow: { minHeight: 112, paddingVertical: 12, flexDirection: "row", alignItems: "center", gap: 12, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.border },
-  relationRowGrowth: { marginVertical: 7, paddingHorizontal: 11, borderWidth: 1, borderTopWidth: 1, borderColor: "#C4A044", borderTopColor: "#C4A044", borderRadius: 12, backgroundColor: "#FFFBEC" },
   relationThumbnail: { width: 90, height: 60, flexShrink: 0, borderRadius: 8, backgroundColor: theme.colors.surfaceMuted },
   relationContent: { flex: 1, minWidth: 0 },
   relationCardTitle: { marginBottom: 3, color: theme.colors.text, fontSize: 15, fontWeight: "700" },
   relationDate: { marginBottom: 5, color: theme.colors.textMuted, fontSize: 11 },
   relationExcerpt: { flex: 1, color: theme.colors.textSecondary, fontSize: 14, lineHeight: 20, fontWeight: "400" },
-  growthMomentLabel: { marginBottom: 3, color: "#9A7417", fontSize: 12, fontWeight: "700" },
   relationReasons: { marginTop: 8, flexDirection: "row", flexWrap: "wrap", gap: 5 },
   relationCard: { marginTop: 10, padding: 14, borderRadius: theme.radius.control, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surface },
   relationTitleRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   relationTitle: { flex: 1, color: theme.colors.text, fontSize: 15, fontWeight: "600" },
-  relationMatch: { color: "#8C6812", backgroundColor: "#F5E8B5", fontWeight: "700" },
+  relationMatch: { color: theme.colors.accentStrong, backgroundColor: theme.colors.accentSoft, fontWeight: "700" },
   reasonList: { marginTop: 10, flexDirection: "row", flexWrap: "wrap", gap: 7 },
   reasonBadge: { paddingHorizontal: 9, paddingVertical: 5, borderRadius: theme.radius.pill, backgroundColor: theme.colors.surfaceMuted },
   reasonPhrase: { backgroundColor: theme.colors.accentSoft },
-  reasonProgress: { backgroundColor: "#EAEAEA" },
   reasonText: { color: theme.colors.textSecondary, fontSize: 11, fontWeight: "600" },
   draftContent: { paddingHorizontal: 22, paddingTop: 10, paddingBottom: 52 },
   draftContentPage: { flex: 1, paddingHorizontal: 22 },

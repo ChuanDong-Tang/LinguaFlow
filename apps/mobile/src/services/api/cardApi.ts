@@ -105,6 +105,14 @@ export type CardRecordDetail = CardRecordSummary & {
     auxiliaryLanguageCode?: string | null;
     /** Original-language meaning units aligned to rewrite segment ordinals. */
     alignedOriginalSegments?: Array<{ ordinal: number; text: string; startUtf16?: number; endUtf16?: number }>;
+    /** Exact source spans grouped with one or more rewrite sentence ordinals. */
+    alignedOriginalGroups?: Array<{
+      targetOrdinals: number[];
+      text: string;
+      startUtf16?: number;
+      endUtf16?: number;
+      alignment: "exact" | "fallback";
+    }>;
     alignedOriginalLanguageCode?: string | null;
     /** Missing on servers from before unified learning-content access. */
     learningAccess?: "enabled" | "pro_required" | "language_mismatch";
@@ -502,27 +510,16 @@ export async function getRelatedPhraseCards(recordId: string, limit = 30): Promi
     evidence: "clozed" | "appeared";
     surfaceText: string;
     sentence: string;
+    currentSegmentId?: string | null;
+    currentSurfaceText?: string;
+    currentStartUtf16?: number;
+    currentEndUtf16?: number;
+    currentSentence?: string;
+    matchMode?: "semantic" | "exact";
+    semanticScore?: number;
   };
 }>> {
   return request(`/cards/${encodeURIComponent(recordId)}/related-phrases?limit=${encodeURIComponent(String(limit))}`);
-}
-
-export async function getCardProgressRelations(recordId: string, limit = 30): Promise<Array<{
-  recordId: string;
-  topic: string | null;
-  reason: {
-    type: "progress";
-    phraseId: string;
-    phrase: string;
-    previousExpression: string;
-    currentExpression: string;
-    currentStartUtf16?: number;
-    currentEndUtf16?: number;
-    previousSentence?: string;
-    isFirstUserProduced: boolean;
-  };
-}>> {
-  return request(`/cards/${encodeURIComponent(recordId)}/progress?limit=${encodeURIComponent(String(limit))}`);
 }
 
 export type CardRelationReason =
@@ -534,17 +531,13 @@ export type CardRelationReason =
       evidence: "clozed" | "appeared";
       surfaceText: string;
       sentence: string;
-    }
-  | {
-      type: "progress";
-      phraseId: string;
-      phrase: string;
-      previousExpression: string;
-      currentExpression: string;
+      currentSegmentId?: string | null;
+      currentSurfaceText?: string;
       currentStartUtf16?: number;
       currentEndUtf16?: number;
-      previousSentence?: string;
-      isFirstUserProduced: boolean;
+      currentSentence?: string;
+      matchMode?: "semantic" | "exact";
+      semanticScore?: number;
     };
 
 export type CardRelationPreview = {

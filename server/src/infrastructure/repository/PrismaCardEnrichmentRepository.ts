@@ -9,8 +9,6 @@ import type {
   CardPhraseIndexSource,
   PhraseIndexOccurrence,
   PhraseIndexSource,
-  ProgressPhraseDetectionResult,
-  ProgressPhraseDetectionSource,
 } from "@lf/core/ports/repository/CardEnrichmentRepository.js";
 import type { EmbeddingResult } from "@lf/core/ports/ai/EmbeddingProvider.js";
 import {
@@ -400,16 +398,16 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
     return this.claimNextJob("generate_embedding", workerId, leaseExpiresAt);
   }
 
+  async claimNextPhraseEmbeddingJob(workerId: string, leaseExpiresAt: Date): Promise<CardEnrichmentJobEntity | null> {
+    return this.claimNextJob("generate_phrase_embedding", workerId, leaseExpiresAt);
+  }
+
   async claimNextPhraseNormalizationJob(workerId: string, leaseExpiresAt: Date): Promise<CardEnrichmentJobEntity | null> {
     return this.claimNextJob("normalize_phrase", workerId, leaseExpiresAt);
   }
 
   async claimNextCardPhraseIndexJob(workerId: string, leaseExpiresAt: Date): Promise<CardEnrichmentJobEntity | null> {
     return this.claimNextJob("index_card_phrases", workerId, leaseExpiresAt);
-  }
-
-  async claimNextProgressPhraseDetectionJob(workerId: string, leaseExpiresAt: Date): Promise<CardEnrichmentJobEntity | null> {
-    return this.claimNextJob("detect_progress_phrases", workerId, leaseExpiresAt);
   }
 
   async claimNextPhraseHistoryIndexJob(workerId: string, leaseExpiresAt: Date): Promise<CardEnrichmentJobEntity | null> {
@@ -633,6 +631,41 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
         update: {
           status: "queued",
           availableAt: new Date(),
+          attempts: 0,
+          processingAt: null,
+          leaseExpiresAt: null,
+          workerId: null,
+          lastError: null,
+          completedAt: null,
+          failedAt: null,
+        },
+      });
+      const phraseEmbeddingHash = createHash("sha256")
+        .update(`${temporary.languageCode}\n${input.canonicalText.normalize("NFKC").trim()}`)
+        .digest("hex");
+      await tx.cardEnrichmentJob.upsert({
+        where: {
+          userId_sourceKind_sourceId_jobType_inputVersion: {
+            userId: job.userId,
+            sourceKind: "phrase",
+            sourceId: targetId,
+            jobType: "generate_phrase_embedding",
+            inputVersion: `phrase_embedding_input_v1:${phraseEmbeddingHash}`,
+          },
+        },
+        create: {
+          userId: job.userId,
+          sourceKind: "phrase",
+          sourceId: targetId,
+          jobType: "generate_phrase_embedding",
+          inputHash: phraseEmbeddingHash,
+          inputVersion: `phrase_embedding_input_v1:${phraseEmbeddingHash}`,
+          payload: { phraseId: targetId, schemaVersion: 1 },
+        },
+        update: {
+          status: "queued",
+          availableAt: new Date(),
+          inputHash: phraseEmbeddingHash,
           attempts: 0,
           processingAt: null,
           leaseExpiresAt: null,
@@ -871,150 +904,6 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
     }
   }
 
-  async loadProgressPhraseDetectionSource(job: CardEnrichmentJobEntity): Promise<ProgressPhraseDetectionSource | null> {
-    if (job.sourceKind !== "card") return null;
-    const card = await this.prisma.card.findFirst({
-      where: { id: job.sourceId, userId: job.userId, status: "completed", deletedAt: null },
-      select: { id: true, userId: true, languageCode: true, recordedAt: true, originalText: true, rewrittenText: true, clientId: true, promptVersion: true },
-    });
-    if (!card?.originalText) return null;
-    const currentInputHash = createHash("sha256")
-      .update(buildCardEmbeddingInput(card.originalText, card.rewrittenText ?? ""))
-      .digest("hex");
-    if (currentInputHash !== job.inputHash) return null;
-    return {
-      userId: card.userId,
-      sourceKind: "card",
-      sourceId: card.id,
-      languageCode: card.languageCode,
-      cardCreatedAt: card.recordedAt,
-      originalText: card.originalText,
-      ...(isChatHistoryMigrationCard(card.clientId, card.promptVersion) ? { billingExemptReason: "chat_history_migration" as const } : {}),
-    };
-  }
-
-  async completeProgressPhraseDetectionJob(
-    job: CardEnrichmentJobEntity,
-    phrases: ProgressPhraseDetectionResult[],
-    normalizerVersion: string,
-  ): Promise<boolean> {
-    return this.prisma.$transaction(async (tx) => {
-      const claimed = await tx.cardEnrichmentJob.updateMany({
-        where: { id: job.id, status: "processing", workerId: job.workerId, inputHash: job.inputHash },
-        data: {
-          status: "completed",
-          completedAt: new Date(),
-          leaseExpiresAt: null,
-          workerId: null,
-          lastError: null,
-        },
-      });
-      if (claimed.count !== 1) return false;
-      const card = await tx.card.findFirst({
-        where: { id: job.sourceId, userId: job.userId, status: "completed", deletedAt: null },
-        select: { recordedAt: true, languageCode: true, originalText: true, rewrittenText: true },
-      });
-      if (!card?.originalText) return false;
-      const currentInputHash = createHash("sha256")
-        .update(buildCardEmbeddingInput(card.originalText, card.rewrittenText ?? ""))
-        .digest("hex");
-      if (currentInputHash !== job.inputHash) return false;
-      for (const detected of phrases) {
-        const phrase = await tx.phrase.upsert({
-          where: {
-            userId_languageCode_canonicalKey: {
-              userId: job.userId,
-              languageCode: card.languageCode,
-              canonicalKey: detected.normalizedText,
-            },
-          },
-          create: {
-            userId: job.userId,
-            languageCode: card.languageCode,
-            canonicalText: detected.surfaceText,
-            canonicalKey: detected.normalizedText,
-            status: "pending_normalization",
-            normalizerVersion,
-          },
-          update: {},
-        });
-        await tx.phraseVariant.upsert({
-          where: { phraseId_normalizedText: { phraseId: phrase.id, normalizedText: detected.normalizedText } },
-          create: {
-            phraseId: phrase.id,
-            userId: job.userId,
-            languageCode: card.languageCode,
-            surfaceText: detected.surfaceText,
-            normalizedText: detected.normalizedText,
-            source: "observed_card",
-            normalizerVersion,
-          },
-          update: {},
-        });
-        for (const occurrence of detected.occurrences) {
-          await tx.phraseOccurrence.upsert({
-            where: {
-              phraseId_cardId_sourceField_segmentKey_startUtf16_endUtf16: {
-                phraseId: phrase.id,
-                cardId: job.sourceId,
-                sourceField: "original",
-                segmentKey: "",
-                startUtf16: occurrence.startUtf16,
-                endUtf16: occurrence.endUtf16,
-              },
-            },
-            create: {
-              phraseId: phrase.id,
-              userId: job.userId,
-              cardId: job.sourceId,
-              cardCreatedAt: card.recordedAt,
-              sourceField: "original",
-              segmentId: null,
-              segmentKey: "",
-              startUtf16: occurrence.startUtf16,
-              endUtf16: occurrence.endUtf16,
-              surfaceText: occurrence.surfaceText,
-              matchType: "exact",
-            },
-            update: { surfaceText: occurrence.surfaceText },
-          });
-        }
-        if (phrase.status !== "normalized") {
-          const inputVersion = `${normalizerVersion}:${phrase.id}`;
-          const billingExemption = migrationBillingExemptionFromPayload(job.payload);
-          const normalizationPayload = {
-            phraseId: phrase.id,
-            schemaVersion: 1,
-            allowObservedCard: true,
-            ...(billingExemption ? { billingExemptReason: billingExemption } : {}),
-          };
-          await tx.cardEnrichmentJob.upsert({
-            where: {
-              userId_sourceKind_sourceId_jobType_inputVersion: {
-                userId: job.userId,
-                sourceKind: "card",
-                sourceId: job.sourceId,
-                jobType: "normalize_phrase",
-                inputVersion,
-              },
-            },
-            create: {
-              userId: job.userId,
-              sourceKind: "card",
-              sourceId: job.sourceId,
-              jobType: "normalize_phrase",
-              inputHash: job.inputHash,
-              inputVersion,
-              payload: normalizationPayload,
-            },
-            update: billingExemption ? { payload: normalizationPayload } : {},
-          });
-        }
-      }
-      return true;
-    });
-  }
-
   async loadEmbeddingSource(job: CardEnrichmentJobEntity): Promise<CardEmbeddingSource | null> {
     if (job.sourceKind !== "card") return null;
     const card = await this.prisma.card.findFirst({
@@ -1066,6 +955,43 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
         result.dimensions,
         job.inputHash,
         vector,
+      );
+      return true;
+    });
+  }
+
+  async loadPhraseEmbeddingSource(job: CardEnrichmentJobEntity) {
+    if (job.sourceKind !== "phrase") return null;
+    const phrase = await this.prisma.phrase.findFirst({
+      where: { id: job.sourceId, userId: job.userId, status: "normalized" },
+      select: { id: true, userId: true, languageCode: true, canonicalText: true },
+    });
+    return phrase ? {
+      userId: phrase.userId,
+      phraseId: phrase.id,
+      languageCode: phrase.languageCode,
+      canonicalText: phrase.canonicalText,
+    } : null;
+  }
+
+  async completePhraseEmbeddingJob(job: CardEnrichmentJobEntity, result: EmbeddingResult): Promise<boolean> {
+    return this.prisma.$transaction(async (tx) => {
+      const claimed = await tx.cardEnrichmentJob.updateMany({
+        where: { id: job.id, status: "processing", workerId: job.workerId, inputHash: job.inputHash },
+        data: { status: "completed", completedAt: new Date(), leaseExpiresAt: null, workerId: null, lastError: null },
+      });
+      if (claimed.count !== 1) return false;
+      const vector = `[${result.embedding.join(",")}]`;
+      await tx.$executeRawUnsafe(
+        `INSERT INTO "phrase_embeddings"
+          ("id", "userId", "phraseId", "provider", "model", "modelVersion", "dimensions", "inputHash", "embedding", "createdAt", "updatedAt")
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::vector, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+         ON CONFLICT ("phraseId", "modelVersion")
+         DO UPDATE SET "provider" = EXCLUDED."provider", "model" = EXCLUDED."model",
+           "dimensions" = EXCLUDED."dimensions", "inputHash" = EXCLUDED."inputHash",
+           "embedding" = EXCLUDED."embedding", "updatedAt" = CURRENT_TIMESTAMP`,
+        randomUUID(), job.userId, job.sourceId, result.provider, result.model,
+        result.modelVersion, result.dimensions, job.inputHash, vector,
       );
       return true;
     });
@@ -1226,12 +1152,6 @@ function cardContentHash(text: string): string {
 
 function rewriteAlignmentInputHash(originalText: string, rewrittenText: string): string {
   return cardContentHash(`${originalText}\u0000${rewrittenText}`);
-}
-
-function migrationBillingExemptionFromPayload(payload: unknown): string | null {
-  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
-  const reason = (payload as { billingExemptReason?: unknown }).billingExemptReason;
-  return reason === "chat_history_migration" ? reason : null;
 }
 
 function isChatHistoryMigrationCard(clientId: string, promptVersion: string): boolean {

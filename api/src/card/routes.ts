@@ -1136,14 +1136,7 @@ export function registerCardRoutes(app: FastifyInstance, deps: CardRouteDeps): v
     if (!await consumeRelationAllowance(deps.rateLimiter, userId, resolveClientIp(req), rateConfig)) {
       return failure(reply, 429, requestId, "RATE_LIMITED", "Too many relation requests");
     }
-    if (!deps.cardRelationService) {
-      return reply.status(200).send({ ok: true, request_id: requestId, data: [] });
-    }
-    const { recordId } = req.params as { recordId: string };
-    const rawLimit = (req.query as { limit?: unknown } | null)?.limit;
-    const limit = typeof rawLimit === "string" ? Number(rawLimit) : undefined;
-    const data = await deps.cardRelationService.progress(userId, recordId, limit);
-    return reply.status(200).send({ ok: true, request_id: requestId, data });
+    return reply.status(200).send({ ok: true, request_id: requestId, data: [] });
   });
 
   app.get("/cards/:recordId/relations", async (req, reply) => {

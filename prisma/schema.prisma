@@ -40,6 +40,7 @@ model User {
   cardSpeechAssets            CardSpeechAsset[]
   cardCollections             CardCollection[]
   cardEmbeddings              CardEmbedding[]
+  phraseEmbeddings            PhraseEmbedding[]
   phrases                     Phrase[]
   phraseVariants              PhraseVariant[]
   phraseOccurrences           PhraseOccurrence[]
@@ -476,11 +477,33 @@ model Phrase {
   user        User                @relation(fields: [userId], references: [id], onDelete: Cascade)
   variants    PhraseVariant[]
   occurrences PhraseOccurrence[]
+  embeddings  PhraseEmbedding[]
   recallEdges RecallSessionEdge[]
 
   @@unique([userId, languageCode, canonicalKey])
   @@index([userId, languageCode, status])
   @@map("phrases")
+}
+
+model PhraseEmbedding {
+  id           String                      @id @default(cuid())
+  userId       String
+  phraseId     String
+  provider     String
+  model        String
+  modelVersion String
+  dimensions   Int
+  inputHash    String
+  embedding    Unsupported("vector(1536)")
+  createdAt    DateTime                    @default(now())
+  updatedAt    DateTime                    @updatedAt
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  phrase Phrase @relation(fields: [phraseId], references: [id], onDelete: Cascade)
+
+  @@unique([phraseId, modelVersion])
+  @@index([userId, modelVersion])
+  @@map("phrase_embeddings")
 }
 
 model PhraseVariant {

@@ -17,22 +17,16 @@ export interface RelatedPhraseRow {
   evidence: "clozed" | "appeared";
   surfaceText: string;
   sentence: string;
-  cardCreatedAt: Date;
-}
-
-export interface ProgressRelationRow {
-  phraseId: string;
-  phrase: string;
+  currentSegmentId: string | null;
   currentSurfaceText: string;
   currentStartUtf16: number;
   currentEndUtf16: number;
-  historicalSurfaceText: string;
-  historicalSentence: string;
-  isFirstUserProduced: boolean;
-  sourceKind: string;
-  sourceId: string;
-  topic: string | null;
+  currentSentence: string;
   cardCreatedAt: Date;
+}
+
+export interface SemanticPhraseRelationRow extends RelatedPhraseRow {
+  semanticScore: number;
 }
 
 export interface PhraseOccurrenceHistoryRow {
@@ -156,12 +150,18 @@ export class PrismaCardRelationRepository {
   }): Promise<RelatedPhraseRow[]> {
     return this.prisma.$queryRawUnsafe<RelatedPhraseRow[]>(
       `WITH anchors AS (
-         SELECT DISTINCT occurrence."phraseId", occurrence."cardCreatedAt"
+         SELECT DISTINCT ON (occurrence."phraseId")
+                occurrence."phraseId", occurrence."cardCreatedAt", occurrence."segmentId",
+                occurrence."surfaceText", occurrence."startUtf16", occurrence."endUtf16",
+                COALESCE(current_segment."text", occurrence."surfaceText") AS "sentence"
           FROM "phrase_occurrences" AS occurrence
+          LEFT JOIN "card_rewrite_segments" AS current_segment
+            ON current_segment."id" = occurrence."segmentId"
           WHERE occurrence."userId" = $1
             AND occurrence."cardId" = $2
             AND occurrence."sourceField" = 'ai_expression'
             AND occurrence."clozeBlankId" IS NOT NULL
+          ORDER BY occurrence."phraseId", occurrence."updatedAt" DESC, occurrence."id" DESC
        ), deduplicated AS (
          SELECT DISTINCT ON (historical."cardId", historical."phraseId")
               historical."phraseId",
@@ -172,6 +172,11 @@ export class PrismaCardRelationRepository {
               CASE WHEN historical."clozeBlankId" IS NULL THEN 'appeared' ELSE 'clozed' END AS "evidence",
               historical."surfaceText",
               COALESCE(segment."text", historical."surfaceText") AS "sentence",
+              anchors."segmentId" AS "currentSegmentId",
+              anchors."surfaceText" AS "currentSurfaceText",
+              anchors."startUtf16" AS "currentStartUtf16",
+              anchors."endUtf16" AS "currentEndUtf16",
+              anchors."sentence" AS "currentSentence",
               historical."cardCreatedAt"
          FROM anchors
          JOIN "phrase_occurrences" AS historical
@@ -198,6 +203,93 @@ export class PrismaCardRelationRepository {
       input.sourceId,
       input.limit,
     );
+  }
+
+  async findSemanticallyRelatedPhrases(input: {
+    userId: string;
+    sourceId: string;
+    modelVersion: string;
+    minSimilarity: number;
+    limit: number;
+  }): Promise<SemanticPhraseRelationRow[]> {
+    const rows = await this.prisma.$queryRawUnsafe<Array<SemanticPhraseRelationRow & { semanticScore: number | string }>>(
+      `WITH anchors AS (
+         SELECT DISTINCT ON (occurrence."phraseId")
+                occurrence."phraseId", occurrence."segmentId", occurrence."surfaceText",
+                occurrence."startUtf16", occurrence."endUtf16",
+                COALESCE(current_segment."text", occurrence."surfaceText") AS "currentSentence",
+                current_phrase."languageCode", current_embedding."embedding"
+           FROM "phrase_occurrences" AS occurrence
+           JOIN "phrases" AS current_phrase
+             ON current_phrase."id" = occurrence."phraseId"
+            AND current_phrase."userId" = occurrence."userId"
+            AND current_phrase."status" = 'normalized'
+           JOIN "phrase_embeddings" AS current_embedding
+             ON current_embedding."phraseId" = occurrence."phraseId"
+            AND current_embedding."userId" = occurrence."userId"
+            AND current_embedding."modelVersion" = $3
+           LEFT JOIN "card_rewrite_segments" AS current_segment
+             ON current_segment."id" = occurrence."segmentId"
+          WHERE occurrence."userId" = $1
+            AND occurrence."cardId" = $2
+            AND occurrence."sourceField" = 'ai_expression'
+            AND occurrence."clozeBlankId" IS NOT NULL
+          ORDER BY occurrence."phraseId", occurrence."updatedAt" DESC, occurrence."id" DESC
+       )
+       SELECT candidate_phrase."id" AS "phraseId",
+              candidate_phrase."canonicalText" AS "phrase",
+              'card'::text AS "sourceKind",
+              historical."cardId" AS "sourceId",
+              historical."topic",
+              historical."evidence",
+              historical."surfaceText",
+              historical."sentence",
+              anchors."segmentId" AS "currentSegmentId",
+              anchors."surfaceText" AS "currentSurfaceText",
+              anchors."startUtf16" AS "currentStartUtf16",
+              anchors."endUtf16" AS "currentEndUtf16",
+              anchors."currentSentence",
+              historical."cardCreatedAt",
+              (1 - (candidate_embedding."embedding" <=> anchors."embedding"))::double precision AS "semanticScore"
+         FROM anchors
+         JOIN "phrase_embeddings" AS candidate_embedding
+           ON candidate_embedding."userId" = $1
+          AND candidate_embedding."modelVersion" = $3
+          AND candidate_embedding."phraseId" <> anchors."phraseId"
+         JOIN "phrases" AS candidate_phrase
+           ON candidate_phrase."id" = candidate_embedding."phraseId"
+          AND candidate_phrase."userId" = $1
+          AND candidate_phrase."languageCode" = anchors."languageCode"
+          AND candidate_phrase."status" = 'normalized'
+         JOIN LATERAL (
+           SELECT occurrence."cardId", card."topic",
+                  CASE WHEN occurrence."clozeBlankId" IS NULL THEN 'appeared' ELSE 'clozed' END AS "evidence",
+                  occurrence."surfaceText", COALESCE(segment."text", occurrence."surfaceText") AS "sentence",
+                  occurrence."cardCreatedAt"
+             FROM "phrase_occurrences" AS occurrence
+             JOIN "cards" AS card
+               ON card."id" = occurrence."cardId"
+              AND card."userId" = occurrence."userId"
+              AND card."status" = 'completed'
+              AND card."deletedAt" IS NULL
+             LEFT JOIN "card_rewrite_segments" AS segment ON segment."id" = occurrence."segmentId"
+            WHERE occurrence."userId" = $1
+              AND occurrence."phraseId" = candidate_phrase."id"
+              AND occurrence."sourceField" = 'ai_expression'
+              AND occurrence."cardId" <> $2
+            ORDER BY (occurrence."clozeBlankId" IS NOT NULL) DESC, occurrence."cardCreatedAt" DESC, occurrence."id" DESC
+            LIMIT 1
+         ) AS historical ON TRUE
+        WHERE (1 - (candidate_embedding."embedding" <=> anchors."embedding")) >= $4
+        ORDER BY "semanticScore" DESC, historical."cardCreatedAt" DESC, historical."cardId" ASC
+        LIMIT $5`,
+      input.userId,
+      input.sourceId,
+      input.modelVersion,
+      input.minSimilarity,
+      input.limit,
+    );
+    return rows.map((row) => ({ ...row, semanticScore: Number(row.semanticScore) }));
   }
 
   async findPhraseOccurrenceHistory(input: {
@@ -243,66 +335,4 @@ export class PrismaCardRelationRepository {
     };
   }
 
-  async findProgressRelations(input: {
-    userId: string;
-    sourceKind: string;
-    sourceId: string;
-    limit: number;
-  }): Promise<ProgressRelationRow[]> {
-    return this.prisma.$queryRawUnsafe<ProgressRelationRow[]>(
-      `WITH anchors AS (
-         SELECT occurrence."phraseId", occurrence."cardCreatedAt", occurrence."surfaceText",
-                occurrence."startUtf16", occurrence."endUtf16"
-           FROM "phrase_occurrences" AS occurrence
-          WHERE occurrence."userId" = $1
-            AND occurrence."cardId" = $2
-            AND occurrence."sourceField" = 'original'
-       ), deduplicated AS (
-         SELECT DISTINCT ON (historical."cardId", historical."phraseId")
-                historical."phraseId",
-                phrase."canonicalText" AS "phrase",
-                anchors."surfaceText" AS "currentSurfaceText",
-                anchors."startUtf16" AS "currentStartUtf16",
-                anchors."endUtf16" AS "currentEndUtf16",
-                historical."surfaceText" AS "historicalSurfaceText",
-                COALESCE(segment."text", historical."surfaceText") AS "historicalSentence",
-                NOT EXISTS (
-                  SELECT 1 FROM "phrase_occurrences" AS previous_user
-                   WHERE previous_user."userId" = $1
-                     AND previous_user."phraseId" = anchors."phraseId"
-                     AND previous_user."sourceField" = 'original'
-                     AND previous_user."cardCreatedAt" < anchors."cardCreatedAt"
-                ) AS "isFirstUserProduced",
-                'card'::text AS "sourceKind",
-                historical."cardId" AS "sourceId",
-                historical_card."topic",
-                historical."cardCreatedAt"
-           FROM anchors
-           JOIN "phrase_occurrences" AS historical
-             ON historical."phraseId" = anchors."phraseId"
-            AND historical."userId" = $1
-            AND historical."sourceField" = 'ai_expression'
-            AND historical."clozeBlankId" IS NOT NULL
-            AND historical."cardCreatedAt" < anchors."cardCreatedAt"
-           JOIN "phrases" AS phrase ON phrase."id" = historical."phraseId" AND phrase."userId" = $1
-           JOIN "cards" AS historical_card
-             ON historical_card."id" = historical."cardId"
-            AND historical_card."userId" = historical."userId"
-            AND historical_card."status" = 'completed'
-             AND historical_card."deletedAt" IS NULL
-           LEFT JOIN "card_rewrite_segments" AS segment
-             ON segment."id" = historical."segmentId"
-          WHERE historical."cardId" <> $2
-          ORDER BY historical."cardId", historical."phraseId",
-                   historical."cardCreatedAt" DESC
-       )
-       SELECT * FROM deduplicated
-        WHERE "isFirstUserProduced" = TRUE
-        ORDER BY "cardCreatedAt" DESC, "sourceId" DESC
-        LIMIT $3`,
-      input.userId,
-      input.sourceId,
-      input.limit,
-    );
-  }
 }

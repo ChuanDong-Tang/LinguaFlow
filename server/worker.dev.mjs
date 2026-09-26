@@ -46,6 +46,7 @@ import { CardRewriteWorker } from "./src/workers/card/CardRewriteWorker.ts";
 import { SerialCardJobWorker } from "./src/workers/card/SerialCardJobWorker.ts";
 import { RedisCardWorkerConcurrencyGuard } from "./src/workers/card/CardWorkerConcurrencyGuard.ts";
 import { CardEnrichmentWorkerService } from "./src/services/card/CardEnrichmentWorkerService.ts";
+import { PhraseEmbeddingWorkerService } from "./src/services/card/PhraseEmbeddingWorkerService.ts";
 import { CardTopicWorkerService } from "./src/services/card/CardTopicWorkerService.ts";
 import { CardRewriteAlignmentWorkerService } from "./src/services/card/CardRewriteAlignmentWorkerService.ts";
 import { CardRewriteAlignmentScanner } from "./src/workers/card/CardRewriteAlignmentScanner.ts";
@@ -57,8 +58,6 @@ import { AzureEmbeddingProvider } from "./src/providers/ai/AzureEmbeddingProvide
 import { PhraseNormalizationWorkerService } from "./src/services/card/PhraseNormalizationWorkerService.ts";
 import { PhraseHistoryIndexWorkerService } from "./src/services/card/PhraseHistoryIndexWorkerService.ts";
 import { CardPhraseIndexWorkerService } from "./src/services/card/CardPhraseIndexWorkerService.ts";
-import { ProgressPhraseDetectionService } from "./src/services/card/ProgressPhraseDetectionService.ts";
-import { ProgressPhraseDetectionWorkerService } from "./src/services/card/ProgressPhraseDetectionWorkerService.ts";
 import { CardImageCleanupWorker } from "./src/workers/card/CardImageCleanupWorker.ts";
 import { CardSpeechCleanupWorker } from "./src/workers/card/CardSpeechCleanupWorker.ts";
 import { CardImageStorageProvider } from "./src/providers/storage/CardImageStorageProvider.ts";
@@ -413,20 +412,6 @@ const cardPhraseIndexWorker = new SerialCardJobWorker(
     concurrencyLimit: runtime.cardPhraseIndexGlobalConcurrency,
   },
 );
-const progressPhraseDetectionWorker = new SerialCardJobWorker(
-  new ProgressPhraseDetectionWorkerService(
-    cardEnrichmentRepository,
-    new ProgressPhraseDetectionService(cardAiProvider, resourceGovernor, usageV2Service),
-    systemEventLogRepository,
-  ),
-  {
-    workerIdPrefix: "progress-phrase",
-    errorLabel: "progress-phrase-worker",
-    concurrencyGuard: undefined,
-    concurrencyScope: "progress-detection",
-    concurrencyLimit: runtime.cardProgressDetectionGlobalConcurrency,
-  },
-);
 const embeddingConfigValues = [
   runtime.azureEmbeddingEndpoint,
   runtime.azureEmbeddingApiKey,
@@ -440,19 +425,22 @@ if (hasAnyEmbeddingConfig && !hasCompleteEmbeddingConfig) {
 if (runtime.isProduction && runtime.cardEnabled && !hasCompleteEmbeddingConfig) {
   throw new Error("AZURE_EMBEDDING_CONFIG_REQUIRED");
 }
+const embeddingProvider = hasCompleteEmbeddingConfig
+  ? new AzureEmbeddingProvider({
+      endpoint: runtime.azureEmbeddingEndpoint,
+      apiKey: runtime.azureEmbeddingApiKey,
+      deployment: runtime.azureEmbeddingDeployment,
+      apiVersion: runtime.azureEmbeddingApiVersion,
+      model: runtime.azureEmbeddingModel,
+      dimensions: runtime.azureEmbeddingDimensions,
+      timeoutMs: runtime.azureEmbeddingTimeoutMs,
+    })
+  : null;
 const cardEnrichmentWorker = hasCompleteEmbeddingConfig
   ? new SerialCardJobWorker(
       new CardEnrichmentWorkerService(
         cardEnrichmentRepository,
-        new AzureEmbeddingProvider({
-          endpoint: runtime.azureEmbeddingEndpoint,
-          apiKey: runtime.azureEmbeddingApiKey,
-          deployment: runtime.azureEmbeddingDeployment,
-          apiVersion: runtime.azureEmbeddingApiVersion,
-          model: runtime.azureEmbeddingModel,
-          dimensions: runtime.azureEmbeddingDimensions,
-          timeoutMs: runtime.azureEmbeddingTimeoutMs,
-        }),
+        embeddingProvider,
         systemEventLogRepository,
         {},
         resourceGovernor,
@@ -460,6 +448,18 @@ const cardEnrichmentWorker = hasCompleteEmbeddingConfig
       {
         workerIdPrefix: "card-enrichment",
         errorLabel: "card-enrichment-worker",
+        concurrencyGuard: undefined,
+        concurrencyScope: "embedding",
+        concurrencyLimit: runtime.cardEmbeddingGlobalConcurrency,
+      },
+    )
+  : null;
+const phraseEmbeddingWorker = embeddingProvider
+  ? new SerialCardJobWorker(
+      new PhraseEmbeddingWorkerService(cardEnrichmentRepository, embeddingProvider, systemEventLogRepository, {}, resourceGovernor),
+      {
+        workerIdPrefix: "phrase-embedding",
+        errorLabel: "phrase-embedding-worker",
         concurrencyGuard: undefined,
         concurrencyScope: "embedding",
         concurrencyLimit: runtime.cardEmbeddingGlobalConcurrency,
@@ -504,10 +504,10 @@ const workerGroups = {
     cardImageDescriptionBackfillScanner,
     cardImageDescriptionBackfillWorker,
     cardEnrichmentWorker,
+    phraseEmbeddingWorker,
     phraseNormalizationWorker,
     phraseHistoryIndexWorker,
     cardPhraseIndexWorker,
-    progressPhraseDetectionWorker,
   ].filter(Boolean),
   tts: [ttsStreamingWorker].filter(Boolean),
   maintenance: [
@@ -541,6 +541,24 @@ if (runtime.requireRedis) {
     await prisma.$disconnect();
     process.exit(1);
   }
+}
+
+if (workerGroup === "all" || workerGroup === "card") {
+  await prisma.cardEnrichmentJob.updateMany({
+    where: {
+      jobType: "detect_progress_phrases",
+      status: { in: ["queued", "processing"] },
+    },
+    data: {
+      status: "completed",
+      processingAt: null,
+      leaseExpiresAt: null,
+      workerId: null,
+      completedAt: new Date(),
+      failedAt: null,
+      lastError: "FEATURE_RETIRED_PROGRESS_MOMENTS",
+    },
+  });
 }
 
 console.log(`[worker] group=${workerGroup} starting ${activeWorkers.length} workers`);

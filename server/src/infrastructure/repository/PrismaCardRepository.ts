@@ -2328,7 +2328,6 @@ async function enqueuePhraseEnrichment(
 ): Promise<void> {
   for (const job of [
     { jobType: "index_card_phrases", inputVersion: `card_phrase_index_v1:${input.inputHash}` },
-    { jobType: "detect_progress_phrases", inputVersion: `progress_phrase_detection_v1:${input.inputHash}` },
   ] as const) {
     await tx.cardEnrichmentJob.upsert({
       where: {
@@ -2488,6 +2487,32 @@ async function applyPhraseMutation(tx: any, input: {
     },
     update: {},
   });
+  if (phrase.status === "normalized") {
+    const phraseEmbeddingHash = createHash("sha256")
+      .update(`${phrase.languageCode}\n${phrase.canonicalText.normalize("NFKC").trim()}`)
+      .digest("hex");
+    await tx.cardEnrichmentJob.upsert({
+      where: {
+        userId_sourceKind_sourceId_jobType_inputVersion: {
+          userId: input.userId,
+          sourceKind: "phrase",
+          sourceId: phrase.id,
+          jobType: "generate_phrase_embedding",
+          inputVersion: `phrase_embedding_input_v1:${phraseEmbeddingHash}`,
+        },
+      },
+      create: {
+        userId: input.userId,
+        sourceKind: "phrase",
+        sourceId: phrase.id,
+        jobType: "generate_phrase_embedding",
+        inputHash: phraseEmbeddingHash,
+        inputVersion: `phrase_embedding_input_v1:${phraseEmbeddingHash}`,
+        payload: { phraseId: phrase.id, schemaVersion: 1 },
+      },
+      update: {},
+    });
+  }
 }
 
 function toEntry(row: any): CardEntryEntity {

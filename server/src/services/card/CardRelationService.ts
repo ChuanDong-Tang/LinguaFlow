@@ -29,7 +29,7 @@ export interface CardRelationPreview {
 export class CardRelationService {
   constructor(
     private readonly repository: PrismaCardRelationRepository,
-    private readonly options: { modelVersion: string | null; minTopicSimilarity: number; topicMaxChars?: number },
+    private readonly options: { modelVersion: string | null; minTopicSimilarity: number; minLanguageSimilarity?: number; topicMaxChars?: number },
     private readonly imageService?: CardImageService,
   ) {}
 
@@ -73,6 +73,13 @@ export class CardRelationService {
       evidence: "clozed" | "appeared";
       surfaceText: string;
       sentence: string;
+      currentSegmentId: string | null;
+      currentSurfaceText: string;
+      currentStartUtf16: number;
+      currentEndUtf16: number;
+      currentSentence: string;
+      matchMode: "semantic" | "exact";
+      semanticScore?: number;
     };
   }>> {
     const ref = parseCardRecordId(recordId);
@@ -80,12 +87,22 @@ export class CardRelationService {
     const limit = Number.isFinite(requestedLimit)
       ? Math.max(1, Math.min(100, Math.floor(requestedLimit!)))
       : 30;
-    const rows = await this.repository.findRelatedPhrases({
-      userId,
-      sourceKind: ref.source,
-      sourceId: ref.sourceId,
-      limit,
-    });
+    const [semanticRows, exactRows] = await Promise.all([
+      this.options.modelVersion
+        ? this.repository.findSemanticallyRelatedPhrases({
+            userId,
+            sourceId: ref.sourceId,
+            modelVersion: this.options.modelVersion,
+            minSimilarity: this.options.minLanguageSimilarity ?? 0.72,
+            limit,
+          })
+        : [],
+      this.repository.findRelatedPhrases({ userId, sourceKind: ref.source, sourceId: ref.sourceId, limit }),
+    ]);
+    const rows = [
+      ...semanticRows.map((row) => ({ ...row, matchMode: "semantic" as const })),
+      ...exactRows.map((row) => ({ ...row, matchMode: "exact" as const, semanticScore: undefined })),
+    ].filter((row, index, all) => all.findIndex((candidate) => candidate.sourceId === row.sourceId) === index).slice(0, limit);
     return rows.map((row) => ({
       recordId: cardRecordId("card", row.sourceId),
       topic: row.topic,
@@ -96,49 +113,13 @@ export class CardRelationService {
         evidence: row.evidence,
         surfaceText: row.surfaceText,
         sentence: row.sentence,
-      },
-    }));
-  }
-
-  async progress(userId: string, recordId: string, requestedLimit?: number): Promise<Array<{
-    recordId: string;
-    topic: string | null;
-    reason: {
-      type: "progress";
-      phraseId: string;
-      phrase: string;
-      previousExpression: string;
-      currentExpression: string;
-      currentStartUtf16: number;
-      currentEndUtf16: number;
-      previousSentence: string;
-      isFirstUserProduced: boolean;
-    };
-  }>> {
-    const ref = parseCardRecordId(recordId);
-    if (!ref) return [];
-    const limit = Number.isFinite(requestedLimit)
-      ? Math.max(1, Math.min(100, Math.floor(requestedLimit!)))
-      : 30;
-    const rows = await this.repository.findProgressRelations({
-      userId,
-      sourceKind: ref.source,
-      sourceId: ref.sourceId,
-      limit,
-    });
-    return rows.map((row) => ({
-      recordId: cardRecordId("card", row.sourceId),
-      topic: row.topic,
-      reason: {
-        type: "progress",
-        phraseId: row.phraseId,
-        phrase: row.phrase,
-        previousExpression: row.historicalSurfaceText,
-        currentExpression: row.currentSurfaceText,
+        currentSegmentId: row.currentSegmentId,
+        currentSurfaceText: row.currentSurfaceText,
         currentStartUtf16: row.currentStartUtf16,
         currentEndUtf16: row.currentEndUtf16,
-        previousSentence: row.historicalSentence,
-        isFirstUserProduced: row.isFirstUserProduced,
+        currentSentence: row.currentSentence,
+        matchMode: row.matchMode,
+        ...(row.semanticScore === undefined ? {} : { semanticScore: row.semanticScore }),
       },
     }));
   }
@@ -180,29 +161,23 @@ export class CardRelationService {
           evidence: "clozed" | "appeared";
           surfaceText: string;
           sentence: string;
-        }
-      | {
-          type: "progress";
-          phraseId: string;
-          phrase: string;
-          previousExpression: string;
-          currentExpression: string;
+          currentSegmentId: string | null;
+          currentSurfaceText: string;
           currentStartUtf16: number;
           currentEndUtf16: number;
-          previousSentence: string;
-          isFirstUserProduced: boolean;
+          currentSentence: string;
+          matchMode: "semantic" | "exact";
+          semanticScore?: number;
         }
     >;
   }>> {
-    const [topics, phrases, progress] = await Promise.all([
+    const [topics, phrases] = await Promise.all([
       this.relatedTopics(userId, recordId, 50),
       this.relatedPhrases(userId, recordId, 100),
-      this.progress(userId, recordId, 100),
     ]);
     type RelationReason =
       | (typeof topics)[number]["reason"]
-      | (typeof phrases)[number]["reason"]
-      | (typeof progress)[number]["reason"];
+      | (typeof phrases)[number]["reason"];
     const selected: Array<{ recordId: string; topic: string | null; reasons: RelationReason[] }> = [];
     const add = (item: { recordId: string; topic: string | null; reason: RelationReason }) => {
       const existing = selected.find((candidate) => candidate.recordId === item.recordId);
@@ -210,11 +185,6 @@ export class CardRelationService {
         if (!existing.reasons.some((reason) => relationReasonKey(reason) === relationReasonKey(item.reason))) existing.reasons.push(item.reason);
       } else selected.push({ recordId: item.recordId, topic: item.topic, reasons: [item.reason] });
     };
-    const growthByPhrase = new Map<string, (typeof progress)[number]>();
-    for (const item of [...progress].sort((left, right) => phraseLearningWeight(right.reason.phrase) - phraseLearningWeight(left.reason.phrase))) {
-      if (item.reason.isFirstUserProduced && !growthByPhrase.has(item.reason.phraseId)) growthByPhrase.set(item.reason.phraseId, item);
-    }
-    for (const growth of [...growthByPhrase.values()].slice(0, 6)) add(growth);
     for (const phrase of phrases.slice(0, 4)) add(phrase);
     const selectedIds = new Set(selected.map((item) => item.recordId));
     const topicCandidates = topics.filter((item) => !selectedIds.has(item.recordId));
@@ -260,11 +230,6 @@ export class CardRelationService {
 
 function randomItem<T>(items: T[]): T | undefined {
   return items.length ? items[Math.floor(Math.random() * items.length)] : undefined;
-}
-
-function phraseLearningWeight(phrase: string): number {
-  const words = phrase.trim().split(/\s+/u).filter(Boolean).length;
-  return words * 1_000 + Array.from(phrase.trim()).length;
 }
 
 function relationReasonKey(reason: { type: string } & Record<string, unknown>): string {

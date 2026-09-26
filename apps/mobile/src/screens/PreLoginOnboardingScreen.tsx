@@ -145,7 +145,7 @@ function stepContent(step: PreLoginOnboardingStep): {
           value: "native",
           label: t("prompt_difficulty.native"),
           detail: t("onboarding.flow.difficulty.native_detail"),
-          icon: "sparkles-outline",
+          icon: "school-outline",
         },
       ],
     };

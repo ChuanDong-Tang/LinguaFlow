@@ -2228,7 +2228,6 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
     const concurrencyDefinitions = [
       ["rewrite", runtime.cardRewriteGlobalConcurrency],
       ["embedding", runtime.cardEmbeddingGlobalConcurrency],
-      ["progress-detection", runtime.cardProgressDetectionGlobalConcurrency],
       ["phrase-normalization", runtime.cardPhraseNormalizationGlobalConcurrency],
       ["phrase-history", runtime.cardPhraseHistoryGlobalConcurrency],
       ["phrase-index", runtime.cardPhraseIndexGlobalConcurrency],

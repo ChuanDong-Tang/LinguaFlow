@@ -112,6 +112,7 @@ export function CardDetailNavigator({
   const [imageAdding, setImageAdding] = useState(false);
   const [history, setHistory] = useState<string[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
+  const [relationFocusSentence, setRelationFocusSentence] = useState<string | null>(null);
   const [cardCapabilities, setCardCapabilities] = useState<CardCapabilities>(DEFAULT_CARD_CAPABILITIES);
   const [failedGenerationTargets, setFailedGenerationTargets] = useState<CardGenerationTarget[]>([]);
   const [pendingGenerationTargets, setPendingGenerationTargets] = useState<CardGenerationTarget[]>([]);
@@ -142,6 +143,7 @@ export function CardDetailNavigator({
       setDetail(null);
       setHistory([]);
       setHistoryIndex(-1);
+      setRelationFocusSentence(null);
       setFailedGenerationTargets([]);
       setPendingGenerationTargets([]);
       return;
@@ -153,6 +155,7 @@ export function CardDetailNavigator({
     setFailedGenerationTargets(cached?.failedTargets ?? []);
     setHistory([request.recordId]);
     setHistoryIndex(0);
+    setRelationFocusSentence(null);
     void loadDetail(request.recordId);
   }, [request?.key]);
 
@@ -247,17 +250,13 @@ export function CardDetailNavigator({
     };
   }, [failedGenerationTargets.join("|"), pendingGenerationTargets.join("|"), request?.key, request?.recordId]);
 
-  async function openRelated(recordId: string, _reasons: CardRelationReason[]): Promise<void> {
+  async function openRelated(recordId: string, reasons: CardRelationReason[]): Promise<void> {
     if (!await loadDetail(recordId)) return;
+    const phrase = reasons.find((reason) => reason.type === "phrase");
+    setRelationFocusSentence(phrase?.sentence || null);
     const next = [...history.slice(0, historyIndex + 1), recordId].slice(-100);
     setHistory(next);
     setHistoryIndex(next.length - 1);
-  }
-
-  async function navigateHistory(nextIndex: number): Promise<void> {
-    const recordId = history[nextIndex];
-    if (!recordId || !await loadDetail(recordId)) return;
-    setHistoryIndex(nextIndex);
   }
 
   function close(): void {
@@ -411,8 +410,6 @@ export function CardDetailNavigator({
   }
 
   if (!request || (!detail && request.returnLabel)) return null;
-  const canNavigateBack = historyIndex > 0 && Boolean(history[historyIndex - 1]);
-  const canNavigateForward = historyIndex >= 0 && historyIndex < history.length - 1 && Boolean(history[historyIndex + 1]);
   return (
       <CardDetailModal
         key={request.key}
@@ -432,12 +429,11 @@ export function CardDetailNavigator({
       closeAfterEditing={request.closeAfterEditing}
         onClose={close}
         returnLabel={request?.returnLabel}
-      canGoBack={canNavigateBack}
-      canGoForward={canNavigateForward}
-      onBack={canNavigateBack ? () => void navigateHistory(historyIndex - 1) : undefined}
-      onForward={canNavigateForward ? () => void navigateHistory(historyIndex + 1) : undefined}
+      canGoBack={false}
+      canGoForward={false}
       onOpenRelated={(recordId, reasons) => void openRelated(recordId, reasons)}
-      hideRelations={historyIndex > 0}
+      relationFocusSentence={relationFocusSentence}
+      hideRelations={false}
       onUpdateMetadata={async (input) => {
         if (!detail) return false;
         try {

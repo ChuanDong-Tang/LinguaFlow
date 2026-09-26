@@ -145,7 +145,6 @@ export interface RuntimeConfig {
   cardRewriteGlobalConcurrency: number;
   cardTopicGlobalConcurrency: number;
   cardEmbeddingGlobalConcurrency: number;
-  cardProgressDetectionGlobalConcurrency: number;
   cardPhraseNormalizationGlobalConcurrency: number;
   cardPhraseHistoryGlobalConcurrency: number;
   cardPhraseIndexGlobalConcurrency: number;
@@ -353,7 +352,6 @@ export function getRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeC
     cardRewriteGlobalConcurrency: resourcePolicies.llm.globalConcurrency,
     cardTopicGlobalConcurrency: readPositiveInt(env.CARD_TOPIC_GLOBAL_CONCURRENCY, 2),
     cardEmbeddingGlobalConcurrency: resourcePolicies.embedding.globalConcurrency,
-    cardProgressDetectionGlobalConcurrency: readPositiveInt(env.CARD_PROGRESS_DETECTION_GLOBAL_CONCURRENCY, 4),
     cardPhraseNormalizationGlobalConcurrency: readPositiveInt(env.CARD_PHRASE_NORMALIZATION_GLOBAL_CONCURRENCY, 4),
     cardPhraseHistoryGlobalConcurrency: readPositiveInt(env.CARD_PHRASE_HISTORY_GLOBAL_CONCURRENCY, 2),
     cardPhraseIndexGlobalConcurrency: readPositiveInt(env.CARD_PHRASE_INDEX_GLOBAL_CONCURRENCY, 2),
