@@ -186,9 +186,7 @@ export class CardRelationService {
       } else selected.push({ recordId: item.recordId, topic: item.topic, reasons: [item.reason] });
     };
     for (const phrase of phrases.slice(0, 4)) add(phrase);
-    const selectedIds = new Set(selected.map((item) => item.recordId));
-    const topicCandidates = topics.filter((item) => !selectedIds.has(item.recordId));
-    const topic = randomItem(topicCandidates);
+    const topic = topics[0];
     if (topic) add(topic);
     const refs = selected.flatMap((item) => {
       const ref = parseCardRecordId(item.recordId);
@@ -226,10 +224,6 @@ export class CardRelationService {
       card: previewById.get(item.recordId) ?? null,
     }));
   }
-}
-
-function randomItem<T>(items: T[]): T | undefined {
-  return items.length ? items[Math.floor(Math.random() * items.length)] : undefined;
 }
 
 function relationReasonKey(reason: { type: string } & Record<string, unknown>): string {

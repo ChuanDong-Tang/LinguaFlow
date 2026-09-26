@@ -4075,10 +4075,11 @@ function Cloze({ detail, contentBinding, clozeState, clozeVersion, onClozeChange
     () => new Map((detail.auxiliarySegments ?? []).map((segment) => [segment.ordinal, segment.text])),
     [detail.auxiliarySegments],
   );
-  const alignedGroupByFirstTarget = useMemo(() => new Map(
-    alignedOriginalGroups.flatMap((group) => group.targetOrdinals.length
-      ? [[group.targetOrdinals[0]!, group] as const]
-      : []),
+  const alignedGroupByLastTarget = useMemo(() => new Map(
+    alignedOriginalGroups.flatMap((group) => {
+      const lastTarget = group.targetOrdinals[group.targetOrdinals.length - 1];
+      return lastTarget === undefined ? [] : [[lastTarget, group] as const];
+    }),
   ), [alignedOriginalGroups]);
   const { showNotice } = useFloatingNotice();
   const sentenceRows = useMemo(() => buildCardClozeSentenceRows(detail, clozeState, embedded), [detail, clozeState, embedded]);
@@ -4137,17 +4138,14 @@ function Cloze({ detail, contentBinding, clozeState, clozeVersion, onClozeChange
       ?? sentenceRows.find((row) => row.text.includes(focus) || focus.includes(row.text.trim()))
       ?? null;
   }, [relationFocusSentence, sentenceRows]);
-  const [relationFocusActive, setRelationFocusActive] = useState(Boolean(relationFocusRow));
   useEffect(() => {
-    if (!relationFocusRow) { setRelationFocusActive(false); return; }
-    setRelationFocusActive(true);
+    if (!relationFocusRow) return;
     const frame = requestAnimationFrame(() => {
       sentenceRowRefsRef.current.get(relationFocusRow.key)?.measureInWindow((_x, y, _width, height) => {
         if (height > 0) onRelationSentenceFocus?.({ y, height });
       });
     });
-    const timer = setTimeout(() => setRelationFocusActive(false), 2200);
-    return () => { cancelAnimationFrame(frame); clearTimeout(timer); };
+    return () => cancelAnimationFrame(frame);
   }, [onRelationSentenceFocus, relationFocusRow]);
   const selectedKeyboardIndex = selectedKeyboardBlankId === undefined
     ? activeKeyboardBlankIndex
@@ -4492,7 +4490,7 @@ function Cloze({ detail, contentBinding, clozeState, clozeVersion, onClozeChange
           <View style={[styles.clozeSentenceList, embedded && styles.inlineClozeSentenceList]}>{sentenceRows.map((row) => {
             const segment = detail.rewriteSegments.find((candidate) => candidate.id === row.segmentId);
             const auxiliaryText = segment ? auxiliaryByOrdinal.get(segment.ordinal) : undefined;
-            const alignedGroup = segment ? alignedGroupByFirstTarget.get(segment.ordinal) : undefined;
+            const alignedGroup = segment ? alignedGroupByLastTarget.get(segment.ordinal) : undefined;
             const languageReason = languageRelation?.reason;
             const languageStart = languageReason?.currentStartUtf16;
             const languageEnd = languageReason?.currentEndUtf16;
@@ -4519,16 +4517,10 @@ function Cloze({ detail, contentBinding, clozeState, clozeVersion, onClozeChange
                 styles.clozeSentenceRow,
                 embedded && styles.inlineClozeSentenceRow,
                 keyboardEditing && styles.clozeSentenceRowEditing,
-                relationFocusActive && row.key === relationFocusRow?.key && styles.clozeSentenceRowRelationFocus,
+                row.key === relationFocusRow?.key && styles.clozeSentenceRowRelationFocus,
               ]}
             >
               <View style={styles.clozeSentenceBody}>
-                {displayMode !== "target" && alignedGroup?.text ? <View style={[
-                  styles.alignedOriginalGroup,
-                  alignedGroup.alignment === "fallback" && styles.alignedOriginalGroupFallback,
-                ]}>
-                  <Text selectable style={styles.auxiliarySentence}>{alignedGroup.text}</Text>
-                </View> : null}
                 <StableCardSentence
                   row={row}
                   contentType={contentBinding.contentType}
@@ -4579,6 +4571,9 @@ function Cloze({ detail, contentBinding, clozeState, clozeVersion, onClozeChange
                   }}
                   onCheckKeyboardAnswer={submitKeyboardAnswer}
                 />
+                {displayMode !== "target" && alignedGroup?.text
+                  ? <Text selectable style={styles.auxiliarySentence}>{alignedGroup.text}</Text>
+                  : null}
                 {!usesAlignedGroups && displayMode !== "target" && auxiliaryText ? <Text selectable style={styles.auxiliarySentence}>{auxiliaryText}</Text> : null}
               </View>
             </View>;
@@ -5294,8 +5289,6 @@ const styles = StyleSheet.create({
   originalLearningSentence: { color: theme.colors.text },
   replyLearningSentence: { color: theme.colors.text },
   auxiliarySentence: { marginTop: 3, color: "#666666", fontSize: 13, lineHeight: 20 },
-  alignedOriginalGroup: { marginBottom: 5, paddingLeft: 8, borderLeftWidth: 2, borderLeftColor: "rgba(82,121,108,0.32)" },
-  alignedOriginalGroupFallback: { borderLeftColor: theme.colors.border },
   imageDescriptionSection: { gap: 7 },
   imageDescriptionBody: { paddingHorizontal: 6, paddingTop: 2, paddingBottom: 6 },
   imageIntegratedSection: { marginTop: 0, paddingTop: 7, borderTopWidth: 0 },

@@ -321,7 +321,7 @@ export function getRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeC
     azureEmbeddingModel: env.AZURE_EMBEDDING_MODEL?.trim() || "text-embedding-3-small",
     azureEmbeddingDimensions: readPositiveInt(env.AZURE_EMBEDDING_DIMENSIONS, 1536),
     azureEmbeddingTimeoutMs: readPositiveInt(env.AZURE_EMBEDDING_TIMEOUT_MS, 20_000),
-    relatedTopicMinSimilarity: readUnitFloat(env.RELATED_TOPIC_MIN_SIMILARITY, 0.65),
+    relatedTopicMinSimilarity: readUnitFloat(env.RELATED_TOPIC_MIN_SIMILARITY, 0.60),
     cardCreateUserRateLimit: readPositiveInt(env.CARD_CREATE_USER_RATE_LIMIT, 5),
     cardCreateGlobalRateLimit: readPositiveInt(env.CARD_CREATE_GLOBAL_RATE_LIMIT, 120),
     cardCreateRateWindowMs: readPositiveInt(env.CARD_CREATE_RATE_WINDOW_MS, 60_000),
