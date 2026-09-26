@@ -324,6 +324,7 @@ export function createApp() {
     {
       modelVersion: embeddingProvider?.modelVersion ?? null,
       minTopicSimilarity: runtimeConfig.relatedTopicMinSimilarity,
+      minLanguageSimilarity: runtimeConfig.relatedPhraseMinSimilarity,
       topicMaxChars: runtimeConfig.cardTopicMaxChars,
     },
     cardImageService,

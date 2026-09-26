@@ -103,6 +103,11 @@ export interface CardEnrichmentRepository {
   claimNextImageDescriptionJob(workerId: string, leaseExpiresAt: Date): Promise<CardEnrichmentJobEntity | null>;
   loadImageDescriptionSource(job: CardEnrichmentJobEntity): Promise<{ cardId: string; imageId: string; forceRegenerate: boolean } | null>;
   enqueueMissingRewriteAlignmentJobs(limit: number, createdBefore: Date): Promise<number>;
+  enqueueMissingPhraseEmbeddingJobs(input: {
+    modelVersion: string;
+    limit: number;
+    maxOutstanding: number;
+  }): Promise<number>;
   claimNextRewriteAlignmentJob(workerId: string, leaseExpiresAt: Date): Promise<CardEnrichmentJobEntity | null>;
   loadRewriteAlignmentSource(job: CardEnrichmentJobEntity): Promise<CardRewriteAlignmentSource | null>;
   completeRewriteAlignmentJob(

@@ -47,6 +47,7 @@ import { SerialCardJobWorker } from "./src/workers/card/SerialCardJobWorker.ts";
 import { RedisCardWorkerConcurrencyGuard } from "./src/workers/card/CardWorkerConcurrencyGuard.ts";
 import { CardEnrichmentWorkerService } from "./src/services/card/CardEnrichmentWorkerService.ts";
 import { PhraseEmbeddingWorkerService } from "./src/services/card/PhraseEmbeddingWorkerService.ts";
+import { PhraseEmbeddingBackfillScanner } from "./src/workers/card/PhraseEmbeddingBackfillScanner.ts";
 import { CardTopicWorkerService } from "./src/services/card/CardTopicWorkerService.ts";
 import { CardRewriteAlignmentWorkerService } from "./src/services/card/CardRewriteAlignmentWorkerService.ts";
 import { CardRewriteAlignmentScanner } from "./src/workers/card/CardRewriteAlignmentScanner.ts";
@@ -466,6 +467,18 @@ const phraseEmbeddingWorker = embeddingProvider
       },
     )
   : null;
+const phraseEmbeddingBackfillScanner = embeddingProvider && runtime.cardPhraseEmbeddingBackfillEnabled
+  ? new PhraseEmbeddingBackfillScanner(
+      cardEnrichmentRepository,
+      embeddingProvider.modelVersion,
+      systemEventLogRepository,
+      {
+        intervalMs: runtime.cardPhraseEmbeddingBackfillScanIntervalMs,
+        batchSize: runtime.cardPhraseEmbeddingBackfillBatchSize,
+        maxOutstanding: runtime.cardPhraseEmbeddingBackfillMaxOutstanding,
+      },
+    )
+  : null;
 const cardImageCleanupWorker = new CardImageCleanupWorker(
   cardRepository,
   cardImageStorageProvider,
@@ -504,6 +517,7 @@ const workerGroups = {
     cardImageDescriptionBackfillScanner,
     cardImageDescriptionBackfillWorker,
     cardEnrichmentWorker,
+    phraseEmbeddingBackfillScanner,
     phraseEmbeddingWorker,
     phraseNormalizationWorker,
     phraseHistoryIndexWorker,

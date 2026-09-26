@@ -253,6 +253,88 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
     });
   }
 
+  async enqueueMissingPhraseEmbeddingJobs(input: {
+    modelVersion: string;
+    limit: number;
+    maxOutstanding: number;
+  }): Promise<number> {
+    return this.prisma.$transaction(async (tx) => {
+      const lock = await tx.$queryRaw<Array<{ acquired: boolean }>>`
+        SELECT pg_try_advisory_xact_lock(hashtext('phrase_embedding_backfill_scan')) AS "acquired"
+      `;
+      if (!lock[0]?.acquired) return 0;
+      const outstanding = await tx.cardEnrichmentJob.count({
+        where: { jobType: "generate_phrase_embedding", status: { in: ["queued", "processing"] } },
+      });
+      const availableSlots = Math.max(0, Math.max(1, input.maxOutstanding) - outstanding);
+      if (!availableSlots) return 0;
+      const scanLimit = Math.min(Math.max(1, input.limit), availableSlots);
+      const phrases = await tx.$queryRaw<Array<{ id: string; userId: string; languageCode: string; canonicalText: string }>>`
+        SELECT phrase."id", phrase."userId", phrase."languageCode", phrase."canonicalText"
+          FROM "phrases" AS phrase
+         WHERE phrase."status" = 'normalized'
+           AND EXISTS (
+             SELECT 1 FROM "phrase_occurrences" AS occurrence
+              WHERE occurrence."phraseId" = phrase."id"
+           )
+           AND NOT EXISTS (
+             SELECT 1 FROM "phrase_embeddings" AS embedding
+              WHERE embedding."phraseId" = phrase."id"
+                AND embedding."modelVersion" = ${input.modelVersion}
+           )
+           AND NOT EXISTS (
+             SELECT 1 FROM "card_enrichment_jobs" AS job
+              WHERE job."userId" = phrase."userId"
+                AND job."sourceKind" = 'phrase'
+                AND job."sourceId" = phrase."id"
+                AND job."jobType" = 'generate_phrase_embedding'
+                AND job."status" IN ('queued', 'processing')
+           )
+         ORDER BY phrase."createdAt" ASC, phrase."id" ASC
+         LIMIT ${scanLimit}
+      `;
+      for (const phrase of phrases) {
+        const inputHash = createHash("sha256")
+          .update(`${phrase.languageCode}\n${phrase.canonicalText.normalize("NFKC").trim()}`)
+          .digest("hex");
+        const inputVersion = `phrase_embedding_input_v1:${inputHash}`;
+        await tx.cardEnrichmentJob.upsert({
+          where: {
+            userId_sourceKind_sourceId_jobType_inputVersion: {
+              userId: phrase.userId,
+              sourceKind: "phrase",
+              sourceId: phrase.id,
+              jobType: "generate_phrase_embedding",
+              inputVersion,
+            },
+          },
+          create: {
+            userId: phrase.userId,
+            sourceKind: "phrase",
+            sourceId: phrase.id,
+            jobType: "generate_phrase_embedding",
+            inputHash,
+            inputVersion,
+            payload: { phraseId: phrase.id, schemaVersion: 1 },
+          },
+          update: {
+            status: "queued",
+            availableAt: new Date(),
+            inputHash,
+            attempts: 0,
+            processingAt: null,
+            leaseExpiresAt: null,
+            workerId: null,
+            lastError: null,
+            completedAt: null,
+            failedAt: null,
+          },
+        });
+      }
+      return phrases.length;
+    });
+  }
+
   async claimNextRewriteAlignmentJob(workerId: string, leaseExpiresAt: Date): Promise<CardEnrichmentJobEntity | null> {
     return this.claimNextJob(
       "align_rewrite_original",
