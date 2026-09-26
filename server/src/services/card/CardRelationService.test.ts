@@ -22,7 +22,6 @@ const current = {
 test("prefers semantic phrase relations and preserves both sentence anchors", async () => {
   const repository = {
     findSemanticallyRelatedPhrases: async () => [{ ...current, semanticScore: 0.84 }],
-    findRelatedPhrases: async () => [{ ...current, phraseId: "phrase-exact" }],
   };
   const service = new CardRelationService(repository as never, {
     modelVersion: "embedding-v1",
@@ -49,10 +48,9 @@ test("prefers semantic phrase relations and preserves both sentence anchors", as
   });
 });
 
-test("falls back to exact phrase history while semantic embeddings are unavailable", async () => {
+test("does not fall back to exact word or phrase history when semantic matches are unavailable", async () => {
   const repository = {
     findSemanticallyRelatedPhrases: async () => [],
-    findRelatedPhrases: async () => [current],
   };
   const service = new CardRelationService(repository as never, {
     modelVersion: "embedding-v1",
@@ -61,6 +59,23 @@ test("falls back to exact phrase history while semantic embeddings are unavailab
 
   const relations = await service.relatedPhrases("user-1", "card:current-card", 10);
 
-  assert.equal(relations[0]?.reason.matchMode, "exact");
-  assert.equal(relations[0]?.reason.semanticScore, undefined);
+  assert.deepEqual(relations, []);
+});
+
+test("keeps topic relations when no semantic language relation exists", async () => {
+  const repository = {
+    findRelatedTopics: async () => [{ sourceId: "topic-card", topic: "new house renovation", score: 0.88 }],
+    findSemanticallyRelatedPhrases: async () => [],
+    findRelationPreviews: async () => [],
+  };
+  const service = new CardRelationService(repository as never, {
+    modelVersion: "embedding-v1",
+    minTopicSimilarity: 0.7,
+  });
+
+  const relations = await service.relations("user-1", "card:current-card", 10);
+
+  assert.equal(relations.length, 1);
+  assert.equal(relations[0]?.recordId, "card:topic-card");
+  assert.deepEqual(relations[0]?.reasons, [{ type: "topic", score: 0.88, modelVersion: "embedding-v1" }]);
 });

@@ -142,69 +142,6 @@ export class PrismaCardRelationRepository {
     return rows.map((row) => ({ ...row, score: Number(row.score) }));
   }
 
-  async findRelatedPhrases(input: {
-    userId: string;
-    sourceKind: string;
-    sourceId: string;
-    limit: number;
-  }): Promise<RelatedPhraseRow[]> {
-    return this.prisma.$queryRawUnsafe<RelatedPhraseRow[]>(
-      `WITH anchors AS (
-         SELECT DISTINCT ON (occurrence."phraseId")
-                occurrence."phraseId", occurrence."cardCreatedAt", occurrence."segmentId",
-                occurrence."surfaceText", occurrence."startUtf16", occurrence."endUtf16",
-                COALESCE(current_segment."text", occurrence."surfaceText") AS "sentence"
-          FROM "phrase_occurrences" AS occurrence
-          LEFT JOIN "card_rewrite_segments" AS current_segment
-            ON current_segment."id" = occurrence."segmentId"
-          WHERE occurrence."userId" = $1
-            AND occurrence."cardId" = $2
-            AND occurrence."sourceField" = 'ai_expression'
-            AND occurrence."clozeBlankId" IS NOT NULL
-          ORDER BY occurrence."phraseId", occurrence."updatedAt" DESC, occurrence."id" DESC
-       ), deduplicated AS (
-         SELECT DISTINCT ON (historical."cardId", historical."phraseId")
-              historical."phraseId",
-              phrase."canonicalText" AS "phrase",
-              'card'::text AS "sourceKind",
-              historical."cardId" AS "sourceId",
-              historical_card."topic",
-              CASE WHEN historical."clozeBlankId" IS NULL THEN 'appeared' ELSE 'clozed' END AS "evidence",
-              historical."surfaceText",
-              COALESCE(segment."text", historical."surfaceText") AS "sentence",
-              anchors."segmentId" AS "currentSegmentId",
-              anchors."surfaceText" AS "currentSurfaceText",
-              anchors."startUtf16" AS "currentStartUtf16",
-              anchors."endUtf16" AS "currentEndUtf16",
-              anchors."sentence" AS "currentSentence",
-              historical."cardCreatedAt"
-         FROM anchors
-         JOIN "phrase_occurrences" AS historical
-           ON historical."phraseId" = anchors."phraseId"
-          AND historical."userId" = $1
-          AND historical."sourceField" = 'ai_expression'
-          AND historical."cardCreatedAt" < anchors."cardCreatedAt"
-         JOIN "phrases" AS phrase ON phrase."id" = historical."phraseId" AND phrase."userId" = $1
-         JOIN "cards" AS historical_card
-           ON historical_card."id" = historical."cardId"
-          AND historical_card."userId" = historical."userId"
-          AND historical_card."status" = 'completed'
-          AND historical_card."deletedAt" IS NULL
-         LEFT JOIN "card_rewrite_segments" AS segment
-           ON segment."id" = historical."segmentId"
-        WHERE historical."cardId" <> $2
-        ORDER BY historical."cardId", historical."phraseId",
-                 (historical."clozeBlankId" IS NOT NULL) DESC, historical."cardCreatedAt" DESC
-       )
-       SELECT * FROM deduplicated
-        ORDER BY "cardCreatedAt" DESC, "sourceId" DESC
-        LIMIT $3`,
-      input.userId,
-      input.sourceId,
-      input.limit,
-    );
-  }
-
   async findSemanticallyRelatedPhrases(input: {
     userId: string;
     sourceId: string;

@@ -87,22 +87,14 @@ export class CardRelationService {
     const limit = Number.isFinite(requestedLimit)
       ? Math.max(1, Math.min(100, Math.floor(requestedLimit!)))
       : 30;
-    const [semanticRows, exactRows] = await Promise.all([
-      this.options.modelVersion
-        ? this.repository.findSemanticallyRelatedPhrases({
-            userId,
-            sourceId: ref.sourceId,
-            modelVersion: this.options.modelVersion,
-            minSimilarity: this.options.minLanguageSimilarity ?? 0.72,
-            limit,
-          })
-        : [],
-      this.repository.findRelatedPhrases({ userId, sourceKind: ref.source, sourceId: ref.sourceId, limit }),
-    ]);
-    const rows = [
-      ...semanticRows.map((row) => ({ ...row, matchMode: "semantic" as const })),
-      ...exactRows.map((row) => ({ ...row, matchMode: "exact" as const, semanticScore: undefined })),
-    ].filter((row, index, all) => all.findIndex((candidate) => candidate.sourceId === row.sourceId) === index).slice(0, limit);
+    if (!this.options.modelVersion) return [];
+    const rows = (await this.repository.findSemanticallyRelatedPhrases({
+      userId,
+      sourceId: ref.sourceId,
+      modelVersion: this.options.modelVersion,
+      minSimilarity: this.options.minLanguageSimilarity ?? 0.72,
+      limit,
+    })).map((row) => ({ ...row, matchMode: "semantic" as const }));
     return rows.map((row) => ({
       recordId: cardRecordId("card", row.sourceId),
       topic: row.topic,
