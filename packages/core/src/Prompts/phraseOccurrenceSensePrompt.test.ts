@@ -47,22 +47,25 @@ test("V2 captures sentence-scoped polarity and external modality", () => {
   const prompt = buildPhraseOccurrenceContextMeaningPrompt(contextualInput);
   assert.match(prompt.userPrompt, /They don't <selected>really want<\/selected> to make big changes\./u);
   assert.match(prompt.systemPrompt, /operators whose scope includes the selected expression/u);
-  assert.match(phraseOccurrenceContextMeaningPromptHashInput(contextualInput), /^phrase_occurrence_context_meaning_v2\n/u);
+  assert.match(phraseOccurrenceContextMeaningPromptHashInput(contextualInput), /^phrase_occurrence_context_meaning_v2_1\n/u);
 
   const result = parsePhraseOccurrenceContextMeaningOutput([
     "<meaning>lack desire to make changes</meaning>",
     "<polarity>negated</polarity>",
     "<modality>plain</modality>",
+    "<meaning_kind>process</meaning_kind>",
   ].join("\n"));
   assert.deepEqual(result, {
     meaning: "lack desire to make changes",
     polarity: "negated",
     modality: "plain",
+    meaningKind: "process",
   });
   assert.equal(buildPhraseOccurrenceContextMeaningEmbeddingInput(result), [
     "contextual usage meaning: lack desire to make changes",
     "polarity: negated",
     "external modality: plain",
+    "meaning kind: process",
   ].join("\n"));
 });
 
@@ -71,10 +74,18 @@ test("V2 rejects invalid semantic feature enums", () => {
     "<meaning>possibly desire to act</meaning>",
     "<polarity>maybe</polarity>",
     "<modality>possible</modality>",
+    "<meaning_kind>process</meaning_kind>",
   ].join("\n")), /POLARITY_INVALID/u);
   assert.throws(() => parsePhraseOccurrenceContextMeaningOutput([
     "<meaning>possibly desire to act</meaning>",
     "<polarity>affirmed</polarity>",
     "<modality>uncertain</modality>",
+    "<meaning_kind>process</meaning_kind>",
   ].join("\n")), /MODALITY_INVALID/u);
+  assert.throws(() => parsePhraseOccurrenceContextMeaningOutput([
+    "<meaning>possibly desire to act</meaning>",
+    "<polarity>affirmed</polarity>",
+    "<modality>possible</modality>",
+    "<meaning_kind>unknown</meaning_kind>",
+  ].join("\n")), /MEANING_KIND_INVALID/u);
 });

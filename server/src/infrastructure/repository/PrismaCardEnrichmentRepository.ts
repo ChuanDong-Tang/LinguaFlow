@@ -384,6 +384,7 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
       if (!supportedRepresentationVersions.includes(input.representationVersion)) {
         throw new Error("PHRASE_OCCURRENCE_REPRESENTATION_UNSUPPORTED");
       }
+      const requiresCurrentPrompt = input.representationVersion !== PHRASE_OCCURRENCE_MARKED_SENTENCE_REPRESENTATION_VERSION;
       const backfillInputVersionPrefix = `phrase_occurrence_embedding_backfill_v2:${input.representationVersion}:${expectedPromptVersion}:${input.modelVersion}:`;
       const rows = await tx.$queryRaw<Array<{ occurrenceId: string; userId: string }>>`
         SELECT occurrence."id" AS "occurrenceId", occurrence."userId"
@@ -399,6 +400,7 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
              WHERE embedding."occurrenceId" = occurrence."id"
                 AND embedding."modelVersion" = ${input.modelVersion}
                 AND embedding."representationVersion" = ${input.representationVersion}
+                AND (${requiresCurrentPrompt}::boolean = false OR embedding."promptVersion" = ${expectedPromptVersion})
            )
            AND NOT EXISTS (
              SELECT 1 FROM "card_enrichment_jobs" AS job
@@ -1219,6 +1221,7 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
     meaningText: string | null;
     polarity?: string | null;
     modality?: string | null;
+    meaningKind?: string | null;
   }): Promise<boolean> {
     return this.prisma.$transaction(async (tx) => {
       const occurrence = await loadPhraseOccurrenceEmbeddingSourceData(tx, job.sourceId, job.userId);
@@ -1249,18 +1252,18 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
       const vector = `[${result.embedding.join(",")}]`;
       await tx.$executeRawUnsafe(
         `INSERT INTO "phrase_occurrence_embeddings"
-          ("id", "userId", "cardId", "occurrenceId", "provider", "model", "modelVersion", "representationVersion", "promptVersion", "meaningText", "polarity", "modality", "dimensions", "inputHash", "embedding", "createdAt", "updatedAt")
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15::vector, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+          ("id", "userId", "cardId", "occurrenceId", "provider", "model", "modelVersion", "representationVersion", "promptVersion", "meaningText", "polarity", "modality", "meaningKind", "dimensions", "inputHash", "embedding", "createdAt", "updatedAt")
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16::vector, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
          ON CONFLICT ("occurrenceId", "modelVersion", "representationVersion")
          DO UPDATE SET "provider" = EXCLUDED."provider", "model" = EXCLUDED."model",
            "promptVersion" = EXCLUDED."promptVersion", "meaningText" = EXCLUDED."meaningText",
-           "polarity" = EXCLUDED."polarity", "modality" = EXCLUDED."modality",
+           "polarity" = EXCLUDED."polarity", "modality" = EXCLUDED."modality", "meaningKind" = EXCLUDED."meaningKind",
            "dimensions" = EXCLUDED."dimensions", "inputHash" = EXCLUDED."inputHash",
            "embedding" = EXCLUDED."embedding", "updatedAt" = CURRENT_TIMESTAMP`,
         randomUUID(), job.userId, occurrence.cardId, occurrence.occurrenceId, result.provider,
         result.model, result.modelVersion, representationVersion, representation?.promptVersion ?? null,
         representation?.meaningText ?? null, representation?.polarity ?? null, representation?.modality ?? null,
-        result.dimensions, job.inputHash, vector,
+        representation?.meaningKind ?? null, result.dimensions, job.inputHash, vector,
       );
       return true;
     });

@@ -569,6 +569,7 @@ model PhraseOccurrenceEmbedding {
   meaningText           String?
   polarity              String?
   modality              String?
+  meaningKind           String?
   dimensions            Int
   inputHash             String
   embedding             Unsupported("vector(1536)")

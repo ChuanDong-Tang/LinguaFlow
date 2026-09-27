@@ -62,6 +62,7 @@ export class PhraseOccurrenceEmbeddingWorkerService {
       let meaningText: string | null = null;
       let polarity: string | null = null;
       let modality: string | null = null;
+      let meaningKind: string | null = null;
       let embeddingInput = sourceInput;
       if (senseJob) {
         if (!this.aiProvider) throw workerError("PHRASE_OCCURRENCE_SENSE_PROVIDER_UNAVAILABLE");
@@ -86,6 +87,7 @@ export class PhraseOccurrenceEmbeddingWorkerService {
           meaningText = parsed.meaning;
           polarity = parsed.polarity;
           modality = parsed.modality;
+          meaningKind = parsed.meaningKind;
           embeddingInput = buildPhraseOccurrenceContextMeaningEmbeddingInput(parsed);
         } else {
           meaningText = parsePhraseOccurrenceSenseOutput(rawOutput);
@@ -104,6 +106,7 @@ export class PhraseOccurrenceEmbeddingWorkerService {
         meaningText,
         polarity,
         modality,
+        meaningKind,
       } : undefined);
     } catch (error) {
       const retry = resolveEnrichmentRetry(error, job.attempts, this.options.maxAttempts ?? 3);

@@ -1,6 +1,6 @@
 export const PHRASE_OCCURRENCE_SENSE_PROMPT_VERSION = "phrase_occurrence_sense_v1" as const;
 export const PHRASE_OCCURRENCE_SENSE_REPRESENTATION_VERSION = "usage_meaning_v1" as const;
-export const PHRASE_OCCURRENCE_CONTEXT_MEANING_PROMPT_VERSION = "phrase_occurrence_context_meaning_v2" as const;
+export const PHRASE_OCCURRENCE_CONTEXT_MEANING_PROMPT_VERSION = "phrase_occurrence_context_meaning_v2_1" as const;
 export const PHRASE_OCCURRENCE_CONTEXT_MEANING_REPRESENTATION_VERSION = "usage_meaning_v2" as const;
 export const PHRASE_OCCURRENCE_MARKED_SENTENCE_REPRESENTATION_VERSION = "marked_sentence_v1" as const;
 export type PhraseOccurrenceRepresentationVersion =
@@ -19,13 +19,25 @@ export const PHRASE_OCCURRENCE_MODALITIES = [
   "permitted",
   "neutral",
 ] as const;
+export const PHRASE_OCCURRENCE_MEANING_KINDS = [
+  "referent",
+  "process",
+  "property",
+  "relation",
+  "quantity",
+  "temporal",
+  "spatial",
+  "discourse",
+] as const;
 export type PhraseOccurrencePolarity = typeof PHRASE_OCCURRENCE_POLARITIES[number];
 export type PhraseOccurrenceModality = typeof PHRASE_OCCURRENCE_MODALITIES[number];
+export type PhraseOccurrenceMeaningKind = typeof PHRASE_OCCURRENCE_MEANING_KINDS[number];
 
 export interface PhraseOccurrenceContextMeaning {
   meaning: string;
   polarity: PhraseOccurrencePolarity;
   modality: PhraseOccurrenceModality;
+  meaningKind: PhraseOccurrenceMeaningKind;
 }
 
 export interface PhraseOccurrenceSensePromptInput {
@@ -85,7 +97,7 @@ export function buildPhraseOccurrenceContextMeaningPrompt(input: PhraseOccurrenc
     version: PHRASE_OCCURRENCE_CONTEXT_MEANING_PROMPT_VERSION,
     systemPrompt: `You identify the reusable meaning of one selected language-learning expression as it actually functions in its full sentence.
 
-Return one compact contextual meaning plus two grammatical features. Account for operators whose scope includes the selected expression even when they are outside <selected>, including negation, modal verbs, conditionals, questions, and commands.
+Return one compact contextual meaning plus three semantic features. Account for operators whose scope includes the selected expression even when they are outside <selected>, including negation, modal verbs, conditionals, questions, and commands.
 
 Hard rules:
 - The meaning must describe what the selected expression contributes in this sentence after those operators apply.
@@ -95,12 +107,15 @@ Hard rules:
 - Use affirmed when the expression's proposition or property applies, negated when it is denied or reversed, and neutral for non-propositional labels such as noun phrases.
 - modality must be exactly one of: plain, possible, hypothetical, ability, desired, required, permitted, neutral.
 - Modality describes an external operator governing the selected expression, not meaning already lexicalized inside the selected expression. Use neutral for non-propositional labels.
+- meaning_kind must be exactly one of: referent, process, property, relation, quantity, temporal, spatial, discourse.
+- Use referent for a person, thing, or place being named; process for an action, event, experience, or state; property for a quality or evaluation; relation for a comparison, fit, correspondence, or connection; and the remaining values for their literal functions.
 - Do not add examples, alternatives, markdown, or text outside the required tags.
 
 Return exactly:
 <meaning>short contextual usage meaning</meaning>
 <polarity>one allowed value</polarity>
-<modality>one allowed value</modality>`,
+<modality>one allowed value</modality>
+<meaning_kind>one allowed value</meaning_kind>`,
     userPrompt: `<language>${input.languageCode.trim()}</language>
 <canonical>${input.canonicalText.normalize("NFKC").trim()}</canonical>
 <sentence>${markedSentence}</sentence>`,
@@ -127,11 +142,16 @@ export function parsePhraseOccurrenceContextMeaningOutput(output: string): Phras
   if (!PHRASE_OCCURRENCE_MODALITIES.includes(modality as PhraseOccurrenceModality)) {
     throw senseError("PHRASE_OCCURRENCE_CONTEXT_MODALITY_INVALID");
   }
+  const meaningKind = taggedValue(output, "meaning_kind");
+  if (!PHRASE_OCCURRENCE_MEANING_KINDS.includes(meaningKind as PhraseOccurrenceMeaningKind)) {
+    throw senseError("PHRASE_OCCURRENCE_CONTEXT_MEANING_KIND_INVALID");
+  }
   if (/[<>]/u.test(meaning)) throw senseError("PHRASE_OCCURRENCE_CONTEXT_MEANING_INVALID_MARKUP");
   return {
     meaning,
     polarity: polarity as PhraseOccurrencePolarity,
     modality: modality as PhraseOccurrenceModality,
+    meaningKind: meaningKind as PhraseOccurrenceMeaningKind,
   };
 }
 
@@ -140,6 +160,7 @@ export function buildPhraseOccurrenceContextMeaningEmbeddingInput(value: PhraseO
     `contextual usage meaning: ${value.meaning}`,
     `polarity: ${value.polarity}`,
     `external modality: ${value.modality}`,
+    `meaning kind: ${value.meaningKind}`,
   ].join("\n");
 }
 

@@ -248,7 +248,8 @@ export class PrismaCardRelationRepository {
                 current_phrase_embedding."embedding" AS "phraseEmbedding",
                 current_context_embedding."embedding" AS "contextEmbedding",
                 current_context_embedding."polarity" AS "currentPolarity",
-                current_context_embedding."modality" AS "currentModality"
+                current_context_embedding."modality" AS "currentModality",
+                current_context_embedding."meaningKind" AS "currentMeaningKind"
            FROM "phrase_occurrences" AS occurrence
            JOIN "phrases" AS current_phrase
              ON current_phrase."id" = occurrence."phraseId"
@@ -346,6 +347,8 @@ export class PrismaCardRelationRepository {
               OR (
                 anchors."currentPolarity" IS NOT NULL
                 AND candidate_context_embedding."polarity" = anchors."currentPolarity"
+                AND anchors."currentMeaningKind" IS NOT NULL
+                AND candidate_context_embedding."meaningKind" = anchors."currentMeaningKind"
                 AND (
                   anchors."currentPolarity" = 'neutral'
                   OR (

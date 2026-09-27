@@ -140,6 +140,7 @@ test("generates a concise usage meaning before embedding a sense representation"
     meaningText: "laugh uncontrollably",
     polarity: null,
     modality: null,
+    meaningKind: null,
   });
 });
 
@@ -176,6 +177,7 @@ test("generates and persists one structured V2 context meaning", async () => {
         "<meaning>lack desire to make changes</meaning>",
         "<polarity>negated</polarity>",
         "<modality>plain</modality>",
+        "<meaning_kind>process</meaning_kind>",
       ].join("\n") });
       await onEvent({ type: "done" });
     },
@@ -201,6 +203,7 @@ test("generates and persists one structured V2 context meaning", async () => {
     "contextual usage meaning: lack desire to make changes",
     "polarity: negated",
     "external modality: plain",
+    "meaning kind: process",
   ].join("\n"));
   assert.deepEqual(completedRepresentation, {
     representationVersion: PHRASE_OCCURRENCE_CONTEXT_MEANING_REPRESENTATION_VERSION,
@@ -208,5 +211,6 @@ test("generates and persists one structured V2 context meaning", async () => {
     meaningText: "lack desire to make changes",
     polarity: "negated",
     modality: "plain",
+    meaningKind: "process",
   });
 });
