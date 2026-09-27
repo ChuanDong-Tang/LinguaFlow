@@ -348,7 +348,9 @@ export class PrismaCardRelationRepository {
                 anchors."currentPolarity" IS NOT NULL
                 AND candidate_context_embedding."polarity" = anchors."currentPolarity"
                 AND anchors."currentMeaningKind" IS NOT NULL
+                AND anchors."currentMeaningKind" <> 'other:missing'
                 AND candidate_context_embedding."meaningKind" = anchors."currentMeaningKind"
+                AND candidate_context_embedding."meaningKind" <> 'other:missing'
                 AND (
                   anchors."currentPolarity" = 'neutral'
                   OR (

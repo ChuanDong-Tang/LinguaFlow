@@ -88,12 +88,12 @@ test("V2 rejects invalid semantic feature enums", () => {
     "<modality>possible</modality>",
     "<meaning_kind>unknown</meaning_kind>",
   ].join("\n")).meaningKind, "other:unknown");
-  assert.throws(() => parsePhraseOccurrenceContextMeaningOutput([
+  assert.equal(parsePhraseOccurrenceContextMeaningOutput([
     "<meaning>possibly desire to act</meaning>",
     "<polarity>affirmed</polarity>",
     "<modality>possible</modality>",
     "<meaning_kind></meaning_kind>",
-  ].join("\n")), /MEANING_KIND_INVALID/u);
+  ].join("\n")).meaningKind, "other:missing");
 });
 
 test("V2 normalizes bounded meaning kind aliases", () => {

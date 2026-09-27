@@ -144,15 +144,12 @@ export function parsePhraseOccurrenceContextMeaningOutput(output: string): Phras
     throw senseError("PHRASE_OCCURRENCE_CONTEXT_MODALITY_INVALID");
   }
   const meaningKind = normalizeMeaningKind(taggedValue(output, "meaning_kind"));
-  if (!meaningKind) {
-    throw senseError("PHRASE_OCCURRENCE_CONTEXT_MEANING_KIND_INVALID");
-  }
   if (/[<>]/u.test(meaning)) throw senseError("PHRASE_OCCURRENCE_CONTEXT_MEANING_INVALID_MARKUP");
   return {
     meaning,
     polarity: polarity as PhraseOccurrencePolarity,
     modality: modality as PhraseOccurrenceModality,
-    meaningKind,
+    meaningKind: meaningKind ?? "other:missing",
   };
 }
 

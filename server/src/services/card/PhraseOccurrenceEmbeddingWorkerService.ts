@@ -77,7 +77,7 @@ export class PhraseOccurrenceEmbeddingWorkerService {
           languageCode: source.languageCode,
           systemPrompt: prompt.systemPrompt,
           rawUserPrompt: true,
-          maxOutputTokens: 80,
+          maxOutputTokens: contextMeaningV2 ? 160 : 80,
           temperature: 0,
         }, (event) => { if (event.type === "delta") rawOutput += event.text; });
         if (this.resourceGovernor) await this.resourceGovernor.execute("llm", source.userId, generate);

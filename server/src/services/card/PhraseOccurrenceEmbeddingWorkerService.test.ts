@@ -161,6 +161,7 @@ test("generates and persists one structured V2 context meaning", async () => {
     payload: { representationVersion: PHRASE_OCCURRENCE_CONTEXT_MEANING_REPRESENTATION_VERSION },
   };
   let embeddedInput = "";
+  let maxOutputTokens: number | undefined;
   let completedRepresentation: unknown;
   const repository = {
     async claimNextPhraseOccurrenceEmbeddingJob() { return job; },
@@ -172,7 +173,8 @@ test("generates and persists one structured V2 context meaning", async () => {
   } as unknown as CardEnrichmentRepository;
   const contextAiProvider: AIProvider = {
     ...aiProvider,
-    async generateChatTextStream(_input, onEvent) {
+    async generateChatTextStream(input, onEvent) {
+      maxOutputTokens = input.maxOutputTokens;
       await onEvent({ type: "delta", text: [
         "<meaning>lack desire to make changes</meaning>",
         "<polarity>negated</polarity>",
@@ -205,6 +207,7 @@ test("generates and persists one structured V2 context meaning", async () => {
     "external modality: plain",
     "meaning kind: process",
   ].join("\n"));
+  assert.equal(maxOutputTokens, 160);
   assert.deepEqual(completedRepresentation, {
     representationVersion: PHRASE_OCCURRENCE_CONTEXT_MEANING_REPRESENTATION_VERSION,
     promptVersion: PHRASE_OCCURRENCE_CONTEXT_MEANING_PROMPT_VERSION,

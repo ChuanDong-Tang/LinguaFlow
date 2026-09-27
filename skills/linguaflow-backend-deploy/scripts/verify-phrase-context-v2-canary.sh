@@ -83,7 +83,9 @@ const rows = await prisma.$queryRawUnsafe(`
      WHERE "anchorPolarity" IS NOT NULL
        AND "candidatePolarity" = "anchorPolarity"
        AND "anchorMeaningKind" IS NOT NULL
+       AND "anchorMeaningKind" <> 'other:missing'
        AND "candidateMeaningKind" = "anchorMeaningKind"
+       AND "candidateMeaningKind" <> 'other:missing'
        AND (
          "anchorPolarity" = 'neutral'
          OR ("anchorModality" IS NOT NULL AND "candidateModality" = "anchorModality")
