@@ -77,10 +77,10 @@ export async function enqueuePhraseOccurrenceEmbeddingForOccurrence(
   if (!occurrence) return;
   const relationEnabled = process.env.RELATED_PHRASE_CONTEXT_ENABLED?.trim().toLowerCase() === "true";
   const backfillEnabled = process.env.CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_ENABLED?.trim().toLowerCase() === "true";
-  const configuredRepresentation = relationEnabled
-    ? process.env.RELATED_PHRASE_CONTEXT_REPRESENTATION_VERSION?.trim()
-    : backfillEnabled
-      ? process.env.CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_REPRESENTATION_VERSION?.trim()
+  const configuredRepresentation = backfillEnabled
+    ? process.env.CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_REPRESENTATION_VERSION?.trim()
+    : relationEnabled
+      ? process.env.RELATED_PHRASE_CONTEXT_REPRESENTATION_VERSION?.trim()
       : undefined;
   const representationVersion = configuredRepresentation
     === PHRASE_OCCURRENCE_SENSE_REPRESENTATION_VERSION

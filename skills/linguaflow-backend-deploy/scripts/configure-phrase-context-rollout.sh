@@ -20,11 +20,13 @@ const backfillRepresentation = String(process.env.CARD_PHRASE_OCCURRENCE_EMBEDDI
 const relationRepresentation = String(process.env.RELATED_PHRASE_CONTEXT_REPRESENTATION_VERSION || "marked_sentence_v1").trim();
 const promptVersion = backfillRepresentation === "usage_meaning_v1" ? "phrase_occurrence_sense_v1" : "direct_embedding_v1";
 const backfillPrefix = `phrase_occurrence_embedding_backfill_v2:${backfillRepresentation}:${promptVersion}:${modelVersion}:`;
-const [eligible, embedded, handled, jobs] = await Promise.all([
+const senseInputMarker = `:${backfillRepresentation}:`;
+const [eligible, embedded, handled, jobs, allRepresentationJobs] = await Promise.all([
   prisma.$queryRaw`SELECT COUNT(*)::int AS count FROM "phrase_occurrences" occurrence JOIN "phrases" phrase ON phrase."id" = occurrence."phraseId" AND phrase."status" = ${"normalized"} WHERE occurrence."sourceField" = ${"ai_expression"} AND (${targetUserId}::text IS NULL OR occurrence."userId" = ${targetUserId})`,
   prisma.$queryRaw`SELECT COUNT(*)::int AS count FROM "phrase_occurrence_embeddings" embedding JOIN "phrase_occurrences" occurrence ON occurrence."id" = embedding."occurrenceId" WHERE embedding."modelVersion" = ${modelVersion} AND embedding."representationVersion" = ${backfillRepresentation} AND (${targetUserId}::text IS NULL OR occurrence."userId" = ${targetUserId})`,
   prisma.$queryRaw`SELECT COUNT(*)::int AS count FROM "phrase_occurrences" occurrence JOIN "phrases" phrase ON phrase."id" = occurrence."phraseId" AND phrase."status" = ${"normalized"} WHERE occurrence."sourceField" = ${"ai_expression"} AND (${targetUserId}::text IS NULL OR occurrence."userId" = ${targetUserId}) AND (EXISTS (SELECT 1 FROM "phrase_occurrence_embeddings" embedding WHERE embedding."occurrenceId" = occurrence."id" AND embedding."modelVersion" = ${modelVersion} AND embedding."representationVersion" = ${backfillRepresentation}) OR EXISTS (SELECT 1 FROM "card_enrichment_jobs" job WHERE job."userId" = occurrence."userId" AND job."sourceKind" = ${"phrase_occurrence"} AND job."sourceId" = occurrence."id" AND job."jobType" = ${"generate_phrase_occurrence_embedding"} AND job."status" = ${"completed"} AND left(job."inputVersion", ${backfillPrefix.length}::integer) = ${backfillPrefix}))`,
   prisma.cardEnrichmentJob.groupBy({ by: ["status"], where: { jobType: "generate_phrase_occurrence_embedding", inputVersion: { startsWith: backfillPrefix }, ...(targetUserId ? { userId: targetUserId } : {}) }, _count: { _all: true } }),
+  prisma.cardEnrichmentJob.groupBy({ by: ["status"], where: { jobType: "generate_phrase_occurrence_embedding", inputVersion: { contains: senseInputMarker }, ...(targetUserId ? { userId: targetUserId } : {}) }, _count: { _all: true } }),
 ]);
 const total = Number(eligible[0]?.count || 0);
 const done = Number(embedded[0]?.count || 0);
@@ -40,6 +42,7 @@ console.log(`embedded=${done}`);
 console.log(`skipped=${Math.max(0, handledCount - done)}`);
 console.log(`missing=${Math.max(0, total - handledCount)}`);
 for (const row of jobs) console.log(`jobs_${row.status}=${row._count._all}`);
+for (const row of allRepresentationJobs) console.log(`representation_jobs_${row.status}=${row._count._all}`);
 await prisma.$disconnect();
 NODE
     echo api_status=$(pm2 jlist | node -e '"'"'let r="";process.stdin.on("data",c=>r+=c);process.stdin.on("end",()=>process.stdout.write(JSON.parse(r).find(x=>x.name==="oio-api-production")?.pm2_env?.status||"missing"))'"'"')

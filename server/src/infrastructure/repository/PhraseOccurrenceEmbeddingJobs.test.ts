@@ -73,3 +73,39 @@ test("new occurrences enqueue the configured sense representation", async () => 
   assert.equal(create?.payload?.representationVersion, "usage_meaning_v1");
   assert.equal(create?.payload?.promptVersion, "phrase_occurrence_sense_v1");
 });
+
+test("an active sense backfill takes precedence over a legacy relation representation", async () => {
+  const previous = {
+    relationEnabled: process.env.RELATED_PHRASE_CONTEXT_ENABLED,
+    relationRepresentation: process.env.RELATED_PHRASE_CONTEXT_REPRESENTATION_VERSION,
+    backfillEnabled: process.env.CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_ENABLED,
+    backfillRepresentation: process.env.CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_REPRESENTATION_VERSION,
+  };
+  process.env.RELATED_PHRASE_CONTEXT_ENABLED = "true";
+  process.env.RELATED_PHRASE_CONTEXT_REPRESENTATION_VERSION = "marked_sentence_v1";
+  process.env.CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_ENABLED = "true";
+  process.env.CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_REPRESENTATION_VERSION = "usage_meaning_v1";
+  let upsert: Record<string, unknown> | null = null;
+  const client = {
+    ...fakeClient([{ id: "current-segment", text: "So ridiculous, I was cracking up.", ordinal: 0 }]),
+    cardEnrichmentJob: {
+      async upsert(input: Record<string, unknown>) { upsert = input; },
+    },
+  };
+  try {
+    await enqueuePhraseOccurrenceEmbeddingForOccurrence(client, "occurrence-1");
+  } finally {
+    for (const [key, value] of Object.entries({
+      RELATED_PHRASE_CONTEXT_ENABLED: previous.relationEnabled,
+      RELATED_PHRASE_CONTEXT_REPRESENTATION_VERSION: previous.relationRepresentation,
+      CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_ENABLED: previous.backfillEnabled,
+      CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_REPRESENTATION_VERSION: previous.backfillRepresentation,
+    })) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+
+  const create = (upsert as { create?: { payload?: Record<string, unknown> } } | null)?.create;
+  assert.equal(create?.payload?.representationVersion, "usage_meaning_v1");
+});
