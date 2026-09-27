@@ -33,6 +33,7 @@ import {
 } from "@lf/core/Prompts/cardImageDescriptionPrompt.js";
 import { createHash } from "node:crypto";
 import { Prisma } from "@prisma/client";
+import { enqueuePhraseOccurrenceEmbeddingForOccurrence } from "./PhraseOccurrenceEmbeddingJobs.js";
 
 type PrismaCardClient = {
   card: {
@@ -2434,7 +2435,7 @@ async function applyPhraseMutation(tx: any, input: {
     },
     update: { source: "observed_cloze" },
   });
-  await tx.phraseOccurrence.upsert({
+  const phraseOccurrence = await tx.phraseOccurrence.upsert({
     where: {
       phraseId_cardId_sourceField_segmentKey_startUtf16_endUtf16: {
         phraseId: phrase.id,
@@ -2488,6 +2489,7 @@ async function applyPhraseMutation(tx: any, input: {
     update: {},
   });
   if (phrase.status === "normalized") {
+    await enqueuePhraseOccurrenceEmbeddingForOccurrence(tx, phraseOccurrence.id);
     const phraseEmbeddingHash = createHash("sha256")
       .update(`${phrase.languageCode}\n${phrase.canonicalText.normalize("NFKC").trim()}`)
       .digest("hex");

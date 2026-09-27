@@ -29,6 +29,17 @@ export interface PhraseEmbeddingSource {
   canonicalText: string;
 }
 
+export interface PhraseOccurrenceEmbeddingSource {
+  userId: string;
+  occurrenceId: string;
+  cardId: string;
+  languageCode: string;
+  canonicalText: string;
+  sentence: string;
+  startUtf16: number;
+  endUtf16: number;
+}
+
 export interface CardTopicSource {
   userId: string;
   sourceId: string;
@@ -108,6 +119,12 @@ export interface CardEnrichmentRepository {
     limit: number;
     maxOutstanding: number;
   }): Promise<number>;
+  enqueueMissingPhraseOccurrenceEmbeddingJobs(input: {
+    modelVersion: string;
+    limit: number;
+    maxOutstanding: number;
+    userId?: string;
+  }): Promise<number>;
   claimNextRewriteAlignmentJob(workerId: string, leaseExpiresAt: Date): Promise<CardEnrichmentJobEntity | null>;
   loadRewriteAlignmentSource(job: CardEnrichmentJobEntity): Promise<CardRewriteAlignmentSource | null>;
   completeRewriteAlignmentJob(
@@ -123,6 +140,9 @@ export interface CardEnrichmentRepository {
   claimNextPhraseEmbeddingJob(workerId: string, leaseExpiresAt: Date): Promise<CardEnrichmentJobEntity | null>;
   loadPhraseEmbeddingSource(job: CardEnrichmentJobEntity): Promise<PhraseEmbeddingSource | null>;
   completePhraseEmbeddingJob(job: CardEnrichmentJobEntity, result: EmbeddingResult): Promise<boolean>;
+  claimNextPhraseOccurrenceEmbeddingJob(workerId: string, leaseExpiresAt: Date): Promise<CardEnrichmentJobEntity | null>;
+  loadPhraseOccurrenceEmbeddingSource(job: CardEnrichmentJobEntity): Promise<PhraseOccurrenceEmbeddingSource | null>;
+  completePhraseOccurrenceEmbeddingJob(job: CardEnrichmentJobEntity, result: EmbeddingResult): Promise<boolean>;
   completeWithoutResult(job: CardEnrichmentJobEntity, reason: string): Promise<boolean>;
   completeJob(job: CardEnrichmentJobEntity): Promise<boolean>;
   rescheduleOrFail(

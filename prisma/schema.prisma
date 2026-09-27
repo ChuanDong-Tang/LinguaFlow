@@ -41,6 +41,7 @@ model User {
   cardCollections             CardCollection[]
   cardEmbeddings              CardEmbedding[]
   phraseEmbeddings            PhraseEmbedding[]
+  phraseOccurrenceEmbeddings  PhraseOccurrenceEmbedding[]
   phrases                     Phrase[]
   phraseVariants              PhraseVariant[]
   phraseOccurrences           PhraseOccurrence[]
@@ -223,18 +224,19 @@ model Card {
   createdAt                         DateTime  @default(now())
   updatedAt                         DateTime  @updatedAt
 
-  user                  User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  collection            CardCollection?            @relation(fields: [collectionId], references: [id], onDelete: SetNull)
-  segments              CardRewriteSegment[]
-  contentSegments       CardContentSegment[]
-  contentPracticeStates CardContentPracticeState[]
-  images                CardImageAsset[]
-  practiceState         CardPracticeState?
-  speechAssets          CardSpeechAsset[]
-  embeddings            CardEmbedding[]
-  phraseOccurrences     PhraseOccurrence[]
-  recallNodes           RecallSessionNode[]
-  seedRecallSessions    RecallSession[]            @relation("RecallSeedCard")
+  user                       User                        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  collection                 CardCollection?             @relation(fields: [collectionId], references: [id], onDelete: SetNull)
+  segments                   CardRewriteSegment[]
+  contentSegments            CardContentSegment[]
+  contentPracticeStates      CardContentPracticeState[]
+  images                     CardImageAsset[]
+  practiceState              CardPracticeState?
+  speechAssets               CardSpeechAsset[]
+  embeddings                 CardEmbedding[]
+  phraseOccurrences          PhraseOccurrence[]
+  phraseOccurrenceEmbeddings PhraseOccurrenceEmbedding[]
+  recallNodes                RecallSessionNode[]
+  seedRecallSessions         RecallSession[]             @relation("RecallSeedCard")
 
   @@unique([userId, clientId])
   @@index([userId, dateKey, createdAt])
@@ -542,15 +544,40 @@ model PhraseOccurrence {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  phrase Phrase @relation(fields: [phraseId], references: [id], onDelete: Cascade)
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  card   Card   @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  phrase     Phrase                      @relation(fields: [phraseId], references: [id], onDelete: Cascade)
+  user       User                        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  card       Card                        @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  embeddings PhraseOccurrenceEmbedding[]
 
   @@unique([phraseId, cardId, sourceField, segmentKey, startUtf16, endUtf16])
   @@index([phraseId, cardId])
   @@index([userId, cardId, sourceField, phraseId])
   @@index([userId, phraseId, sourceField, cardCreatedAt])
   @@map("phrase_occurrences")
+}
+
+model PhraseOccurrenceEmbedding {
+  id           String                      @id @default(cuid())
+  userId       String
+  cardId       String
+  occurrenceId String
+  provider     String
+  model        String
+  modelVersion String
+  dimensions   Int
+  inputHash    String
+  embedding    Unsupported("vector(1536)")
+  createdAt    DateTime                    @default(now())
+  updatedAt    DateTime                    @updatedAt
+
+  user       User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  card       Card             @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  occurrence PhraseOccurrence @relation(fields: [occurrenceId], references: [id], onDelete: Cascade)
+
+  @@unique([occurrenceId, modelVersion])
+  @@index([userId, modelVersion])
+  @@index([userId, cardId, modelVersion])
+  @@map("phrase_occurrence_embeddings")
 }
 
 model CardEnrichmentJob {

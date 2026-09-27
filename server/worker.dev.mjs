@@ -48,6 +48,8 @@ import { RedisCardWorkerConcurrencyGuard } from "./src/workers/card/CardWorkerCo
 import { CardEnrichmentWorkerService } from "./src/services/card/CardEnrichmentWorkerService.ts";
 import { PhraseEmbeddingWorkerService } from "./src/services/card/PhraseEmbeddingWorkerService.ts";
 import { PhraseEmbeddingBackfillScanner } from "./src/workers/card/PhraseEmbeddingBackfillScanner.ts";
+import { PhraseOccurrenceEmbeddingWorkerService } from "./src/services/card/PhraseOccurrenceEmbeddingWorkerService.ts";
+import { PhraseOccurrenceEmbeddingBackfillScanner } from "./src/workers/card/PhraseOccurrenceEmbeddingBackfillScanner.ts";
 import { CardTopicWorkerService } from "./src/services/card/CardTopicWorkerService.ts";
 import { CardRewriteAlignmentWorkerService } from "./src/services/card/CardRewriteAlignmentWorkerService.ts";
 import { CardRewriteAlignmentScanner } from "./src/workers/card/CardRewriteAlignmentScanner.ts";
@@ -479,6 +481,33 @@ const phraseEmbeddingBackfillScanner = embeddingProvider && runtime.cardPhraseEm
       },
     )
   : null;
+const phraseOccurrenceEmbeddingWorker = embeddingProvider
+  ? new SerialCardJobWorker(
+      new PhraseOccurrenceEmbeddingWorkerService(cardEnrichmentRepository, embeddingProvider, systemEventLogRepository, {}, resourceGovernor),
+      {
+        workerIdPrefix: "phrase-occurrence-embedding",
+        errorLabel: "phrase-occurrence-embedding-worker",
+        concurrencyGuard: undefined,
+        concurrencyScope: "embedding",
+        concurrencyLimit: runtime.cardEmbeddingGlobalConcurrency,
+      },
+    )
+  : null;
+const phraseOccurrenceEmbeddingBackfillScanner = embeddingProvider && runtime.cardPhraseOccurrenceEmbeddingBackfillEnabled
+  ? new PhraseOccurrenceEmbeddingBackfillScanner(
+      cardEnrichmentRepository,
+      embeddingProvider.modelVersion,
+      systemEventLogRepository,
+      {
+        intervalMs: runtime.cardPhraseOccurrenceEmbeddingBackfillScanIntervalMs,
+        batchSize: runtime.cardPhraseOccurrenceEmbeddingBackfillBatchSize,
+        maxOutstanding: runtime.cardPhraseOccurrenceEmbeddingBackfillMaxOutstanding,
+        ...(runtime.cardPhraseOccurrenceEmbeddingBackfillUserId
+          ? { userId: runtime.cardPhraseOccurrenceEmbeddingBackfillUserId }
+          : {}),
+      },
+    )
+  : null;
 const cardImageCleanupWorker = new CardImageCleanupWorker(
   cardRepository,
   cardImageStorageProvider,
@@ -519,6 +548,8 @@ const workerGroups = {
     cardEnrichmentWorker,
     phraseEmbeddingBackfillScanner,
     phraseEmbeddingWorker,
+    phraseOccurrenceEmbeddingBackfillScanner,
+    phraseOccurrenceEmbeddingWorker,
     phraseNormalizationWorker,
     phraseHistoryIndexWorker,
     cardPhraseIndexWorker,

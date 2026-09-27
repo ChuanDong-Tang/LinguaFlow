@@ -62,6 +62,28 @@ test("does not fall back to exact word or phrase history when semantic matches a
   assert.deepEqual(relations, []);
 });
 
+test("uses occurrence context only for the targeted rollout user", async () => {
+  const calls: string[] = [];
+  const repository = {
+    findContextuallyRelatedPhrases: async () => { calls.push("context"); return [{ ...current, semanticScore: 0.91 }]; },
+    findSemanticallyRelatedPhrases: async () => { calls.push("phrase"); return [{ ...current, semanticScore: 0.84 }]; },
+  };
+  const service = new CardRelationService(repository as never, {
+    modelVersion: "embedding-v1",
+    minTopicSimilarity: 0.7,
+    contextRelationsEnabled: true,
+    contextRelationsUserId: "user-target",
+    minContextSimilarity: 0.8,
+  });
+
+  const target = await service.relatedPhrases("user-target", "card:current-card", 10);
+  const other = await service.relatedPhrases("user-other", "card:current-card", 10);
+
+  assert.deepEqual(calls, ["context", "phrase"]);
+  assert.equal(target[0]?.reason.semanticScore, 0.91);
+  assert.equal(other[0]?.reason.semanticScore, 0.84);
+});
+
 test("keeps topic relations when no semantic language relation exists", async () => {
   const repository = {
     findRelatedTopics: async () => [{ sourceId: "topic-card", topic: "new house renovation", score: 0.88 }],

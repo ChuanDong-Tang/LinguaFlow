@@ -29,7 +29,15 @@ export interface CardRelationPreview {
 export class CardRelationService {
   constructor(
     private readonly repository: PrismaCardRelationRepository,
-    private readonly options: { modelVersion: string | null; minTopicSimilarity: number; minLanguageSimilarity?: number; topicMaxChars?: number },
+    private readonly options: {
+      modelVersion: string | null;
+      minTopicSimilarity: number;
+      minLanguageSimilarity?: number;
+      contextRelationsEnabled?: boolean;
+      contextRelationsUserId?: string | null;
+      minContextSimilarity?: number;
+      topicMaxChars?: number;
+    },
     private readonly imageService?: CardImageService,
   ) {}
 
@@ -88,13 +96,24 @@ export class CardRelationService {
       ? Math.max(1, Math.min(100, Math.floor(requestedLimit!)))
       : 30;
     if (!this.options.modelVersion) return [];
-    const rows = (await this.repository.findSemanticallyRelatedPhrases({
-      userId,
-      sourceId: ref.sourceId,
-      modelVersion: this.options.modelVersion,
-      minSimilarity: this.options.minLanguageSimilarity ?? 0.72,
-      limit,
-    })).map((row) => ({ ...row, matchMode: "semantic" as const }));
+    const useContextRelations = this.options.contextRelationsEnabled === true
+      && (!this.options.contextRelationsUserId || this.options.contextRelationsUserId === userId);
+    const rows = (await (useContextRelations
+      ? this.repository.findContextuallyRelatedPhrases({
+          userId,
+          sourceId: ref.sourceId,
+          modelVersion: this.options.modelVersion,
+          minPhraseSimilarity: this.options.minLanguageSimilarity ?? 0.72,
+          minContextSimilarity: this.options.minContextSimilarity ?? 0.78,
+          limit,
+        })
+      : this.repository.findSemanticallyRelatedPhrases({
+          userId,
+          sourceId: ref.sourceId,
+          modelVersion: this.options.modelVersion,
+          minSimilarity: this.options.minLanguageSimilarity ?? 0.72,
+          limit,
+        }))).map((row) => ({ ...row, matchMode: "semantic" as const }));
     return rows.map((row) => ({
       recordId: cardRecordId("card", row.sourceId),
       topic: row.topic,

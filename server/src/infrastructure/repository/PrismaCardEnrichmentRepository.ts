@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { Prisma, type PrismaClient } from "@prisma/client";
 import { buildCardEmbeddingInput } from "@lf/core/text/cardEmbedding.js";
+import { buildPhraseOccurrenceEmbeddingInput } from "@lf/core/text/phraseOccurrenceEmbedding.js";
 import type {
   CardEmbeddingSource,
   CardEnrichmentJobEntity,
@@ -18,6 +19,10 @@ import {
   cardImageDescriptionInputVersion,
 } from "@lf/core/Prompts/cardImageDescriptionPrompt.js";
 import { CARD_REWRITE_ALIGNMENT_PROMPT_VERSION } from "@lf/core/Prompts/cardRewriteAlignmentPrompt.js";
+import {
+  enqueuePhraseOccurrenceEmbeddingForOccurrence,
+  enqueuePhraseOccurrenceEmbeddingGeneration,
+} from "./PhraseOccurrenceEmbeddingJobs.js";
 
 export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository {
   constructor(private readonly prisma: PrismaClient) {}
@@ -333,6 +338,101 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
     });
   }
 
+  async enqueueMissingPhraseOccurrenceEmbeddingJobs(input: {
+    modelVersion: string;
+    limit: number;
+    maxOutstanding: number;
+    userId?: string;
+  }): Promise<number> {
+    return this.prisma.$transaction(async (tx) => {
+      const lockKey = input.userId
+        ? `phrase_occurrence_embedding_backfill_scan:${input.userId}`
+        : "phrase_occurrence_embedding_backfill_scan:all";
+      const lock = await tx.$queryRaw<Array<{ acquired: boolean }>>`
+        SELECT pg_try_advisory_xact_lock(hashtext(${lockKey})) AS "acquired"
+      `;
+      if (!lock[0]?.acquired) return 0;
+      const outstanding = await tx.cardEnrichmentJob.count({
+        where: {
+          jobType: "generate_phrase_occurrence_embedding",
+          status: { in: ["queued", "processing"] },
+          ...(input.userId ? { userId: input.userId } : {}),
+        },
+      });
+      const availableSlots = Math.max(0, Math.max(1, input.maxOutstanding) - outstanding);
+      if (!availableSlots) return 0;
+      const scanLimit = Math.min(Math.max(1, input.limit), availableSlots);
+      const backfillInputVersionPrefix = `phrase_occurrence_embedding_backfill_v1:${input.modelVersion}:`;
+      const rows = await tx.$queryRaw<Array<{
+        occurrenceId: string;
+        userId: string;
+        cardId: string;
+        languageCode: string;
+        canonicalText: string;
+        sentence: string;
+        startUtf16: number;
+        endUtf16: number;
+      }>>`
+        SELECT occurrence."id" AS "occurrenceId", occurrence."userId", occurrence."cardId",
+               phrase."languageCode", phrase."canonicalText", segment."text" AS "sentence",
+               occurrence."startUtf16", occurrence."endUtf16"
+          FROM "phrase_occurrences" AS occurrence
+          JOIN "phrases" AS phrase
+            ON phrase."id" = occurrence."phraseId"
+           AND phrase."userId" = occurrence."userId"
+           AND phrase."status" = 'normalized'
+          JOIN "card_rewrite_segments" AS segment
+            ON segment."id" = occurrence."segmentId"
+           AND segment."cardId" = occurrence."cardId"
+         WHERE occurrence."sourceField" = 'ai_expression'
+           AND (${input.userId ?? null}::text IS NULL OR occurrence."userId" = ${input.userId ?? null})
+           AND NOT EXISTS (
+             SELECT 1 FROM "phrase_occurrence_embeddings" AS embedding
+              WHERE embedding."occurrenceId" = occurrence."id"
+                AND embedding."modelVersion" = ${input.modelVersion}
+           )
+           AND NOT EXISTS (
+             SELECT 1 FROM "card_enrichment_jobs" AS job
+              WHERE job."userId" = occurrence."userId"
+                AND job."sourceKind" = 'phrase_occurrence'
+                AND job."sourceId" = occurrence."id"
+                AND job."jobType" = 'generate_phrase_occurrence_embedding'
+                AND job."status" IN ('queued', 'processing')
+           )
+           AND NOT EXISTS (
+             SELECT 1 FROM "card_enrichment_jobs" AS job
+              WHERE job."userId" = occurrence."userId"
+                AND job."sourceKind" = 'phrase_occurrence'
+                AND job."sourceId" = occurrence."id"
+                AND job."jobType" = 'generate_phrase_occurrence_embedding'
+                AND left(job."inputVersion", ${backfillInputVersionPrefix.length}::integer) = ${backfillInputVersionPrefix}
+           )
+         ORDER BY occurrence."createdAt" ASC, occurrence."id" ASC
+         LIMIT ${scanLimit}
+      `;
+      let enqueued = 0;
+      for (const row of rows) {
+        const embeddingInput = buildPhraseOccurrenceEmbeddingInput(row);
+        const hashInput = embeddingInput ?? JSON.stringify([
+          row.languageCode,
+          row.canonicalText,
+          row.sentence,
+          row.startUtf16,
+          row.endUtf16,
+        ]);
+        const inputHash = createHash("sha256").update(hashInput).digest("hex");
+        await enqueuePhraseOccurrenceEmbeddingGeneration(tx, {
+          userId: row.userId,
+          occurrenceId: row.occurrenceId,
+          inputHash,
+          inputVersion: `${backfillInputVersionPrefix}${inputHash}`,
+        });
+        enqueued += 1;
+      }
+      return enqueued;
+    });
+  }
+
   async claimNextRewriteAlignmentJob(workerId: string, leaseExpiresAt: Date): Promise<CardEnrichmentJobEntity | null> {
     return this.claimNextJob(
       "align_rewrite_original",
@@ -480,6 +580,10 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
 
   async claimNextPhraseEmbeddingJob(workerId: string, leaseExpiresAt: Date): Promise<CardEnrichmentJobEntity | null> {
     return this.claimNextJob("generate_phrase_embedding", workerId, leaseExpiresAt);
+  }
+
+  async claimNextPhraseOccurrenceEmbeddingJob(workerId: string, leaseExpiresAt: Date): Promise<CardEnrichmentJobEntity | null> {
+    return this.claimNextJob("generate_phrase_occurrence_embedding", workerId, leaseExpiresAt);
   }
 
   async claimNextPhraseNormalizationJob(workerId: string, leaseExpiresAt: Date): Promise<CardEnrichmentJobEntity | null> {
@@ -689,6 +793,18 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
           normalizerVersion: input.normalizerVersion,
         },
       });
+      const currentOccurrences = await tx.phraseOccurrence.findMany({
+        where: {
+          phraseId: targetId,
+          userId: job.userId,
+          cardId: job.sourceId,
+          sourceField: "ai_expression",
+        },
+        select: { id: true },
+      });
+      for (const occurrence of currentOccurrences) {
+        await enqueuePhraseOccurrenceEmbeddingForOccurrence(tx, occurrence.id);
+      }
       await tx.cardEnrichmentJob.upsert({
         where: {
           userId_sourceKind_sourceId_jobType_inputVersion: {
@@ -955,7 +1071,7 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
   ): Promise<void> {
     for (const occurrence of occurrences) {
       const segmentKey = occurrence.segmentId ?? "";
-      await client.phraseOccurrence.upsert({
+      const row = await client.phraseOccurrence.upsert({
           where: {
             phraseId_cardId_sourceField_segmentKey_startUtf16_endUtf16: {
               phraseId: occurrence.phraseId,
@@ -981,6 +1097,7 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
           },
           update: { surfaceText: occurrence.surfaceText },
       });
+      await enqueuePhraseOccurrenceEmbeddingForOccurrence(client, row.id);
     }
   }
 
@@ -1054,6 +1171,37 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
     } : null;
   }
 
+  async loadPhraseOccurrenceEmbeddingSource(job: CardEnrichmentJobEntity) {
+    if (job.sourceKind !== "phrase_occurrence") return null;
+    const rows = await this.prisma.$queryRaw<Array<{
+      occurrenceId: string;
+      userId: string;
+      cardId: string;
+      languageCode: string;
+      canonicalText: string;
+      sentence: string;
+      startUtf16: number;
+      endUtf16: number;
+    }>>`
+      SELECT occurrence."id" AS "occurrenceId", occurrence."userId", occurrence."cardId",
+             phrase."languageCode", phrase."canonicalText", segment."text" AS "sentence",
+             occurrence."startUtf16", occurrence."endUtf16"
+        FROM "phrase_occurrences" AS occurrence
+        JOIN "phrases" AS phrase
+          ON phrase."id" = occurrence."phraseId"
+         AND phrase."userId" = occurrence."userId"
+         AND phrase."status" = 'normalized'
+        JOIN "card_rewrite_segments" AS segment
+          ON segment."id" = occurrence."segmentId"
+         AND segment."cardId" = occurrence."cardId"
+       WHERE occurrence."id" = ${job.sourceId}
+         AND occurrence."userId" = ${job.userId}
+         AND occurrence."sourceField" = 'ai_expression'
+       LIMIT 1
+    `;
+    return rows[0] ?? null;
+  }
+
   async completePhraseEmbeddingJob(job: CardEnrichmentJobEntity, result: EmbeddingResult): Promise<boolean> {
     return this.prisma.$transaction(async (tx) => {
       const claimed = await tx.cardEnrichmentJob.updateMany({
@@ -1072,6 +1220,69 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
            "embedding" = EXCLUDED."embedding", "updatedAt" = CURRENT_TIMESTAMP`,
         randomUUID(), job.userId, job.sourceId, result.provider, result.model,
         result.modelVersion, result.dimensions, job.inputHash, vector,
+      );
+      return true;
+    });
+  }
+
+  async completePhraseOccurrenceEmbeddingJob(job: CardEnrichmentJobEntity, result: EmbeddingResult): Promise<boolean> {
+    return this.prisma.$transaction(async (tx) => {
+      const occurrence = await tx.phraseOccurrence.findFirst({
+        where: { id: job.sourceId, userId: job.userId, sourceField: "ai_expression" },
+        select: {
+          id: true,
+          cardId: true,
+          segmentId: true,
+          startUtf16: true,
+          endUtf16: true,
+          phrase: { select: { languageCode: true, canonicalText: true, status: true } },
+        },
+      });
+      const segment = occurrence?.segmentId
+        ? await tx.cardRewriteSegment.findFirst({
+            where: { id: occurrence.segmentId, cardId: occurrence.cardId },
+            select: { text: true },
+          })
+        : null;
+      const currentInput = occurrence && segment && occurrence.phrase.status === "normalized"
+        ? buildPhraseOccurrenceEmbeddingInput({
+            languageCode: occurrence.phrase.languageCode,
+            canonicalText: occurrence.phrase.canonicalText,
+            sentence: segment.text,
+            startUtf16: occurrence.startUtf16,
+            endUtf16: occurrence.endUtf16,
+          })
+        : null;
+      const currentHash = currentInput ? createHash("sha256").update(currentInput).digest("hex") : null;
+      if (!occurrence || currentHash !== job.inputHash) {
+        await tx.cardEnrichmentJob.updateMany({
+          where: { id: job.id, status: "processing", workerId: job.workerId },
+          data: {
+            status: "completed",
+            completedAt: new Date(),
+            leaseExpiresAt: null,
+            workerId: null,
+            lastError: "PHRASE_OCCURRENCE_EMBEDDING_INPUT_STALE",
+          },
+        });
+        return false;
+      }
+      const claimed = await tx.cardEnrichmentJob.updateMany({
+        where: { id: job.id, status: "processing", workerId: job.workerId, inputHash: job.inputHash },
+        data: { status: "completed", completedAt: new Date(), leaseExpiresAt: null, workerId: null, lastError: null },
+      });
+      if (claimed.count !== 1) return false;
+      const vector = `[${result.embedding.join(",")}]`;
+      await tx.$executeRawUnsafe(
+        `INSERT INTO "phrase_occurrence_embeddings"
+          ("id", "userId", "cardId", "occurrenceId", "provider", "model", "modelVersion", "dimensions", "inputHash", "embedding", "createdAt", "updatedAt")
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::vector, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+         ON CONFLICT ("occurrenceId", "modelVersion")
+         DO UPDATE SET "provider" = EXCLUDED."provider", "model" = EXCLUDED."model",
+           "dimensions" = EXCLUDED."dimensions", "inputHash" = EXCLUDED."inputHash",
+           "embedding" = EXCLUDED."embedding", "updatedAt" = CURRENT_TIMESTAMP`,
+        randomUUID(), job.userId, occurrence.cardId, occurrence.id, result.provider,
+        result.model, result.modelVersion, result.dimensions, job.inputHash, vector,
       );
       return true;
     });

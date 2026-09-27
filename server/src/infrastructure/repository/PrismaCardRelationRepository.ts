@@ -229,6 +229,103 @@ export class PrismaCardRelationRepository {
     return rows.map((row) => ({ ...row, semanticScore: Number(row.semanticScore) }));
   }
 
+  async findContextuallyRelatedPhrases(input: {
+    userId: string;
+    sourceId: string;
+    modelVersion: string;
+    minPhraseSimilarity: number;
+    minContextSimilarity: number;
+    limit: number;
+  }): Promise<SemanticPhraseRelationRow[]> {
+    const rows = await this.prisma.$queryRawUnsafe<Array<SemanticPhraseRelationRow & { semanticScore: number | string }>>(
+      `WITH anchors AS (
+         SELECT occurrence."id" AS "occurrenceId", occurrence."phraseId", occurrence."segmentId",
+                occurrence."surfaceText", occurrence."startUtf16", occurrence."endUtf16",
+                current_segment."text" AS "currentSentence", current_phrase."languageCode",
+                current_phrase_embedding."embedding" AS "phraseEmbedding",
+                current_context_embedding."embedding" AS "contextEmbedding"
+           FROM "phrase_occurrences" AS occurrence
+           JOIN "phrases" AS current_phrase
+             ON current_phrase."id" = occurrence."phraseId"
+            AND current_phrase."userId" = occurrence."userId"
+            AND current_phrase."status" = 'normalized'
+           JOIN "phrase_embeddings" AS current_phrase_embedding
+             ON current_phrase_embedding."phraseId" = occurrence."phraseId"
+            AND current_phrase_embedding."userId" = occurrence."userId"
+            AND current_phrase_embedding."modelVersion" = $3
+           JOIN "phrase_occurrence_embeddings" AS current_context_embedding
+             ON current_context_embedding."occurrenceId" = occurrence."id"
+            AND current_context_embedding."userId" = occurrence."userId"
+            AND current_context_embedding."modelVersion" = $3
+           JOIN "card_rewrite_segments" AS current_segment
+             ON current_segment."id" = occurrence."segmentId"
+            AND current_segment."cardId" = occurrence."cardId"
+          WHERE occurrence."userId" = $1
+            AND occurrence."cardId" = $2
+            AND occurrence."sourceField" = 'ai_expression'
+            AND occurrence."clozeBlankId" IS NOT NULL
+       ), scored AS (
+         SELECT candidate_phrase."id" AS "phraseId", candidate_phrase."canonicalText" AS "phrase",
+                historical."cardId" AS "sourceId", historical."surfaceText", historical."cardCreatedAt",
+                historical."clozeBlankId", historical_segment."text" AS "sentence", historical_card."topic",
+                anchors."segmentId" AS "currentSegmentId", anchors."surfaceText" AS "currentSurfaceText",
+                anchors."startUtf16" AS "currentStartUtf16", anchors."endUtf16" AS "currentEndUtf16",
+                anchors."currentSentence",
+                (1 - (candidate_context_embedding."embedding" <=> anchors."contextEmbedding"))::double precision AS "semanticScore",
+                (1 - (candidate_phrase_embedding."embedding" <=> anchors."phraseEmbedding"))::double precision AS "phraseScore",
+                ROW_NUMBER() OVER (
+                  PARTITION BY anchors."occurrenceId", historical."cardId"
+                  ORDER BY candidate_context_embedding."embedding" <=> anchors."contextEmbedding" ASC,
+                           historical."cardCreatedAt" DESC, historical."id" DESC
+                ) AS "pairRank"
+           FROM anchors
+           JOIN "phrase_embeddings" AS candidate_phrase_embedding
+             ON candidate_phrase_embedding."userId" = $1
+            AND candidate_phrase_embedding."modelVersion" = $3
+            AND candidate_phrase_embedding."phraseId" <> anchors."phraseId"
+           JOIN "phrases" AS candidate_phrase
+             ON candidate_phrase."id" = candidate_phrase_embedding."phraseId"
+            AND candidate_phrase."userId" = $1
+            AND candidate_phrase."languageCode" = anchors."languageCode"
+            AND candidate_phrase."status" = 'normalized'
+           JOIN "phrase_occurrences" AS historical
+             ON historical."phraseId" = candidate_phrase."id"
+            AND historical."userId" = $1
+            AND historical."sourceField" = 'ai_expression'
+            AND historical."cardId" <> $2
+           JOIN "phrase_occurrence_embeddings" AS candidate_context_embedding
+             ON candidate_context_embedding."occurrenceId" = historical."id"
+            AND candidate_context_embedding."userId" = $1
+            AND candidate_context_embedding."modelVersion" = $3
+           JOIN "card_rewrite_segments" AS historical_segment
+             ON historical_segment."id" = historical."segmentId"
+            AND historical_segment."cardId" = historical."cardId"
+           JOIN "cards" AS historical_card
+             ON historical_card."id" = historical."cardId"
+            AND historical_card."userId" = $1
+            AND historical_card."status" = 'completed'
+            AND historical_card."deletedAt" IS NULL
+          WHERE (1 - (candidate_phrase_embedding."embedding" <=> anchors."phraseEmbedding")) >= $4
+            AND (1 - (candidate_context_embedding."embedding" <=> anchors."contextEmbedding")) >= $5
+       )
+       SELECT "phraseId", "phrase", 'card'::text AS "sourceKind", "sourceId", "topic",
+              CASE WHEN "clozeBlankId" IS NULL THEN 'appeared' ELSE 'clozed' END AS "evidence",
+              "surfaceText", "sentence", "currentSegmentId", "currentSurfaceText",
+              "currentStartUtf16", "currentEndUtf16", "currentSentence", "cardCreatedAt", "semanticScore"
+         FROM scored
+        WHERE "pairRank" = 1
+        ORDER BY "semanticScore" DESC, "phraseScore" DESC, "cardCreatedAt" DESC, "sourceId" ASC
+        LIMIT $6`,
+      input.userId,
+      input.sourceId,
+      input.modelVersion,
+      input.minPhraseSimilarity,
+      input.minContextSimilarity,
+      input.limit,
+    );
+    return rows.map((row) => ({ ...row, semanticScore: Number(row.semanticScore) }));
+  }
+
   async findPhraseOccurrenceHistory(input: {
     userId: string;
     phraseId: string;

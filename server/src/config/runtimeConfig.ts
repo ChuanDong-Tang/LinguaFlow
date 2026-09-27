@@ -116,6 +116,9 @@ export interface RuntimeConfig {
   azureEmbeddingTimeoutMs: number;
   relatedTopicMinSimilarity: number;
   relatedPhraseMinSimilarity: number;
+  relatedPhraseContextEnabled: boolean;
+  relatedPhraseContextUserId: string | null;
+  relatedPhraseContextMinSimilarity: number;
   cardCreateUserRateLimit: number;
   cardCreateGlobalRateLimit: number;
   cardCreateRateWindowMs: number;
@@ -153,6 +156,11 @@ export interface RuntimeConfig {
   cardPhraseEmbeddingBackfillBatchSize: number;
   cardPhraseEmbeddingBackfillMaxOutstanding: number;
   cardPhraseEmbeddingBackfillScanIntervalMs: number;
+  cardPhraseOccurrenceEmbeddingBackfillEnabled: boolean;
+  cardPhraseOccurrenceEmbeddingBackfillBatchSize: number;
+  cardPhraseOccurrenceEmbeddingBackfillMaxOutstanding: number;
+  cardPhraseOccurrenceEmbeddingBackfillScanIntervalMs: number;
+  cardPhraseOccurrenceEmbeddingBackfillUserId: string | null;
   cardRewriteAlignmentEnabled: boolean;
   cardRewriteAlignmentBackfillEnabled: boolean;
   cardRewriteAlignmentBatchSize: number;
@@ -328,6 +336,9 @@ export function getRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeC
     azureEmbeddingTimeoutMs: readPositiveInt(env.AZURE_EMBEDDING_TIMEOUT_MS, 20_000),
     relatedTopicMinSimilarity: readUnitFloat(env.RELATED_TOPIC_MIN_SIMILARITY, 0.60),
     relatedPhraseMinSimilarity: readUnitFloat(env.RELATED_PHRASE_MIN_SIMILARITY, 0.72),
+    relatedPhraseContextEnabled: readBoolean(env.RELATED_PHRASE_CONTEXT_ENABLED, false),
+    relatedPhraseContextUserId: trimToNull(env.RELATED_PHRASE_CONTEXT_USER_ID),
+    relatedPhraseContextMinSimilarity: readUnitFloat(env.RELATED_PHRASE_CONTEXT_MIN_SIMILARITY, 0.78),
     cardCreateUserRateLimit: readPositiveInt(env.CARD_CREATE_USER_RATE_LIMIT, 5),
     cardCreateGlobalRateLimit: readPositiveInt(env.CARD_CREATE_GLOBAL_RATE_LIMIT, 120),
     cardCreateRateWindowMs: readPositiveInt(env.CARD_CREATE_RATE_WINDOW_MS, 60_000),
@@ -365,6 +376,11 @@ export function getRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeC
     cardPhraseEmbeddingBackfillBatchSize: readPositiveInt(env.CARD_PHRASE_EMBEDDING_BACKFILL_BATCH_SIZE, 20),
     cardPhraseEmbeddingBackfillMaxOutstanding: readPositiveInt(env.CARD_PHRASE_EMBEDDING_BACKFILL_MAX_OUTSTANDING, 40),
     cardPhraseEmbeddingBackfillScanIntervalMs: readPositiveInt(env.CARD_PHRASE_EMBEDDING_BACKFILL_SCAN_INTERVAL_MS, 30_000),
+    cardPhraseOccurrenceEmbeddingBackfillEnabled: readBoolean(env.CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_ENABLED, false),
+    cardPhraseOccurrenceEmbeddingBackfillBatchSize: readPositiveInt(env.CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_BATCH_SIZE, 5),
+    cardPhraseOccurrenceEmbeddingBackfillMaxOutstanding: readPositiveInt(env.CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_MAX_OUTSTANDING, 10),
+    cardPhraseOccurrenceEmbeddingBackfillScanIntervalMs: readPositiveInt(env.CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_SCAN_INTERVAL_MS, 60_000),
+    cardPhraseOccurrenceEmbeddingBackfillUserId: trimToNull(env.CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_USER_ID),
     cardRewriteAlignmentEnabled: readBoolean(env.CARD_REWRITE_ALIGNMENT_ENABLED ?? env.CARD_AUXILIARY_BACKFILL_ENABLED, true),
     cardRewriteAlignmentBackfillEnabled: readBoolean(env.CARD_REWRITE_ALIGNMENT_BACKFILL_ENABLED, false),
     cardRewriteAlignmentBatchSize: readPositiveInt(env.CARD_REWRITE_ALIGNMENT_BATCH_SIZE ?? env.CARD_AUXILIARY_BACKFILL_BATCH_SIZE, 20),
