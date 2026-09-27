@@ -47,17 +47,23 @@ const selected = await prisma.$queryRaw`
 for (const row of selected) console.log(JSON.stringify({ type: "selected", ...row }));
 const rejected = await prisma.$queryRaw`
   SELECT anchor."surfaceText" AS "anchorSurface", anchor_segment."text" AS "anchorSentence",
-         candidate."surfaceText" AS "candidateSurface", candidate_segment."text" AS "candidateSentence"
+         candidate."surfaceText" AS "candidateSurface", candidate_segment."text" AS "candidateSentence",
+         ((1 - (candidate_phrase_embedding."embedding" <=> anchor_phrase_embedding."embedding")) * 0.30
+           + (1 - (candidate_context_embedding."embedding" <=> anchor_context_embedding."embedding")) * 0.70)::double precision AS "recallScore"
     FROM "phrase_occurrence_relation_decisions" decision
     JOIN "phrase_occurrences" anchor ON anchor."id" = decision."anchorOccurrenceId"
     JOIN LATERAL jsonb_array_elements_text(decision."candidateOccurrenceIds") AS candidate_ids("occurrenceId") ON TRUE
     JOIN "phrase_occurrences" candidate ON candidate."id" = candidate_ids."occurrenceId"
+    JOIN "phrase_occurrence_embeddings" anchor_context_embedding ON anchor_context_embedding."occurrenceId" = anchor."id" AND anchor_context_embedding."representationVersion" = ${"usage_meaning_v2"}
+    JOIN "phrase_occurrence_embeddings" candidate_context_embedding ON candidate_context_embedding."occurrenceId" = candidate."id" AND candidate_context_embedding."modelVersion" = anchor_context_embedding."modelVersion" AND candidate_context_embedding."representationVersion" = anchor_context_embedding."representationVersion"
+    JOIN "phrase_embeddings" anchor_phrase_embedding ON anchor_phrase_embedding."phraseId" = anchor."phraseId" AND anchor_phrase_embedding."modelVersion" = anchor_context_embedding."modelVersion"
+    JOIN "phrase_embeddings" candidate_phrase_embedding ON candidate_phrase_embedding."phraseId" = candidate."phraseId" AND candidate_phrase_embedding."modelVersion" = anchor_context_embedding."modelVersion"
     JOIN LATERAL (SELECT segment."text" FROM "card_rewrite_segments" segment WHERE segment."entryId" = anchor."cardId" AND (segment."id" = anchor."segmentId" OR position(lower(anchor."surfaceText") in lower(segment."text")) > 0) ORDER BY (segment."id" = anchor."segmentId") DESC, segment."ordinal" ASC LIMIT 1) anchor_segment ON TRUE
     JOIN LATERAL (SELECT segment."text" FROM "card_rewrite_segments" segment WHERE segment."entryId" = candidate."cardId" AND (segment."id" = candidate."segmentId" OR position(lower(candidate."surfaceText") in lower(segment."text")) > 0) ORDER BY (segment."id" = candidate."segmentId") DESC, segment."ordinal" ASC LIMIT 1) candidate_segment ON TRUE
    WHERE decision."userId" = ${userId} AND decision."promptVersion" = ${promptVersion} AND decision."status" = ${"none"}
      AND (${anchorFilter}::text IS NULL OR lower(anchor."surfaceText") = lower(${anchorFilter}))
-   ORDER BY decision."updatedAt" DESC
-   LIMIT 20`;
+   ORDER BY "recallScore" DESC, decision."updatedAt" DESC
+   LIMIT 30`;
 for (const row of rejected) console.log(JSON.stringify({ type: "rejected_candidate", ...row }));
 await prisma.$disconnect();
 NODE
