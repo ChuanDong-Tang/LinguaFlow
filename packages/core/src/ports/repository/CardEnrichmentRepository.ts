@@ -148,6 +148,8 @@ export interface CardEnrichmentRepository {
     representationVersion: string;
     promptVersion: string | null;
     meaningText: string | null;
+    polarity?: string | null;
+    modality?: string | null;
   }): Promise<boolean>;
   completeWithoutResult(job: CardEnrichmentJobEntity, reason: string): Promise<boolean>;
   completeJob(job: CardEnrichmentJobEntity): Promise<boolean>;

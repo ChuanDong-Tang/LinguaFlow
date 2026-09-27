@@ -1,10 +1,14 @@
 import { createHash } from "node:crypto";
 import { buildPhraseOccurrenceEmbeddingInput } from "@lf/core/text/phraseOccurrenceEmbedding.js";
 import {
+  PHRASE_OCCURRENCE_CONTEXT_MEANING_PROMPT_VERSION,
+  PHRASE_OCCURRENCE_CONTEXT_MEANING_REPRESENTATION_VERSION,
   PHRASE_OCCURRENCE_MARKED_SENTENCE_REPRESENTATION_VERSION,
   PHRASE_OCCURRENCE_SENSE_PROMPT_VERSION,
   PHRASE_OCCURRENCE_SENSE_REPRESENTATION_VERSION,
+  phraseOccurrenceContextMeaningPromptHashInput,
   phraseOccurrenceSensePromptHashInput,
+  type PhraseOccurrenceRepresentationVersion,
 } from "@lf/core/Prompts/phraseOccurrenceSensePrompt.js";
 import type { PhraseOccurrenceEmbeddingSource } from "@lf/core/ports/repository/CardEnrichmentRepository.js";
 
@@ -82,10 +86,7 @@ export async function enqueuePhraseOccurrenceEmbeddingForOccurrence(
     : relationEnabled
       ? process.env.RELATED_PHRASE_CONTEXT_REPRESENTATION_VERSION?.trim()
       : undefined;
-  const representationVersion = configuredRepresentation
-    === PHRASE_OCCURRENCE_SENSE_REPRESENTATION_VERSION
-    ? PHRASE_OCCURRENCE_SENSE_REPRESENTATION_VERSION
-    : PHRASE_OCCURRENCE_MARKED_SENTENCE_REPRESENTATION_VERSION;
+  const representationVersion = parsePhraseOccurrenceRepresentationVersion(configuredRepresentation);
   const input = phraseOccurrenceRepresentationHashInput(occurrence, representationVersion);
   if (!input) return;
   const inputHash = createHash("sha256").update(input).digest("hex");
@@ -95,9 +96,7 @@ export async function enqueuePhraseOccurrenceEmbeddingForOccurrence(
     inputHash,
     inputVersion: `phrase_occurrence_embedding_input_v2:${representationVersion}:${inputHash}`,
     representationVersion,
-    promptVersion: representationVersion === PHRASE_OCCURRENCE_SENSE_REPRESENTATION_VERSION
-      ? PHRASE_OCCURRENCE_SENSE_PROMPT_VERSION
-      : "direct_embedding_v1",
+    promptVersion: phraseOccurrencePromptVersion(representationVersion),
   });
 }
 
@@ -111,6 +110,9 @@ export function phraseOccurrenceRepresentationHashInput(
   if (representationVersion === PHRASE_OCCURRENCE_SENSE_REPRESENTATION_VERSION) {
     return phraseOccurrenceSensePromptHashInput(source);
   }
+  if (representationVersion === PHRASE_OCCURRENCE_CONTEXT_MEANING_REPRESENTATION_VERSION) {
+    return phraseOccurrenceContextMeaningPromptHashInput(source);
+  }
   return null;
 }
 
@@ -119,16 +121,51 @@ export function phraseOccurrenceBackfillInputVersion(input: {
   representationVersion: string;
   inputHash: string;
 }): string {
-  const promptVersion = input.representationVersion === PHRASE_OCCURRENCE_SENSE_REPRESENTATION_VERSION
-    ? PHRASE_OCCURRENCE_SENSE_PROMPT_VERSION
-    : "direct_embedding_v1";
+  const promptVersion = phraseOccurrencePromptVersion(input.representationVersion);
   return `phrase_occurrence_embedding_backfill_v2:${input.representationVersion}:${promptVersion}:${input.modelVersion}:${input.inputHash}`;
 }
 
 export function isPhraseOccurrenceSenseJob(job: { inputVersion: string; payload: unknown }): boolean {
-  if (job.inputVersion.includes(`:${PHRASE_OCCURRENCE_SENSE_REPRESENTATION_VERSION}:`)) return true;
-  if (!job.payload || typeof job.payload !== "object") return false;
-  return (job.payload as { representationVersion?: unknown }).representationVersion === PHRASE_OCCURRENCE_SENSE_REPRESENTATION_VERSION;
+  const representationVersion = phraseOccurrenceRepresentationVersionFromJob(job);
+  return representationVersion === PHRASE_OCCURRENCE_SENSE_REPRESENTATION_VERSION
+    || representationVersion === PHRASE_OCCURRENCE_CONTEXT_MEANING_REPRESENTATION_VERSION;
+}
+
+export function phraseOccurrenceRepresentationVersionFromJob(
+  job: { inputVersion: string; payload: unknown },
+): PhraseOccurrenceRepresentationVersion {
+  const payloadVersion = job.payload && typeof job.payload === "object"
+    ? (job.payload as { representationVersion?: unknown }).representationVersion
+    : undefined;
+  if (payloadVersion === PHRASE_OCCURRENCE_CONTEXT_MEANING_REPRESENTATION_VERSION
+    || job.inputVersion.includes(`:${PHRASE_OCCURRENCE_CONTEXT_MEANING_REPRESENTATION_VERSION}:`)) {
+    return PHRASE_OCCURRENCE_CONTEXT_MEANING_REPRESENTATION_VERSION;
+  }
+  if (payloadVersion === PHRASE_OCCURRENCE_SENSE_REPRESENTATION_VERSION
+    || job.inputVersion.includes(`:${PHRASE_OCCURRENCE_SENSE_REPRESENTATION_VERSION}:`)) {
+    return PHRASE_OCCURRENCE_SENSE_REPRESENTATION_VERSION;
+  }
+  return PHRASE_OCCURRENCE_MARKED_SENTENCE_REPRESENTATION_VERSION;
+}
+
+export function phraseOccurrencePromptVersion(representationVersion: string): string {
+  if (representationVersion === PHRASE_OCCURRENCE_CONTEXT_MEANING_REPRESENTATION_VERSION) {
+    return PHRASE_OCCURRENCE_CONTEXT_MEANING_PROMPT_VERSION;
+  }
+  if (representationVersion === PHRASE_OCCURRENCE_SENSE_REPRESENTATION_VERSION) {
+    return PHRASE_OCCURRENCE_SENSE_PROMPT_VERSION;
+  }
+  return "direct_embedding_v1";
+}
+
+function parsePhraseOccurrenceRepresentationVersion(value: string | undefined): PhraseOccurrenceRepresentationVersion {
+  if (value === PHRASE_OCCURRENCE_CONTEXT_MEANING_REPRESENTATION_VERSION) {
+    return PHRASE_OCCURRENCE_CONTEXT_MEANING_REPRESENTATION_VERSION;
+  }
+  if (value === PHRASE_OCCURRENCE_SENSE_REPRESENTATION_VERSION) {
+    return PHRASE_OCCURRENCE_SENSE_REPRESENTATION_VERSION;
+  }
+  return PHRASE_OCCURRENCE_MARKED_SENTENCE_REPRESENTATION_VERSION;
 }
 
 export async function enqueuePhraseOccurrenceEmbeddingGeneration(

@@ -237,6 +237,7 @@ export class PrismaCardRelationRepository {
     minPhraseSimilarity: number;
     minRepresentationSimilarity: number;
     representationWeight: number;
+    requireSemanticCompatibility: boolean;
     limit: number;
   }): Promise<SemanticPhraseRelationRow[]> {
     const rows = await this.prisma.$queryRawUnsafe<Array<SemanticPhraseRelationRow & { semanticScore: number | string }>>(
@@ -245,7 +246,9 @@ export class PrismaCardRelationRepository {
                 occurrence."surfaceText", occurrence."startUtf16", occurrence."endUtf16",
                 current_segment."text" AS "currentSentence", current_phrase."languageCode",
                 current_phrase_embedding."embedding" AS "phraseEmbedding",
-                current_context_embedding."embedding" AS "contextEmbedding"
+                current_context_embedding."embedding" AS "contextEmbedding",
+                current_context_embedding."polarity" AS "currentPolarity",
+                current_context_embedding."modality" AS "currentModality"
            FROM "phrase_occurrences" AS occurrence
            JOIN "phrases" AS current_phrase
              ON current_phrase."id" = occurrence."phraseId"
@@ -338,6 +341,15 @@ export class PrismaCardRelationRepository {
             AND historical_card."deletedAt" IS NULL
           WHERE (1 - (candidate_phrase_embedding."embedding" <=> anchors."phraseEmbedding")) >= $5
             AND (1 - (candidate_context_embedding."embedding" <=> anchors."contextEmbedding")) >= $6
+            AND (
+              $9::boolean = false
+              OR (
+                anchors."currentPolarity" IS NOT NULL
+                AND candidate_context_embedding."polarity" = anchors."currentPolarity"
+                AND anchors."currentModality" IS NOT NULL
+                AND candidate_context_embedding."modality" = anchors."currentModality"
+              )
+            )
        )
        SELECT "phraseId", "phrase", 'card'::text AS "sourceKind", "sourceId", "topic",
               CASE WHEN "clozeBlankId" IS NULL THEN 'appeared' ELSE 'clozed' END AS "evidence",
@@ -355,6 +367,7 @@ export class PrismaCardRelationRepository {
       input.minRepresentationSimilarity,
       input.representationWeight,
       input.limit,
+      input.requireSemanticCompatibility,
     );
     return rows.map((row) => ({ ...row, semanticScore: Number(row.semanticScore) }));
   }

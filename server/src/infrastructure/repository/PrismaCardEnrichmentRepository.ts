@@ -2,8 +2,8 @@ import { createHash, randomUUID } from "node:crypto";
 import { Prisma, type PrismaClient } from "@prisma/client";
 import { buildCardEmbeddingInput } from "@lf/core/text/cardEmbedding.js";
 import {
+  PHRASE_OCCURRENCE_CONTEXT_MEANING_REPRESENTATION_VERSION,
   PHRASE_OCCURRENCE_MARKED_SENTENCE_REPRESENTATION_VERSION,
-  PHRASE_OCCURRENCE_SENSE_PROMPT_VERSION,
   PHRASE_OCCURRENCE_SENSE_REPRESENTATION_VERSION,
 } from "@lf/core/Prompts/phraseOccurrenceSensePrompt.js";
 import type {
@@ -26,6 +26,7 @@ import { CARD_REWRITE_ALIGNMENT_PROMPT_VERSION } from "@lf/core/Prompts/cardRewr
 import {
   enqueuePhraseOccurrenceEmbeddingForOccurrence,
   phraseOccurrenceBackfillInputVersion,
+  phraseOccurrencePromptVersion,
   phraseOccurrenceRepresentationHashInput,
   enqueuePhraseOccurrenceEmbeddingGeneration,
   loadPhraseOccurrenceEmbeddingSourceData,
@@ -371,15 +372,14 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
       const availableSlots = Math.max(0, Math.max(1, input.maxOutstanding) - outstanding);
       if (!availableSlots) return 0;
       const scanLimit = Math.min(Math.max(1, input.limit), availableSlots);
-      const expectedPromptVersion = input.representationVersion === PHRASE_OCCURRENCE_SENSE_REPRESENTATION_VERSION
-        ? PHRASE_OCCURRENCE_SENSE_PROMPT_VERSION
-        : "direct_embedding_v1";
+      const expectedPromptVersion = phraseOccurrencePromptVersion(input.representationVersion);
       if (input.promptVersion && input.promptVersion !== expectedPromptVersion) {
         throw new Error("PHRASE_OCCURRENCE_REPRESENTATION_PROMPT_MISMATCH");
       }
       const supportedRepresentationVersions: string[] = [
         PHRASE_OCCURRENCE_MARKED_SENTENCE_REPRESENTATION_VERSION,
         PHRASE_OCCURRENCE_SENSE_REPRESENTATION_VERSION,
+        PHRASE_OCCURRENCE_CONTEXT_MEANING_REPRESENTATION_VERSION,
       ];
       if (!supportedRepresentationVersions.includes(input.representationVersion)) {
         throw new Error("PHRASE_OCCURRENCE_REPRESENTATION_UNSUPPORTED");
@@ -1217,6 +1217,8 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
     representationVersion: string;
     promptVersion: string | null;
     meaningText: string | null;
+    polarity?: string | null;
+    modality?: string | null;
   }): Promise<boolean> {
     return this.prisma.$transaction(async (tx) => {
       const occurrence = await loadPhraseOccurrenceEmbeddingSourceData(tx, job.sourceId, job.userId);
@@ -1247,16 +1249,18 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
       const vector = `[${result.embedding.join(",")}]`;
       await tx.$executeRawUnsafe(
         `INSERT INTO "phrase_occurrence_embeddings"
-          ("id", "userId", "cardId", "occurrenceId", "provider", "model", "modelVersion", "representationVersion", "promptVersion", "meaningText", "dimensions", "inputHash", "embedding", "createdAt", "updatedAt")
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::vector, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+          ("id", "userId", "cardId", "occurrenceId", "provider", "model", "modelVersion", "representationVersion", "promptVersion", "meaningText", "polarity", "modality", "dimensions", "inputHash", "embedding", "createdAt", "updatedAt")
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15::vector, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
          ON CONFLICT ("occurrenceId", "modelVersion", "representationVersion")
          DO UPDATE SET "provider" = EXCLUDED."provider", "model" = EXCLUDED."model",
            "promptVersion" = EXCLUDED."promptVersion", "meaningText" = EXCLUDED."meaningText",
+           "polarity" = EXCLUDED."polarity", "modality" = EXCLUDED."modality",
            "dimensions" = EXCLUDED."dimensions", "inputHash" = EXCLUDED."inputHash",
            "embedding" = EXCLUDED."embedding", "updatedAt" = CURRENT_TIMESTAMP`,
         randomUUID(), job.userId, occurrence.cardId, occurrence.occurrenceId, result.provider,
         result.model, result.modelVersion, representationVersion, representation?.promptVersion ?? null,
-        representation?.meaningText ?? null, result.dimensions, job.inputHash, vector,
+        representation?.meaningText ?? null, representation?.polarity ?? null, representation?.modality ?? null,
+        result.dimensions, job.inputHash, vector,
       );
       return true;
     });

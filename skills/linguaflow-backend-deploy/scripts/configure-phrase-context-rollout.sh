@@ -2,7 +2,7 @@
 set -euo pipefail
 
 usage() {
-  echo "Usage: $0 --status | --target-sense-backfill <email> --confirm-production | --enable-target-sense-canary <email> --confirm-production | --enable-target-sense-relations <email> --confirm-production | --broad-backfill --confirm-production | --enable-all-relations --confirm-production | --disable --confirm-production" >&2
+  echo "Usage: $0 --status | --target-sense-backfill <email> --confirm-production | --enable-target-sense-canary <email> --confirm-production | --enable-target-context-v2-canary <email> --confirm-production | --enable-target-sense-relations <email> --confirm-production | --broad-backfill --confirm-production | --enable-all-relations --confirm-production | --disable --confirm-production" >&2
   exit 2
 }
 
@@ -18,7 +18,11 @@ const modelVersion = `${process.env.AZURE_EMBEDDING_MODEL || "text-embedding-3-s
 const targetUserId = String(process.env.CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_USER_ID || "").trim() || null;
 const backfillRepresentation = String(process.env.CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_REPRESENTATION_VERSION || "marked_sentence_v1").trim();
 const relationRepresentation = String(process.env.RELATED_PHRASE_CONTEXT_REPRESENTATION_VERSION || "marked_sentence_v1").trim();
-const promptVersion = backfillRepresentation === "usage_meaning_v1" ? "phrase_occurrence_sense_v1" : "direct_embedding_v1";
+const promptVersion = backfillRepresentation === "usage_meaning_v2"
+  ? "phrase_occurrence_context_meaning_v2"
+  : backfillRepresentation === "usage_meaning_v1"
+    ? "phrase_occurrence_sense_v1"
+    : "direct_embedding_v1";
 const backfillPrefix = `phrase_occurrence_embedding_backfill_v2:${backfillRepresentation}:${promptVersion}:${modelVersion}:`;
 const senseInputMarker = `:${backfillRepresentation}:`;
 const [eligible, embedded, handled, jobs, allRepresentationJobs, failedRepresentationJobs] = await Promise.all([
@@ -58,7 +62,7 @@ NODE
 fi
 
 case "$action" in
-  --target-sense-backfill|--enable-target-sense-canary|--enable-target-sense-relations)
+  --target-sense-backfill|--enable-target-sense-canary|--enable-target-context-v2-canary|--enable-target-sense-relations)
     [[ $# -eq 3 && "${3:-}" == "--confirm-production" ]] || usage
     target_email="$2"
     mode="${action#--}"
@@ -86,7 +90,7 @@ import { PrismaClient } from "@prisma/client";
 const prisma = new PrismaClient();
 const mode = process.env.MODE;
 let targetUserId = "";
-if (mode === "target-sense-backfill" || mode === "enable-target-sense-canary" || mode === "enable-target-sense-relations") {
+if (mode === "target-sense-backfill" || mode === "enable-target-sense-canary" || mode === "enable-target-context-v2-canary" || mode === "enable-target-sense-relations") {
   const users = await prisma.user.findMany({ where: { email: process.env.TARGET_EMAIL }, select: { id: true }, take: 2 });
   if (users.length !== 1) throw new Error(`TARGET_USER_CARDINALITY_${users.length}`);
   targetUserId = users[0].id;
@@ -154,6 +158,13 @@ if (mode === "target-sense-backfill") {
   updates.set("CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_ENABLED", "true");
   updates.set("CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_USER_ID", targetUserId);
   updates.set("CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_REPRESENTATION_VERSION", "usage_meaning_v1");
+} else if (mode === "enable-target-context-v2-canary") {
+  updates.set("RELATED_PHRASE_CONTEXT_ENABLED", "true");
+  updates.set("RELATED_PHRASE_CONTEXT_USER_ID", targetUserId);
+  updates.set("RELATED_PHRASE_CONTEXT_REPRESENTATION_VERSION", "usage_meaning_v2");
+  updates.set("CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_ENABLED", "true");
+  updates.set("CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_USER_ID", targetUserId);
+  updates.set("CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_REPRESENTATION_VERSION", "usage_meaning_v2");
 } else if (mode === "broad-backfill") {
   updates.set("CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_ENABLED", "true");
   updates.set("CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_USER_ID", "");
@@ -170,7 +181,7 @@ if (mode === "target-sense-backfill") {
   updates.set("CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_ENABLED", "false");
   updates.set("CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_USER_ID", "");
 }
-if (mode === "enable-target-sense-canary" || mode === "enable-target-sense-relations" || mode === "enable-all-relations") {
+if (mode === "enable-target-sense-canary" || mode === "enable-target-context-v2-canary" || mode === "enable-target-sense-relations" || mode === "enable-all-relations") {
   updates.set("RELATED_PHRASE_SENSE_MIN_SIMILARITY", "0.45");
   updates.set("RELATED_PHRASE_SENSE_WEIGHT", "0.70");
 }

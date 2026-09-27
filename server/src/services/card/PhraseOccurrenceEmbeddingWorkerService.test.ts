@@ -6,7 +6,10 @@ import type { AIProvider } from "@lf/core/ports/ai/AIProvider.js";
 import type { CardEnrichmentJobEntity, CardEnrichmentRepository } from "@lf/core/ports/repository/CardEnrichmentRepository.js";
 import { buildPhraseOccurrenceEmbeddingInput } from "@lf/core/text/phraseOccurrenceEmbedding.js";
 import {
+  phraseOccurrenceContextMeaningPromptHashInput,
   phraseOccurrenceSensePromptHashInput,
+  PHRASE_OCCURRENCE_CONTEXT_MEANING_PROMPT_VERSION,
+  PHRASE_OCCURRENCE_CONTEXT_MEANING_REPRESENTATION_VERSION,
   PHRASE_OCCURRENCE_SENSE_PROMPT_VERSION,
   PHRASE_OCCURRENCE_SENSE_REPRESENTATION_VERSION,
 } from "@lf/core/Prompts/phraseOccurrenceSensePrompt.js";
@@ -135,5 +138,75 @@ test("generates a concise usage meaning before embedding a sense representation"
     representationVersion: PHRASE_OCCURRENCE_SENSE_REPRESENTATION_VERSION,
     promptVersion: PHRASE_OCCURRENCE_SENSE_PROMPT_VERSION,
     meaningText: "laugh uncontrollably",
+    polarity: null,
+    modality: null,
+  });
+});
+
+test("generates and persists one structured V2 context meaning", async () => {
+  const contextualSource = {
+    ...source,
+    canonicalText: "really want",
+    sentence: "They don't really want to make big changes.",
+    startUtf16: 11,
+    endUtf16: 22,
+  };
+  const inputHash = createHash("sha256")
+    .update(phraseOccurrenceContextMeaningPromptHashInput(contextualSource))
+    .digest("hex");
+  const job = {
+    ...occurrenceJob(inputHash),
+    inputVersion: `phrase_occurrence_embedding_backfill_v2:${PHRASE_OCCURRENCE_CONTEXT_MEANING_REPRESENTATION_VERSION}:${PHRASE_OCCURRENCE_CONTEXT_MEANING_PROMPT_VERSION}:fake-model:v1:1536:${inputHash}`,
+    payload: { representationVersion: PHRASE_OCCURRENCE_CONTEXT_MEANING_REPRESENTATION_VERSION },
+  };
+  let embeddedInput = "";
+  let completedRepresentation: unknown;
+  const repository = {
+    async claimNextPhraseOccurrenceEmbeddingJob() { return job; },
+    async loadPhraseOccurrenceEmbeddingSource() { return contextualSource; },
+    async completePhraseOccurrenceEmbeddingJob(_job: unknown, _result: unknown, representation: unknown) {
+      completedRepresentation = representation;
+      return true;
+    },
+  } as unknown as CardEnrichmentRepository;
+  const contextAiProvider: AIProvider = {
+    ...aiProvider,
+    async generateChatTextStream(_input, onEvent) {
+      await onEvent({ type: "delta", text: [
+        "<meaning>lack desire to make changes</meaning>",
+        "<polarity>negated</polarity>",
+        "<modality>plain</modality>",
+      ].join("\n") });
+      await onEvent({ type: "done" });
+    },
+  };
+  const contextEmbeddingProvider = {
+    ...provider,
+    async embed(input: string) {
+      embeddedInput = input;
+      return provider.embed(input);
+    },
+  };
+
+  await new PhraseOccurrenceEmbeddingWorkerService(
+    repository,
+    contextEmbeddingProvider,
+    undefined,
+    {},
+    undefined,
+    contextAiProvider,
+  ).claimAndProcess("worker-1");
+
+  assert.equal(embeddedInput, [
+    "contextual usage meaning: lack desire to make changes",
+    "polarity: negated",
+    "external modality: plain",
+  ].join("\n"));
+  assert.deepEqual(completedRepresentation, {
+    representationVersion: PHRASE_OCCURRENCE_CONTEXT_MEANING_REPRESENTATION_VERSION,
+    promptVersion: PHRASE_OCCURRENCE_CONTEXT_MEANING_PROMPT_VERSION,
+    meaningText: "lack desire to make changes",
+    polarity: "negated",
+    modality: "plain",
   });
 });

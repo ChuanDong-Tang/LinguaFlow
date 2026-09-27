@@ -96,10 +96,32 @@ test("uses occurrence context only for the targeted rollout user", async () => {
     minPhraseSimilarity: 0.72,
     minRepresentationSimilarity: 0.46,
     representationWeight: 0.75,
+    requireSemanticCompatibility: false,
     limit: 10,
   });
   assert.equal(target[0]?.reason.semanticScore, 0.91);
   assert.equal(other[0]?.reason.semanticScore, 0.84);
+});
+
+test("V2 enables semantic feature compatibility filtering", async () => {
+  const contextInputs: Array<Record<string, unknown>> = [];
+  const repository = {
+    findContextuallyRelatedPhrases: async (input: Record<string, unknown>) => {
+      contextInputs.push(input);
+      return [];
+    },
+  };
+  const service = new CardRelationService(repository as never, {
+    modelVersion: "embedding-v1",
+    minTopicSimilarity: 0.7,
+    contextRelationsEnabled: true,
+    contextRelationsUserId: "user-target",
+    contextRepresentationVersion: "usage_meaning_v2",
+  });
+
+  await service.relatedPhrases("user-target", "card:current-card", 10);
+
+  assert.equal(contextInputs[0]?.requireSemanticCompatibility, true);
 });
 
 test("keeps topic relations when no semantic language relation exists", async () => {

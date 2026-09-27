@@ -1,9 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  buildPhraseOccurrenceContextMeaningEmbeddingInput,
+  buildPhraseOccurrenceContextMeaningPrompt,
   buildPhraseOccurrenceSenseEmbeddingInput,
   buildPhraseOccurrenceSensePrompt,
+  parsePhraseOccurrenceContextMeaningOutput,
   parsePhraseOccurrenceSenseOutput,
+  phraseOccurrenceContextMeaningPromptHashInput,
   phraseOccurrenceSensePromptHashInput,
 } from "./phraseOccurrenceSensePrompt.js";
 
@@ -30,4 +34,47 @@ test("parses one concise usage meaning for embedding", () => {
 test("rejects untagged or verbose sense output", () => {
   assert.throws(() => parsePhraseOccurrenceSenseOutput("laugh uncontrollably"), /PHRASE_OCCURRENCE_SENSE_EMPTY/u);
   assert.throws(() => parsePhraseOccurrenceSenseOutput(`<meaning>${"word ".repeat(17)}</meaning>`), /INVALID_LENGTH/u);
+});
+
+test("V2 captures sentence-scoped polarity and external modality", () => {
+  const contextualInput = {
+    ...input,
+    canonicalText: "really want",
+    sentence: "They don't really want to make big changes.",
+    startUtf16: 11,
+    endUtf16: 22,
+  };
+  const prompt = buildPhraseOccurrenceContextMeaningPrompt(contextualInput);
+  assert.match(prompt.userPrompt, /They don't <selected>really want<\/selected> to make big changes\./u);
+  assert.match(prompt.systemPrompt, /operators whose scope includes the selected expression/u);
+  assert.match(phraseOccurrenceContextMeaningPromptHashInput(contextualInput), /^phrase_occurrence_context_meaning_v2\n/u);
+
+  const result = parsePhraseOccurrenceContextMeaningOutput([
+    "<meaning>lack desire to make changes</meaning>",
+    "<polarity>negated</polarity>",
+    "<modality>plain</modality>",
+  ].join("\n"));
+  assert.deepEqual(result, {
+    meaning: "lack desire to make changes",
+    polarity: "negated",
+    modality: "plain",
+  });
+  assert.equal(buildPhraseOccurrenceContextMeaningEmbeddingInput(result), [
+    "contextual usage meaning: lack desire to make changes",
+    "polarity: negated",
+    "external modality: plain",
+  ].join("\n"));
+});
+
+test("V2 rejects invalid semantic feature enums", () => {
+  assert.throws(() => parsePhraseOccurrenceContextMeaningOutput([
+    "<meaning>possibly desire to act</meaning>",
+    "<polarity>maybe</polarity>",
+    "<modality>possible</modality>",
+  ].join("\n")), /POLARITY_INVALID/u);
+  assert.throws(() => parsePhraseOccurrenceContextMeaningOutput([
+    "<meaning>possibly desire to act</meaning>",
+    "<polarity>affirmed</polarity>",
+    "<modality>uncertain</modality>",
+  ].join("\n")), /MODALITY_INVALID/u);
 });

@@ -4,6 +4,7 @@ import { cardRecordId, parseCardRecordId } from "@lf/core/types/cardRecord.js";
 import type { PrismaCardRelationRepository } from "../../infrastructure/repository/PrismaCardRelationRepository.js";
 import type { CardImageService } from "./CardImageService.js";
 import {
+  PHRASE_OCCURRENCE_CONTEXT_MEANING_REPRESENTATION_VERSION,
   PHRASE_OCCURRENCE_MARKED_SENTENCE_REPRESENTATION_VERSION,
   PHRASE_OCCURRENCE_SENSE_REPRESENTATION_VERSION,
   type PhraseOccurrenceRepresentationVersion,
@@ -108,7 +109,8 @@ export class CardRelationService {
       && (!this.options.contextRelationsUserId || this.options.contextRelationsUserId === userId);
     const representationVersion = this.options.contextRepresentationVersion
       ?? PHRASE_OCCURRENCE_MARKED_SENTENCE_REPRESENTATION_VERSION;
-    const useSenseRanking = representationVersion === PHRASE_OCCURRENCE_SENSE_REPRESENTATION_VERSION;
+    const useSenseRanking = representationVersion === PHRASE_OCCURRENCE_SENSE_REPRESENTATION_VERSION
+      || representationVersion === PHRASE_OCCURRENCE_CONTEXT_MEANING_REPRESENTATION_VERSION;
     const rows = (await (useContextRelations
       ? this.repository.findContextuallyRelatedPhrases({
           userId,
@@ -120,6 +122,8 @@ export class CardRelationService {
             ? (this.options.minSenseSimilarity ?? 0.45)
             : (this.options.minContextSimilarity ?? 0.78),
           representationWeight: useSenseRanking ? (this.options.senseWeight ?? 0.70) : 1,
+          requireSemanticCompatibility:
+            representationVersion === PHRASE_OCCURRENCE_CONTEXT_MEANING_REPRESENTATION_VERSION,
           limit,
         })
       : this.repository.findSemanticallyRelatedPhrases({

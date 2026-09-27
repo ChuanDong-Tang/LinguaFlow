@@ -4,6 +4,10 @@ import {
   enqueuePhraseOccurrenceEmbeddingForOccurrence,
   loadPhraseOccurrenceEmbeddingSourceData,
 } from "./PhraseOccurrenceEmbeddingJobs.js";
+import {
+  PHRASE_OCCURRENCE_CONTEXT_MEANING_PROMPT_VERSION,
+  PHRASE_OCCURRENCE_CONTEXT_MEANING_REPRESENTATION_VERSION,
+} from "@lf/core/Prompts/phraseOccurrenceSensePrompt.js";
 
 function fakeClient(segments: Array<{ id: string; text: string; ordinal: number }>) {
   return {
@@ -108,4 +112,31 @@ test("an active sense backfill takes precedence over a legacy relation represent
 
   const create = (upsert as { create?: { payload?: Record<string, unknown> } } | null)?.create;
   assert.equal(create?.payload?.representationVersion, "usage_meaning_v1");
+});
+
+test("new occurrences enqueue the configured V2 context meaning representation", async () => {
+  const previous = process.env.RELATED_PHRASE_CONTEXT_REPRESENTATION_VERSION;
+  const previousEnabled = process.env.RELATED_PHRASE_CONTEXT_ENABLED;
+  process.env.RELATED_PHRASE_CONTEXT_REPRESENTATION_VERSION = PHRASE_OCCURRENCE_CONTEXT_MEANING_REPRESENTATION_VERSION;
+  process.env.RELATED_PHRASE_CONTEXT_ENABLED = "true";
+  let upsert: Record<string, unknown> | null = null;
+  const client = {
+    ...fakeClient([{ id: "current-segment", text: "So ridiculous, I was cracking up.", ordinal: 0 }]),
+    cardEnrichmentJob: {
+      async upsert(input: Record<string, unknown>) { upsert = input; },
+    },
+  };
+  try {
+    await enqueuePhraseOccurrenceEmbeddingForOccurrence(client, "occurrence-1");
+  } finally {
+    if (previous === undefined) delete process.env.RELATED_PHRASE_CONTEXT_REPRESENTATION_VERSION;
+    else process.env.RELATED_PHRASE_CONTEXT_REPRESENTATION_VERSION = previous;
+    if (previousEnabled === undefined) delete process.env.RELATED_PHRASE_CONTEXT_ENABLED;
+    else process.env.RELATED_PHRASE_CONTEXT_ENABLED = previousEnabled;
+  }
+
+  const create = (upsert as { create?: { inputVersion?: string; payload?: Record<string, unknown> } } | null)?.create;
+  assert.match(create?.inputVersion ?? "", /^phrase_occurrence_embedding_input_v2:usage_meaning_v2:/u);
+  assert.equal(create?.payload?.representationVersion, PHRASE_OCCURRENCE_CONTEXT_MEANING_REPRESENTATION_VERSION);
+  assert.equal(create?.payload?.promptVersion, PHRASE_OCCURRENCE_CONTEXT_MEANING_PROMPT_VERSION);
 });

@@ -51,6 +51,8 @@ import { PhraseEmbeddingBackfillScanner } from "./src/workers/card/PhraseEmbeddi
 import { PhraseOccurrenceEmbeddingWorkerService } from "./src/services/card/PhraseOccurrenceEmbeddingWorkerService.ts";
 import { PhraseOccurrenceEmbeddingBackfillScanner } from "./src/workers/card/PhraseOccurrenceEmbeddingBackfillScanner.ts";
 import {
+  PHRASE_OCCURRENCE_CONTEXT_MEANING_PROMPT_VERSION,
+  PHRASE_OCCURRENCE_CONTEXT_MEANING_REPRESENTATION_VERSION,
   PHRASE_OCCURRENCE_SENSE_PROMPT_VERSION,
   PHRASE_OCCURRENCE_SENSE_REPRESENTATION_VERSION,
 } from "@lf/core/Prompts/phraseOccurrenceSensePrompt.js";
@@ -509,7 +511,9 @@ const phraseOccurrenceEmbeddingBackfillScanner = embeddingProvider && runtime.ca
       cardEnrichmentRepository,
       embeddingProvider.modelVersion,
       runtime.cardPhraseOccurrenceEmbeddingBackfillRepresentationVersion,
-      runtime.cardPhraseOccurrenceEmbeddingBackfillRepresentationVersion === PHRASE_OCCURRENCE_SENSE_REPRESENTATION_VERSION
+      runtime.cardPhraseOccurrenceEmbeddingBackfillRepresentationVersion === PHRASE_OCCURRENCE_CONTEXT_MEANING_REPRESENTATION_VERSION
+        ? PHRASE_OCCURRENCE_CONTEXT_MEANING_PROMPT_VERSION
+        : runtime.cardPhraseOccurrenceEmbeddingBackfillRepresentationVersion === PHRASE_OCCURRENCE_SENSE_REPRESENTATION_VERSION
         ? PHRASE_OCCURRENCE_SENSE_PROMPT_VERSION
         : undefined,
       systemEventLogRepository,

@@ -1,5 +1,6 @@
 import { resolveResourcePolicies, type ResourcePolicies } from "./resourcePolicies.js";
 import {
+  PHRASE_OCCURRENCE_CONTEXT_MEANING_REPRESENTATION_VERSION,
   PHRASE_OCCURRENCE_MARKED_SENTENCE_REPRESENTATION_VERSION,
   PHRASE_OCCURRENCE_SENSE_REPRESENTATION_VERSION,
   type PhraseOccurrenceRepresentationVersion,
@@ -722,6 +723,9 @@ function readUnitFloat(value: string | undefined, fallback: number): number {
 function readPhraseOccurrenceRepresentationVersion(
   value: string | undefined,
 ): PhraseOccurrenceRepresentationVersion {
+  if (value?.trim() === PHRASE_OCCURRENCE_CONTEXT_MEANING_REPRESENTATION_VERSION) {
+    return PHRASE_OCCURRENCE_CONTEXT_MEANING_REPRESENTATION_VERSION;
+  }
   return value?.trim() === PHRASE_OCCURRENCE_SENSE_REPRESENTATION_VERSION
     ? PHRASE_OCCURRENCE_SENSE_REPRESENTATION_VERSION
     : PHRASE_OCCURRENCE_MARKED_SENTENCE_REPRESENTATION_VERSION;

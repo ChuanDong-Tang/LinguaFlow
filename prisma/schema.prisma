@@ -567,6 +567,8 @@ model PhraseOccurrenceEmbedding {
   representationVersion String                      @default("marked_sentence_v1")
   promptVersion         String?
   meaningText           String?
+  polarity              String?
+  modality              String?
   dimensions            Int
   inputHash             String
   embedding             Unsupported("vector(1536)")
