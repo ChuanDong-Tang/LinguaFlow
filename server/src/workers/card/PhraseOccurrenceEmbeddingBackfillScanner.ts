@@ -8,6 +8,8 @@ export class PhraseOccurrenceEmbeddingBackfillScanner {
   constructor(
     private readonly repository: CardEnrichmentRepository,
     private readonly modelVersion: string,
+    private readonly representationVersion: string,
+    private readonly promptVersion?: string,
     private readonly logs?: SystemEventLogRepository,
     private readonly options: { intervalMs?: number; batchSize?: number; maxOutstanding?: number; userId?: string } = {},
   ) {}
@@ -29,6 +31,8 @@ export class PhraseOccurrenceEmbeddingBackfillScanner {
     try {
       const enqueued = await this.repository.enqueueMissingPhraseOccurrenceEmbeddingJobs({
         modelVersion: this.modelVersion,
+        representationVersion: this.representationVersion,
+        ...(this.promptVersion ? { promptVersion: this.promptVersion } : {}),
         limit: this.options.batchSize ?? 5,
         maxOutstanding: this.options.maxOutstanding ?? 10,
         ...(this.options.userId ? { userId: this.options.userId } : {}),
@@ -41,6 +45,7 @@ export class PhraseOccurrenceEmbeddingBackfillScanner {
         metadata: {
           enqueued,
           modelVersion: this.modelVersion,
+          representationVersion: this.representationVersion,
           batchSize: this.options.batchSize ?? 5,
           maxOutstanding: this.options.maxOutstanding ?? 10,
           scope: this.options.userId ? "target_user" : "all_users",
@@ -54,7 +59,7 @@ export class PhraseOccurrenceEmbeddingBackfillScanner {
         level: "error",
         status: "failed",
         errorMessage: (error instanceof Error ? error.message : String(error)).slice(0, 500),
-        metadata: { modelVersion: this.modelVersion, scope: this.options.userId ? "target_user" : "all_users" },
+        metadata: { modelVersion: this.modelVersion, representationVersion: this.representationVersion, scope: this.options.userId ? "target_user" : "all_users" },
       }).catch(() => undefined);
     } finally {
       this.running = false;

@@ -64,8 +64,13 @@ test("does not fall back to exact word or phrase history when semantic matches a
 
 test("uses occurrence context only for the targeted rollout user", async () => {
   const calls: string[] = [];
+  let contextInput: Record<string, unknown> | null = null;
   const repository = {
-    findContextuallyRelatedPhrases: async () => { calls.push("context"); return [{ ...current, semanticScore: 0.91 }]; },
+    findContextuallyRelatedPhrases: async (input: Record<string, unknown>) => {
+      calls.push("context");
+      contextInput = input;
+      return [{ ...current, semanticScore: 0.91 }];
+    },
     findSemanticallyRelatedPhrases: async () => { calls.push("phrase"); return [{ ...current, semanticScore: 0.84 }]; },
   };
   const service = new CardRelationService(repository as never, {
@@ -74,12 +79,25 @@ test("uses occurrence context only for the targeted rollout user", async () => {
     contextRelationsEnabled: true,
     contextRelationsUserId: "user-target",
     minContextSimilarity: 0.8,
+    contextRepresentationVersion: "usage_meaning_v1",
+    minSenseSimilarity: 0.46,
+    senseWeight: 0.75,
   });
 
   const target = await service.relatedPhrases("user-target", "card:current-card", 10);
   const other = await service.relatedPhrases("user-other", "card:current-card", 10);
 
   assert.deepEqual(calls, ["context", "phrase"]);
+  assert.deepEqual(contextInput, {
+    userId: "user-target",
+    sourceId: "current-card",
+    modelVersion: "embedding-v1",
+    representationVersion: "usage_meaning_v1",
+    minPhraseSimilarity: 0.72,
+    minRepresentationSimilarity: 0.46,
+    representationWeight: 0.75,
+    limit: 10,
+  });
   assert.equal(target[0]?.reason.semanticScore, 0.91);
   assert.equal(other[0]?.reason.semanticScore, 0.84);
 });

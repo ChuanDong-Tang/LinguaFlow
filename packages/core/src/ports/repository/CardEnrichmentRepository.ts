@@ -121,6 +121,8 @@ export interface CardEnrichmentRepository {
   }): Promise<number>;
   enqueueMissingPhraseOccurrenceEmbeddingJobs(input: {
     modelVersion: string;
+    representationVersion: string;
+    promptVersion?: string;
     limit: number;
     maxOutstanding: number;
     userId?: string;
@@ -142,7 +144,11 @@ export interface CardEnrichmentRepository {
   completePhraseEmbeddingJob(job: CardEnrichmentJobEntity, result: EmbeddingResult): Promise<boolean>;
   claimNextPhraseOccurrenceEmbeddingJob(workerId: string, leaseExpiresAt: Date): Promise<CardEnrichmentJobEntity | null>;
   loadPhraseOccurrenceEmbeddingSource(job: CardEnrichmentJobEntity): Promise<PhraseOccurrenceEmbeddingSource | null>;
-  completePhraseOccurrenceEmbeddingJob(job: CardEnrichmentJobEntity, result: EmbeddingResult): Promise<boolean>;
+  completePhraseOccurrenceEmbeddingJob(job: CardEnrichmentJobEntity, result: EmbeddingResult, representation?: {
+    representationVersion: string;
+    promptVersion: string | null;
+    meaningText: string | null;
+  }): Promise<boolean>;
   completeWithoutResult(job: CardEnrichmentJobEntity, reason: string): Promise<boolean>;
   completeJob(job: CardEnrichmentJobEntity): Promise<boolean>;
   rescheduleOrFail(

@@ -2,8 +2,14 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import test from "node:test";
 import type { EmbeddingProvider } from "@lf/core/ports/ai/EmbeddingProvider.js";
+import type { AIProvider } from "@lf/core/ports/ai/AIProvider.js";
 import type { CardEnrichmentJobEntity, CardEnrichmentRepository } from "@lf/core/ports/repository/CardEnrichmentRepository.js";
 import { buildPhraseOccurrenceEmbeddingInput } from "@lf/core/text/phraseOccurrenceEmbedding.js";
+import {
+  phraseOccurrenceSensePromptHashInput,
+  PHRASE_OCCURRENCE_SENSE_PROMPT_VERSION,
+  PHRASE_OCCURRENCE_SENSE_REPRESENTATION_VERSION,
+} from "@lf/core/Prompts/phraseOccurrenceSensePrompt.js";
 import { PhraseOccurrenceEmbeddingWorkerService } from "./PhraseOccurrenceEmbeddingWorkerService.js";
 
 const source = {
@@ -17,7 +23,7 @@ const source = {
   endUtf16: 17,
 };
 
-function occurrenceJob(inputHash: string): CardEnrichmentJobEntity {
+function occurrenceJob(inputHash: string, sense = false): CardEnrichmentJobEntity {
   return {
     id: "job-1",
     userId: source.userId,
@@ -27,9 +33,11 @@ function occurrenceJob(inputHash: string): CardEnrichmentJobEntity {
     attempts: 1,
     priority: 0,
     inputHash,
-    inputVersion: `phrase_occurrence_embedding_input_v1:${inputHash}`,
+    inputVersion: sense
+      ? `phrase_occurrence_embedding_backfill_v2:${PHRASE_OCCURRENCE_SENSE_REPRESENTATION_VERSION}:${PHRASE_OCCURRENCE_SENSE_PROMPT_VERSION}:fake-model:v1:1536:${inputHash}`
+      : `phrase_occurrence_embedding_input_v1:${inputHash}`,
     workerId: "worker-1",
-    payload: null,
+    payload: sense ? { representationVersion: PHRASE_OCCURRENCE_SENSE_REPRESENTATION_VERSION } : null,
   };
 }
 
@@ -51,6 +59,15 @@ const provider: EmbeddingProvider = {
   },
 };
 
+const aiProvider: AIProvider = {
+  providerName: "fake-ai",
+  modelName: "fake-ai-model",
+  async generateChatTextStream(_input, onEvent) {
+    await onEvent({ type: "delta", text: "<meaning>laugh uncontrollably</meaning>" });
+    await onEvent({ type: "done" });
+  },
+};
+
 test("embeds phrase occurrence with its marked sentence context", async () => {
   const input = buildPhraseOccurrenceEmbeddingInput(source)!;
   const job = occurrenceJob(createHash("sha256").update(input).digest("hex"));
@@ -59,7 +76,7 @@ test("embeds phrase occurrence with its marked sentence context", async () => {
     async claimNextPhraseOccurrenceEmbeddingJob() { return job; },
     async loadPhraseOccurrenceEmbeddingSource() { return source; },
     async completePhraseOccurrenceEmbeddingJob() { completed = true; return true; },
-  } as CardEnrichmentRepository;
+  } as unknown as CardEnrichmentRepository;
 
   await new PhraseOccurrenceEmbeddingWorkerService(repository, provider).claimAndProcess("worker-1");
 
@@ -74,11 +91,49 @@ test("discards stale contextual embedding input", async () => {
     async claimNextPhraseOccurrenceEmbeddingJob() { return job; },
     async loadPhraseOccurrenceEmbeddingSource() { return source; },
     async completeWithoutResult(_job: unknown, value: string) { reason = value; return true; },
-  } as CardEnrichmentRepository;
+  } as unknown as CardEnrichmentRepository;
   const staleProvider = { ...provider, async embed() { embedded = true; return provider.embed("unused"); } };
 
   await new PhraseOccurrenceEmbeddingWorkerService(repository, staleProvider).claimAndProcess("worker-1");
 
   assert.equal(embedded, false);
   assert.equal(reason, "PHRASE_OCCURRENCE_EMBEDDING_INPUT_STALE");
+});
+
+test("generates a concise usage meaning before embedding a sense representation", async () => {
+  const inputHash = createHash("sha256").update(phraseOccurrenceSensePromptHashInput(source)).digest("hex");
+  const job = occurrenceJob(inputHash, true);
+  let embeddedInput = "";
+  let completedRepresentation: unknown;
+  const repository = {
+    async claimNextPhraseOccurrenceEmbeddingJob() { return job; },
+    async loadPhraseOccurrenceEmbeddingSource() { return source; },
+    async completePhraseOccurrenceEmbeddingJob(_job: unknown, _result: unknown, representation: unknown) {
+      completedRepresentation = representation;
+      return true;
+    },
+  } as unknown as CardEnrichmentRepository;
+  const senseEmbeddingProvider = {
+    ...provider,
+    async embed(input: string) {
+      embeddedInput = input;
+      return provider.embed(input);
+    },
+  };
+
+  await new PhraseOccurrenceEmbeddingWorkerService(
+    repository,
+    senseEmbeddingProvider,
+    undefined,
+    {},
+    undefined,
+    aiProvider,
+  ).claimAndProcess("worker-1");
+
+  assert.equal(embeddedInput, "usage meaning: laugh uncontrollably");
+  assert.deepEqual(completedRepresentation, {
+    representationVersion: PHRASE_OCCURRENCE_SENSE_REPRESENTATION_VERSION,
+    promptVersion: PHRASE_OCCURRENCE_SENSE_PROMPT_VERSION,
+    meaningText: "laugh uncontrollably",
+  });
 });

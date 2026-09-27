@@ -50,6 +50,10 @@ import { PhraseEmbeddingWorkerService } from "./src/services/card/PhraseEmbeddin
 import { PhraseEmbeddingBackfillScanner } from "./src/workers/card/PhraseEmbeddingBackfillScanner.ts";
 import { PhraseOccurrenceEmbeddingWorkerService } from "./src/services/card/PhraseOccurrenceEmbeddingWorkerService.ts";
 import { PhraseOccurrenceEmbeddingBackfillScanner } from "./src/workers/card/PhraseOccurrenceEmbeddingBackfillScanner.ts";
+import {
+  PHRASE_OCCURRENCE_SENSE_PROMPT_VERSION,
+  PHRASE_OCCURRENCE_SENSE_REPRESENTATION_VERSION,
+} from "@lf/core/Prompts/phraseOccurrenceSensePrompt.js";
 import { CardTopicWorkerService } from "./src/services/card/CardTopicWorkerService.ts";
 import { CardRewriteAlignmentWorkerService } from "./src/services/card/CardRewriteAlignmentWorkerService.ts";
 import { CardRewriteAlignmentScanner } from "./src/workers/card/CardRewriteAlignmentScanner.ts";
@@ -483,7 +487,14 @@ const phraseEmbeddingBackfillScanner = embeddingProvider && runtime.cardPhraseEm
   : null;
 const phraseOccurrenceEmbeddingWorker = embeddingProvider
   ? new SerialCardJobWorker(
-      new PhraseOccurrenceEmbeddingWorkerService(cardEnrichmentRepository, embeddingProvider, systemEventLogRepository, {}, resourceGovernor),
+      new PhraseOccurrenceEmbeddingWorkerService(
+        cardEnrichmentRepository,
+        embeddingProvider,
+        systemEventLogRepository,
+        {},
+        resourceGovernor,
+        cardAiProvider,
+      ),
       {
         workerIdPrefix: "phrase-occurrence-embedding",
         errorLabel: "phrase-occurrence-embedding-worker",
@@ -497,6 +508,10 @@ const phraseOccurrenceEmbeddingBackfillScanner = embeddingProvider && runtime.ca
   ? new PhraseOccurrenceEmbeddingBackfillScanner(
       cardEnrichmentRepository,
       embeddingProvider.modelVersion,
+      runtime.cardPhraseOccurrenceEmbeddingBackfillRepresentationVersion,
+      runtime.cardPhraseOccurrenceEmbeddingBackfillRepresentationVersion === PHRASE_OCCURRENCE_SENSE_REPRESENTATION_VERSION
+        ? PHRASE_OCCURRENCE_SENSE_PROMPT_VERSION
+        : undefined,
       systemEventLogRepository,
       {
         intervalMs: runtime.cardPhraseOccurrenceEmbeddingBackfillScanIntervalMs,

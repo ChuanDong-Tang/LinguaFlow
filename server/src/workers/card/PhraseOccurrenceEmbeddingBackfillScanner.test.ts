@@ -8,7 +8,7 @@ test("enqueues a slow target-user contextual embedding batch", async () => {
   const repository = {
     async enqueueMissingPhraseOccurrenceEmbeddingJobs(input: unknown) { calls.push(input); return 3; },
   } as CardEnrichmentRepository;
-  const scanner = new PhraseOccurrenceEmbeddingBackfillScanner(repository, "embedding-v2", undefined, {
+  const scanner = new PhraseOccurrenceEmbeddingBackfillScanner(repository, "embedding-v2", "usage_meaning_v1", "phrase_occurrence_sense_v1", undefined, {
     batchSize: 5,
     maxOutstanding: 10,
     userId: "user-1",
@@ -16,5 +16,12 @@ test("enqueues a slow target-user contextual embedding batch", async () => {
 
   await scanner.runOnce();
 
-  assert.deepEqual(calls, [{ modelVersion: "embedding-v2", limit: 5, maxOutstanding: 10, userId: "user-1" }]);
+  assert.deepEqual(calls, [{
+    modelVersion: "embedding-v2",
+    representationVersion: "usage_meaning_v1",
+    promptVersion: "phrase_occurrence_sense_v1",
+    limit: 5,
+    maxOutstanding: 10,
+    userId: "user-1",
+  }]);
 });

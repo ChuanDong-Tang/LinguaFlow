@@ -1,4 +1,9 @@
 import { resolveResourcePolicies, type ResourcePolicies } from "./resourcePolicies.js";
+import {
+  PHRASE_OCCURRENCE_MARKED_SENTENCE_REPRESENTATION_VERSION,
+  PHRASE_OCCURRENCE_SENSE_REPRESENTATION_VERSION,
+  type PhraseOccurrenceRepresentationVersion,
+} from "@lf/core/Prompts/phraseOccurrenceSensePrompt.js";
 
 export type RuntimeMode = "development" | "production" | "test";
 export type AiProviderName = "deepseek" | "openai" | "grok";
@@ -119,6 +124,9 @@ export interface RuntimeConfig {
   relatedPhraseContextEnabled: boolean;
   relatedPhraseContextUserId: string | null;
   relatedPhraseContextMinSimilarity: number;
+  relatedPhraseContextRepresentationVersion: PhraseOccurrenceRepresentationVersion;
+  relatedPhraseSenseMinSimilarity: number;
+  relatedPhraseSenseWeight: number;
   cardCreateUserRateLimit: number;
   cardCreateGlobalRateLimit: number;
   cardCreateRateWindowMs: number;
@@ -161,6 +169,7 @@ export interface RuntimeConfig {
   cardPhraseOccurrenceEmbeddingBackfillMaxOutstanding: number;
   cardPhraseOccurrenceEmbeddingBackfillScanIntervalMs: number;
   cardPhraseOccurrenceEmbeddingBackfillUserId: string | null;
+  cardPhraseOccurrenceEmbeddingBackfillRepresentationVersion: PhraseOccurrenceRepresentationVersion;
   cardRewriteAlignmentEnabled: boolean;
   cardRewriteAlignmentBackfillEnabled: boolean;
   cardRewriteAlignmentBatchSize: number;
@@ -339,6 +348,9 @@ export function getRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeC
     relatedPhraseContextEnabled: readBoolean(env.RELATED_PHRASE_CONTEXT_ENABLED, false),
     relatedPhraseContextUserId: trimToNull(env.RELATED_PHRASE_CONTEXT_USER_ID),
     relatedPhraseContextMinSimilarity: readUnitFloat(env.RELATED_PHRASE_CONTEXT_MIN_SIMILARITY, 0.78),
+    relatedPhraseContextRepresentationVersion: readPhraseOccurrenceRepresentationVersion(env.RELATED_PHRASE_CONTEXT_REPRESENTATION_VERSION),
+    relatedPhraseSenseMinSimilarity: readUnitFloat(env.RELATED_PHRASE_SENSE_MIN_SIMILARITY, 0.45),
+    relatedPhraseSenseWeight: readUnitFloat(env.RELATED_PHRASE_SENSE_WEIGHT, 0.70),
     cardCreateUserRateLimit: readPositiveInt(env.CARD_CREATE_USER_RATE_LIMIT, 5),
     cardCreateGlobalRateLimit: readPositiveInt(env.CARD_CREATE_GLOBAL_RATE_LIMIT, 120),
     cardCreateRateWindowMs: readPositiveInt(env.CARD_CREATE_RATE_WINDOW_MS, 60_000),
@@ -381,6 +393,7 @@ export function getRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeC
     cardPhraseOccurrenceEmbeddingBackfillMaxOutstanding: readPositiveInt(env.CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_MAX_OUTSTANDING, 10),
     cardPhraseOccurrenceEmbeddingBackfillScanIntervalMs: readPositiveInt(env.CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_SCAN_INTERVAL_MS, 60_000),
     cardPhraseOccurrenceEmbeddingBackfillUserId: trimToNull(env.CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_USER_ID),
+    cardPhraseOccurrenceEmbeddingBackfillRepresentationVersion: readPhraseOccurrenceRepresentationVersion(env.CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_REPRESENTATION_VERSION),
     cardRewriteAlignmentEnabled: readBoolean(env.CARD_REWRITE_ALIGNMENT_ENABLED ?? env.CARD_AUXILIARY_BACKFILL_ENABLED, true),
     cardRewriteAlignmentBackfillEnabled: readBoolean(env.CARD_REWRITE_ALIGNMENT_BACKFILL_ENABLED, false),
     cardRewriteAlignmentBatchSize: readPositiveInt(env.CARD_REWRITE_ALIGNMENT_BATCH_SIZE ?? env.CARD_AUXILIARY_BACKFILL_BATCH_SIZE, 20),
@@ -704,6 +717,14 @@ function readNonNegativeInt(value: string | undefined, fallback: number): number
 function readUnitFloat(value: string | undefined, fallback: number): number {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed >= 0 && parsed <= 1 ? parsed : fallback;
+}
+
+function readPhraseOccurrenceRepresentationVersion(
+  value: string | undefined,
+): PhraseOccurrenceRepresentationVersion {
+  return value?.trim() === PHRASE_OCCURRENCE_SENSE_REPRESENTATION_VERSION
+    ? PHRASE_OCCURRENCE_SENSE_REPRESENTATION_VERSION
+    : PHRASE_OCCURRENCE_MARKED_SENTENCE_REPRESENTATION_VERSION;
 }
 
 function trimToNull(value: string | undefined): string | null {

@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { loadPhraseOccurrenceEmbeddingSourceData } from "./PhraseOccurrenceEmbeddingJobs.js";
+import {
+  enqueuePhraseOccurrenceEmbeddingForOccurrence,
+  loadPhraseOccurrenceEmbeddingSourceData,
+} from "./PhraseOccurrenceEmbeddingJobs.js";
 
 function fakeClient(segments: Array<{ id: string; text: string; ordinal: number }>) {
   return {
@@ -42,4 +45,31 @@ test("fails closed when a stale occurrence matches multiple current segments", a
   ]), "occurrence-1", "user-1");
 
   assert.equal(source, null);
+});
+
+test("new occurrences enqueue the configured sense representation", async () => {
+  const previous = process.env.RELATED_PHRASE_CONTEXT_REPRESENTATION_VERSION;
+  const previousEnabled = process.env.RELATED_PHRASE_CONTEXT_ENABLED;
+  process.env.RELATED_PHRASE_CONTEXT_REPRESENTATION_VERSION = "usage_meaning_v1";
+  process.env.RELATED_PHRASE_CONTEXT_ENABLED = "true";
+  let upsert: Record<string, unknown> | null = null;
+  const client = {
+    ...fakeClient([{ id: "current-segment", text: "So ridiculous, I was cracking up.", ordinal: 0 }]),
+    cardEnrichmentJob: {
+      async upsert(input: Record<string, unknown>) { upsert = input; },
+    },
+  };
+  try {
+    await enqueuePhraseOccurrenceEmbeddingForOccurrence(client, "occurrence-1");
+  } finally {
+    if (previous === undefined) delete process.env.RELATED_PHRASE_CONTEXT_REPRESENTATION_VERSION;
+    else process.env.RELATED_PHRASE_CONTEXT_REPRESENTATION_VERSION = previous;
+    if (previousEnabled === undefined) delete process.env.RELATED_PHRASE_CONTEXT_ENABLED;
+    else process.env.RELATED_PHRASE_CONTEXT_ENABLED = previousEnabled;
+  }
+
+  const create = (upsert as { create?: { inputVersion?: string; payload?: Record<string, unknown> } } | null)?.create;
+  assert.match(create?.inputVersion ?? "", /^phrase_occurrence_embedding_input_v2:usage_meaning_v1:/u);
+  assert.equal(create?.payload?.representationVersion, "usage_meaning_v1");
+  assert.equal(create?.payload?.promptVersion, "phrase_occurrence_sense_v1");
 });

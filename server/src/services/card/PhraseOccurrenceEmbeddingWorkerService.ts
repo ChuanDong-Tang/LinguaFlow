@@ -1,10 +1,20 @@
 import { createHash } from "node:crypto";
 import { buildPhraseOccurrenceEmbeddingInput } from "@lf/core/text/phraseOccurrenceEmbedding.js";
+import {
+  buildPhraseOccurrenceSenseEmbeddingInput,
+  buildPhraseOccurrenceSensePrompt,
+  parsePhraseOccurrenceSenseOutput,
+  phraseOccurrenceSensePromptHashInput,
+  PHRASE_OCCURRENCE_SENSE_PROMPT_VERSION,
+  PHRASE_OCCURRENCE_SENSE_REPRESENTATION_VERSION,
+} from "@lf/core/Prompts/phraseOccurrenceSensePrompt.js";
 import type { EmbeddingProvider } from "@lf/core/ports/ai/EmbeddingProvider.js";
+import type { AIProvider } from "@lf/core/ports/ai/AIProvider.js";
 import type { CardEnrichmentRepository } from "@lf/core/ports/repository/CardEnrichmentRepository.js";
 import type { SystemEventLogRepository } from "@lf/core/ports/repository/SystemEventLogRepository.js";
 import type { ResourceGovernor } from "../resource/ResourceGovernor.js";
 import { resolveEnrichmentRetry, safeEnrichmentErrorMessage } from "./EnrichmentJobRetry.js";
+import { isPhraseOccurrenceSenseJob } from "../../infrastructure/repository/PhraseOccurrenceEmbeddingJobs.js";
 
 export class PhraseOccurrenceEmbeddingWorkerService {
   constructor(
@@ -13,6 +23,7 @@ export class PhraseOccurrenceEmbeddingWorkerService {
     private readonly systemEventLogRepository?: SystemEventLogRepository,
     private readonly options: { leaseMs?: number; maxAttempts?: number } = {},
     private readonly resourceGovernor?: ResourceGovernor,
+    private readonly aiProvider?: AIProvider,
   ) {}
 
   async claimAndProcess(workerId: string): Promise<boolean> {
@@ -27,21 +38,48 @@ export class PhraseOccurrenceEmbeddingWorkerService {
         await this.repository.completeWithoutResult(job, "PHRASE_OCCURRENCE_EMBEDDING_SOURCE_MISSING");
         return true;
       }
-      const input = buildPhraseOccurrenceEmbeddingInput(source);
-      if (!input) {
+      const senseJob = isPhraseOccurrenceSenseJob(job);
+      const sourceInput = senseJob
+        ? phraseOccurrenceSensePromptHashInput(source)
+        : buildPhraseOccurrenceEmbeddingInput(source);
+      if (!sourceInput) {
         await this.repository.completeWithoutResult(job, "PHRASE_OCCURRENCE_EMBEDDING_INPUT_INVALID");
         return true;
       }
-      const inputHash = createHash("sha256").update(input).digest("hex");
+      const inputHash = createHash("sha256").update(sourceInput).digest("hex");
       if (inputHash !== job.inputHash) {
         await this.repository.completeWithoutResult(job, "PHRASE_OCCURRENCE_EMBEDDING_INPUT_STALE");
         return true;
       }
-      const embed = () => this.embeddingProvider.embed(input);
+      let meaningText: string | null = null;
+      let embeddingInput = sourceInput;
+      if (senseJob) {
+        if (!this.aiProvider) throw workerError("PHRASE_OCCURRENCE_SENSE_PROVIDER_UNAVAILABLE");
+        const prompt = buildPhraseOccurrenceSensePrompt(source);
+        let rawOutput = "";
+        const generate = () => this.aiProvider!.generateChatTextStream({
+          userId: source.userId,
+          text: prompt.userPrompt,
+          languageCode: source.languageCode,
+          systemPrompt: prompt.systemPrompt,
+          rawUserPrompt: true,
+          maxOutputTokens: 80,
+          temperature: 0,
+        }, (event) => { if (event.type === "delta") rawOutput += event.text; });
+        if (this.resourceGovernor) await this.resourceGovernor.execute("llm", source.userId, generate);
+        else await generate();
+        meaningText = parsePhraseOccurrenceSenseOutput(rawOutput);
+        embeddingInput = buildPhraseOccurrenceSenseEmbeddingInput(meaningText);
+      }
+      const embed = () => this.embeddingProvider.embed(embeddingInput);
       const result = this.resourceGovernor
         ? await this.resourceGovernor.executeConcurrency("embedding", job.userId, embed)
         : await embed();
-      await this.repository.completePhraseOccurrenceEmbeddingJob(job, result);
+      await this.repository.completePhraseOccurrenceEmbeddingJob(job, result, senseJob ? {
+        representationVersion: PHRASE_OCCURRENCE_SENSE_REPRESENTATION_VERSION,
+        promptVersion: PHRASE_OCCURRENCE_SENSE_PROMPT_VERSION,
+        meaningText,
+      } : undefined);
     } catch (error) {
       const retry = resolveEnrichmentRetry(error, job.attempts, this.options.maxAttempts ?? 3);
       await this.repository.rescheduleOrFail(job, safeEnrichmentErrorMessage(error), retry.retryAt, { preserveAttempt: retry.preserveAttempt });
@@ -60,4 +98,8 @@ export class PhraseOccurrenceEmbeddingWorkerService {
     }
     return true;
   }
+}
+
+function workerError(code: string): Error & { code: string } {
+  return Object.assign(new Error(code), { code });
 }

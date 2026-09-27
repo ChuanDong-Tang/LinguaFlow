@@ -1,5 +1,11 @@
 import { createHash } from "node:crypto";
 import { buildPhraseOccurrenceEmbeddingInput } from "@lf/core/text/phraseOccurrenceEmbedding.js";
+import {
+  PHRASE_OCCURRENCE_MARKED_SENTENCE_REPRESENTATION_VERSION,
+  PHRASE_OCCURRENCE_SENSE_PROMPT_VERSION,
+  PHRASE_OCCURRENCE_SENSE_REPRESENTATION_VERSION,
+  phraseOccurrenceSensePromptHashInput,
+} from "@lf/core/Prompts/phraseOccurrenceSensePrompt.js";
 import type { PhraseOccurrenceEmbeddingSource } from "@lf/core/ports/repository/CardEnrichmentRepository.js";
 
 export async function loadPhraseOccurrenceEmbeddingSourceData(
@@ -69,20 +75,72 @@ export async function enqueuePhraseOccurrenceEmbeddingForOccurrence(
 ): Promise<void> {
   const occurrence = await loadPhraseOccurrenceEmbeddingSourceData(tx, occurrenceId);
   if (!occurrence) return;
-  const input = buildPhraseOccurrenceEmbeddingInput(occurrence);
+  const relationEnabled = process.env.RELATED_PHRASE_CONTEXT_ENABLED?.trim().toLowerCase() === "true";
+  const backfillEnabled = process.env.CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_ENABLED?.trim().toLowerCase() === "true";
+  const configuredRepresentation = relationEnabled
+    ? process.env.RELATED_PHRASE_CONTEXT_REPRESENTATION_VERSION?.trim()
+    : backfillEnabled
+      ? process.env.CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_REPRESENTATION_VERSION?.trim()
+      : undefined;
+  const representationVersion = configuredRepresentation
+    === PHRASE_OCCURRENCE_SENSE_REPRESENTATION_VERSION
+    ? PHRASE_OCCURRENCE_SENSE_REPRESENTATION_VERSION
+    : PHRASE_OCCURRENCE_MARKED_SENTENCE_REPRESENTATION_VERSION;
+  const input = phraseOccurrenceRepresentationHashInput(occurrence, representationVersion);
   if (!input) return;
   const inputHash = createHash("sha256").update(input).digest("hex");
   await enqueuePhraseOccurrenceEmbeddingGeneration(tx, {
     userId: occurrence.userId,
     occurrenceId: occurrence.occurrenceId,
     inputHash,
-    inputVersion: `phrase_occurrence_embedding_input_v1:${inputHash}`,
+    inputVersion: `phrase_occurrence_embedding_input_v2:${representationVersion}:${inputHash}`,
+    representationVersion,
+    promptVersion: representationVersion === PHRASE_OCCURRENCE_SENSE_REPRESENTATION_VERSION
+      ? PHRASE_OCCURRENCE_SENSE_PROMPT_VERSION
+      : "direct_embedding_v1",
   });
+}
+
+export function phraseOccurrenceRepresentationHashInput(
+  source: PhraseOccurrenceEmbeddingSource,
+  representationVersion: string,
+): string | null {
+  if (representationVersion === PHRASE_OCCURRENCE_MARKED_SENTENCE_REPRESENTATION_VERSION) {
+    return buildPhraseOccurrenceEmbeddingInput(source);
+  }
+  if (representationVersion === PHRASE_OCCURRENCE_SENSE_REPRESENTATION_VERSION) {
+    return phraseOccurrenceSensePromptHashInput(source);
+  }
+  return null;
+}
+
+export function phraseOccurrenceBackfillInputVersion(input: {
+  modelVersion: string;
+  representationVersion: string;
+  inputHash: string;
+}): string {
+  const promptVersion = input.representationVersion === PHRASE_OCCURRENCE_SENSE_REPRESENTATION_VERSION
+    ? PHRASE_OCCURRENCE_SENSE_PROMPT_VERSION
+    : "direct_embedding_v1";
+  return `phrase_occurrence_embedding_backfill_v2:${input.representationVersion}:${promptVersion}:${input.modelVersion}:${input.inputHash}`;
+}
+
+export function isPhraseOccurrenceSenseJob(job: { inputVersion: string; payload: unknown }): boolean {
+  if (job.inputVersion.includes(`:${PHRASE_OCCURRENCE_SENSE_REPRESENTATION_VERSION}:`)) return true;
+  if (!job.payload || typeof job.payload !== "object") return false;
+  return (job.payload as { representationVersion?: unknown }).representationVersion === PHRASE_OCCURRENCE_SENSE_REPRESENTATION_VERSION;
 }
 
 export async function enqueuePhraseOccurrenceEmbeddingGeneration(
   tx: any,
-  input: { userId: string; occurrenceId: string; inputHash: string; inputVersion: string },
+  input: {
+    userId: string;
+    occurrenceId: string;
+    inputHash: string;
+    inputVersion: string;
+    representationVersion?: string;
+    promptVersion?: string | null;
+  },
 ): Promise<void> {
   await tx.cardEnrichmentJob.upsert({
     where: {
@@ -101,7 +159,12 @@ export async function enqueuePhraseOccurrenceEmbeddingGeneration(
       jobType: "generate_phrase_occurrence_embedding",
       inputHash: input.inputHash,
       inputVersion: input.inputVersion,
-      payload: { occurrenceId: input.occurrenceId, schemaVersion: 1 },
+      payload: {
+        occurrenceId: input.occurrenceId,
+        schemaVersion: input.representationVersion ? 2 : 1,
+        ...(input.representationVersion ? { representationVersion: input.representationVersion } : {}),
+        ...(input.promptVersion ? { promptVersion: input.promptVersion } : {}),
+      },
     },
     update: {},
   });

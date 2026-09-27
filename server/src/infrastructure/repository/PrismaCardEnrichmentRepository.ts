@@ -1,7 +1,11 @@
 import { createHash, randomUUID } from "node:crypto";
 import { Prisma, type PrismaClient } from "@prisma/client";
 import { buildCardEmbeddingInput } from "@lf/core/text/cardEmbedding.js";
-import { buildPhraseOccurrenceEmbeddingInput } from "@lf/core/text/phraseOccurrenceEmbedding.js";
+import {
+  PHRASE_OCCURRENCE_MARKED_SENTENCE_REPRESENTATION_VERSION,
+  PHRASE_OCCURRENCE_SENSE_PROMPT_VERSION,
+  PHRASE_OCCURRENCE_SENSE_REPRESENTATION_VERSION,
+} from "@lf/core/Prompts/phraseOccurrenceSensePrompt.js";
 import type {
   CardEmbeddingSource,
   CardEnrichmentJobEntity,
@@ -21,6 +25,8 @@ import {
 import { CARD_REWRITE_ALIGNMENT_PROMPT_VERSION } from "@lf/core/Prompts/cardRewriteAlignmentPrompt.js";
 import {
   enqueuePhraseOccurrenceEmbeddingForOccurrence,
+  phraseOccurrenceBackfillInputVersion,
+  phraseOccurrenceRepresentationHashInput,
   enqueuePhraseOccurrenceEmbeddingGeneration,
   loadPhraseOccurrenceEmbeddingSourceData,
 } from "./PhraseOccurrenceEmbeddingJobs.js";
@@ -341,6 +347,8 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
 
   async enqueueMissingPhraseOccurrenceEmbeddingJobs(input: {
     modelVersion: string;
+    representationVersion: string;
+    promptVersion?: string;
     limit: number;
     maxOutstanding: number;
     userId?: string;
@@ -363,7 +371,20 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
       const availableSlots = Math.max(0, Math.max(1, input.maxOutstanding) - outstanding);
       if (!availableSlots) return 0;
       const scanLimit = Math.min(Math.max(1, input.limit), availableSlots);
-      const backfillInputVersionPrefix = `phrase_occurrence_embedding_backfill_v1:${input.modelVersion}:`;
+      const expectedPromptVersion = input.representationVersion === PHRASE_OCCURRENCE_SENSE_REPRESENTATION_VERSION
+        ? PHRASE_OCCURRENCE_SENSE_PROMPT_VERSION
+        : "direct_embedding_v1";
+      if (input.promptVersion && input.promptVersion !== expectedPromptVersion) {
+        throw new Error("PHRASE_OCCURRENCE_REPRESENTATION_PROMPT_MISMATCH");
+      }
+      const supportedRepresentationVersions: string[] = [
+        PHRASE_OCCURRENCE_MARKED_SENTENCE_REPRESENTATION_VERSION,
+        PHRASE_OCCURRENCE_SENSE_REPRESENTATION_VERSION,
+      ];
+      if (!supportedRepresentationVersions.includes(input.representationVersion)) {
+        throw new Error("PHRASE_OCCURRENCE_REPRESENTATION_UNSUPPORTED");
+      }
+      const backfillInputVersionPrefix = `phrase_occurrence_embedding_backfill_v2:${input.representationVersion}:${expectedPromptVersion}:${input.modelVersion}:`;
       const rows = await tx.$queryRaw<Array<{ occurrenceId: string; userId: string }>>`
         SELECT occurrence."id" AS "occurrenceId", occurrence."userId"
           FROM "phrase_occurrences" AS occurrence
@@ -375,8 +396,9 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
            AND (${input.userId ?? null}::text IS NULL OR occurrence."userId" = ${input.userId ?? null})
            AND NOT EXISTS (
              SELECT 1 FROM "phrase_occurrence_embeddings" AS embedding
-              WHERE embedding."occurrenceId" = occurrence."id"
+             WHERE embedding."occurrenceId" = occurrence."id"
                 AND embedding."modelVersion" = ${input.modelVersion}
+                AND embedding."representationVersion" = ${input.representationVersion}
            )
            AND NOT EXISTS (
              SELECT 1 FROM "card_enrichment_jobs" AS job
@@ -400,8 +422,8 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
       let enqueued = 0;
       for (const row of rows) {
         const source = await loadPhraseOccurrenceEmbeddingSourceData(tx, row.occurrenceId, row.userId);
-        const embeddingInput = source ? buildPhraseOccurrenceEmbeddingInput(source) : null;
-        const hashInput = embeddingInput ?? JSON.stringify([
+        const representationInput = source ? phraseOccurrenceRepresentationHashInput(source, input.representationVersion) : null;
+        const hashInput = representationInput ?? JSON.stringify([
           row.userId,
           row.occurrenceId,
           "source_missing",
@@ -411,7 +433,13 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
           userId: row.userId,
           occurrenceId: row.occurrenceId,
           inputHash,
-          inputVersion: `${backfillInputVersionPrefix}${inputHash}`,
+          inputVersion: phraseOccurrenceBackfillInputVersion({
+            modelVersion: input.modelVersion,
+            representationVersion: input.representationVersion,
+            inputHash,
+          }),
+          representationVersion: input.representationVersion,
+          promptVersion: expectedPromptVersion,
         });
         enqueued += 1;
       }
@@ -1185,10 +1213,18 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
     });
   }
 
-  async completePhraseOccurrenceEmbeddingJob(job: CardEnrichmentJobEntity, result: EmbeddingResult): Promise<boolean> {
+  async completePhraseOccurrenceEmbeddingJob(job: CardEnrichmentJobEntity, result: EmbeddingResult, representation?: {
+    representationVersion: string;
+    promptVersion: string | null;
+    meaningText: string | null;
+  }): Promise<boolean> {
     return this.prisma.$transaction(async (tx) => {
       const occurrence = await loadPhraseOccurrenceEmbeddingSourceData(tx, job.sourceId, job.userId);
-      const currentInput = occurrence ? buildPhraseOccurrenceEmbeddingInput(occurrence) : null;
+      const representationVersion = representation?.representationVersion
+        ?? PHRASE_OCCURRENCE_MARKED_SENTENCE_REPRESENTATION_VERSION;
+      const currentInput = occurrence
+        ? phraseOccurrenceRepresentationHashInput(occurrence, representationVersion)
+        : null;
       const currentHash = currentInput ? createHash("sha256").update(currentInput).digest("hex") : null;
       if (!occurrence || currentHash !== job.inputHash) {
         await tx.cardEnrichmentJob.updateMany({
@@ -1211,14 +1247,16 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
       const vector = `[${result.embedding.join(",")}]`;
       await tx.$executeRawUnsafe(
         `INSERT INTO "phrase_occurrence_embeddings"
-          ("id", "userId", "cardId", "occurrenceId", "provider", "model", "modelVersion", "dimensions", "inputHash", "embedding", "createdAt", "updatedAt")
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::vector, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-         ON CONFLICT ("occurrenceId", "modelVersion")
+          ("id", "userId", "cardId", "occurrenceId", "provider", "model", "modelVersion", "representationVersion", "promptVersion", "meaningText", "dimensions", "inputHash", "embedding", "createdAt", "updatedAt")
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::vector, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+         ON CONFLICT ("occurrenceId", "modelVersion", "representationVersion")
          DO UPDATE SET "provider" = EXCLUDED."provider", "model" = EXCLUDED."model",
+           "promptVersion" = EXCLUDED."promptVersion", "meaningText" = EXCLUDED."meaningText",
            "dimensions" = EXCLUDED."dimensions", "inputHash" = EXCLUDED."inputHash",
            "embedding" = EXCLUDED."embedding", "updatedAt" = CURRENT_TIMESTAMP`,
         randomUUID(), job.userId, occurrence.cardId, occurrence.occurrenceId, result.provider,
-        result.model, result.modelVersion, result.dimensions, job.inputHash, vector,
+        result.model, result.modelVersion, representationVersion, representation?.promptVersion ?? null,
+        representation?.meaningText ?? null, result.dimensions, job.inputHash, vector,
       );
       return true;
     });

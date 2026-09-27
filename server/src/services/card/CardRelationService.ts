@@ -3,6 +3,11 @@ import { truncateGraphemes } from "@lf/core/text/grapheme.js";
 import { cardRecordId, parseCardRecordId } from "@lf/core/types/cardRecord.js";
 import type { PrismaCardRelationRepository } from "../../infrastructure/repository/PrismaCardRelationRepository.js";
 import type { CardImageService } from "./CardImageService.js";
+import {
+  PHRASE_OCCURRENCE_MARKED_SENTENCE_REPRESENTATION_VERSION,
+  PHRASE_OCCURRENCE_SENSE_REPRESENTATION_VERSION,
+  type PhraseOccurrenceRepresentationVersion,
+} from "@lf/core/Prompts/phraseOccurrenceSensePrompt.js";
 
 export interface CardRelationPreview {
   id: string;
@@ -36,6 +41,9 @@ export class CardRelationService {
       contextRelationsEnabled?: boolean;
       contextRelationsUserId?: string | null;
       minContextSimilarity?: number;
+      contextRepresentationVersion?: PhraseOccurrenceRepresentationVersion;
+      minSenseSimilarity?: number;
+      senseWeight?: number;
       topicMaxChars?: number;
     },
     private readonly imageService?: CardImageService,
@@ -98,13 +106,20 @@ export class CardRelationService {
     if (!this.options.modelVersion) return [];
     const useContextRelations = this.options.contextRelationsEnabled === true
       && (!this.options.contextRelationsUserId || this.options.contextRelationsUserId === userId);
+    const representationVersion = this.options.contextRepresentationVersion
+      ?? PHRASE_OCCURRENCE_MARKED_SENTENCE_REPRESENTATION_VERSION;
+    const useSenseRanking = representationVersion === PHRASE_OCCURRENCE_SENSE_REPRESENTATION_VERSION;
     const rows = (await (useContextRelations
       ? this.repository.findContextuallyRelatedPhrases({
           userId,
           sourceId: ref.sourceId,
           modelVersion: this.options.modelVersion,
+          representationVersion,
           minPhraseSimilarity: this.options.minLanguageSimilarity ?? 0.72,
-          minContextSimilarity: this.options.minContextSimilarity ?? 0.78,
+          minRepresentationSimilarity: useSenseRanking
+            ? (this.options.minSenseSimilarity ?? 0.45)
+            : (this.options.minContextSimilarity ?? 0.78),
+          representationWeight: useSenseRanking ? (this.options.senseWeight ?? 0.70) : 1,
           limit,
         })
       : this.repository.findSemanticallyRelatedPhrases({

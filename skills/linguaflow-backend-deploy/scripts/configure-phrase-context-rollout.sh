@@ -2,7 +2,7 @@
 set -euo pipefail
 
 usage() {
-  echo "Usage: $0 --status | --target-email <email> --confirm-production | --broad-backfill --confirm-production | --enable-all-relations --confirm-production | --disable --confirm-production" >&2
+  echo "Usage: $0 --status | --target-sense-backfill <email> --confirm-production | --enable-target-sense-relations <email> --confirm-production | --broad-backfill --confirm-production | --enable-all-relations --confirm-production | --disable --confirm-production" >&2
   exit 2
 }
 
@@ -16,20 +16,25 @@ import { PrismaClient } from "@prisma/client";
 const prisma = new PrismaClient();
 const modelVersion = `${process.env.AZURE_EMBEDDING_MODEL || "text-embedding-3-small"}:${process.env.AZURE_EMBEDDING_DEPLOYMENT}:${process.env.AZURE_EMBEDDING_API_VERSION || "2024-10-21"}:${process.env.AZURE_EMBEDDING_DIMENSIONS || "1536"}`;
 const targetUserId = String(process.env.CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_USER_ID || "").trim() || null;
-const backfillPrefix = `phrase_occurrence_embedding_backfill_v1:${modelVersion}:`;
+const backfillRepresentation = String(process.env.CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_REPRESENTATION_VERSION || "marked_sentence_v1").trim();
+const relationRepresentation = String(process.env.RELATED_PHRASE_CONTEXT_REPRESENTATION_VERSION || "marked_sentence_v1").trim();
+const promptVersion = backfillRepresentation === "usage_meaning_v1" ? "phrase_occurrence_sense_v1" : "direct_embedding_v1";
+const backfillPrefix = `phrase_occurrence_embedding_backfill_v2:${backfillRepresentation}:${promptVersion}:${modelVersion}:`;
 const [eligible, embedded, handled, jobs] = await Promise.all([
   prisma.$queryRaw`SELECT COUNT(*)::int AS count FROM "phrase_occurrences" occurrence JOIN "phrases" phrase ON phrase."id" = occurrence."phraseId" AND phrase."status" = ${"normalized"} WHERE occurrence."sourceField" = ${"ai_expression"} AND (${targetUserId}::text IS NULL OR occurrence."userId" = ${targetUserId})`,
-  prisma.$queryRaw`SELECT COUNT(*)::int AS count FROM "phrase_occurrence_embeddings" embedding JOIN "phrase_occurrences" occurrence ON occurrence."id" = embedding."occurrenceId" WHERE embedding."modelVersion" = ${modelVersion} AND (${targetUserId}::text IS NULL OR occurrence."userId" = ${targetUserId})`,
-  prisma.$queryRaw`SELECT COUNT(*)::int AS count FROM "phrase_occurrences" occurrence JOIN "phrases" phrase ON phrase."id" = occurrence."phraseId" AND phrase."status" = ${"normalized"} WHERE occurrence."sourceField" = ${"ai_expression"} AND (${targetUserId}::text IS NULL OR occurrence."userId" = ${targetUserId}) AND (EXISTS (SELECT 1 FROM "phrase_occurrence_embeddings" embedding WHERE embedding."occurrenceId" = occurrence."id" AND embedding."modelVersion" = ${modelVersion}) OR EXISTS (SELECT 1 FROM "card_enrichment_jobs" job WHERE job."userId" = occurrence."userId" AND job."sourceKind" = ${"phrase_occurrence"} AND job."sourceId" = occurrence."id" AND job."jobType" = ${"generate_phrase_occurrence_embedding"} AND job."status" = ${"completed"} AND left(job."inputVersion", ${backfillPrefix.length}::integer) = ${backfillPrefix}))`,
-  prisma.cardEnrichmentJob.groupBy({ by: ["status"], where: { jobType: "generate_phrase_occurrence_embedding", ...(targetUserId ? { userId: targetUserId } : {}) }, _count: { _all: true } }),
+  prisma.$queryRaw`SELECT COUNT(*)::int AS count FROM "phrase_occurrence_embeddings" embedding JOIN "phrase_occurrences" occurrence ON occurrence."id" = embedding."occurrenceId" WHERE embedding."modelVersion" = ${modelVersion} AND embedding."representationVersion" = ${backfillRepresentation} AND (${targetUserId}::text IS NULL OR occurrence."userId" = ${targetUserId})`,
+  prisma.$queryRaw`SELECT COUNT(*)::int AS count FROM "phrase_occurrences" occurrence JOIN "phrases" phrase ON phrase."id" = occurrence."phraseId" AND phrase."status" = ${"normalized"} WHERE occurrence."sourceField" = ${"ai_expression"} AND (${targetUserId}::text IS NULL OR occurrence."userId" = ${targetUserId}) AND (EXISTS (SELECT 1 FROM "phrase_occurrence_embeddings" embedding WHERE embedding."occurrenceId" = occurrence."id" AND embedding."modelVersion" = ${modelVersion} AND embedding."representationVersion" = ${backfillRepresentation}) OR EXISTS (SELECT 1 FROM "card_enrichment_jobs" job WHERE job."userId" = occurrence."userId" AND job."sourceKind" = ${"phrase_occurrence"} AND job."sourceId" = occurrence."id" AND job."jobType" = ${"generate_phrase_occurrence_embedding"} AND job."status" = ${"completed"} AND left(job."inputVersion", ${backfillPrefix.length}::integer) = ${backfillPrefix}))`,
+  prisma.cardEnrichmentJob.groupBy({ by: ["status"], where: { jobType: "generate_phrase_occurrence_embedding", inputVersion: { startsWith: backfillPrefix }, ...(targetUserId ? { userId: targetUserId } : {}) }, _count: { _all: true } }),
 ]);
 const total = Number(eligible[0]?.count || 0);
 const done = Number(embedded[0]?.count || 0);
 const handledCount = Number(handled[0]?.count || 0);
 console.log(`context_relations_enabled=${String(process.env.RELATED_PHRASE_CONTEXT_ENABLED || "false").toLowerCase() === "true"}`);
 console.log(`context_relations_scope=${String(process.env.RELATED_PHRASE_CONTEXT_USER_ID || "").trim() ? "target_user" : "all_users"}`);
+console.log(`context_representation=${relationRepresentation}`);
 console.log(`backfill_enabled=${String(process.env.CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_ENABLED || "false").toLowerCase() === "true"}`);
 console.log(`backfill_scope=${targetUserId ? "target_user" : "all_users"}`);
+console.log(`backfill_representation=${backfillRepresentation}`);
 console.log(`eligible=${total}`);
 console.log(`embedded=${done}`);
 console.log(`skipped=${Math.max(0, handledCount - done)}`);
@@ -43,10 +48,10 @@ NODE
 fi
 
 case "$action" in
-  --target-email)
+  --target-sense-backfill|--enable-target-sense-relations)
     [[ $# -eq 3 && "${3:-}" == "--confirm-production" ]] || usage
     target_email="$2"
-    mode="target"
+    mode="${action#--}"
     ;;
   --broad-backfill|--enable-all-relations|--disable)
     [[ $# -eq 2 && "${2:-}" == "--confirm-production" ]] || usage
@@ -71,22 +76,27 @@ import { PrismaClient } from "@prisma/client";
 const prisma = new PrismaClient();
 const mode = process.env.MODE;
 let targetUserId = "";
-if (mode === "target") {
+if (mode === "target-sense-backfill" || mode === "enable-target-sense-relations") {
   const users = await prisma.user.findMany({ where: { email: process.env.TARGET_EMAIL }, select: { id: true }, take: 2 });
   if (users.length !== 1) throw new Error(`TARGET_USER_CARDINALITY_${users.length}`);
   targetUserId = users[0].id;
 }
-if (mode === "enable-all-relations") {
+if (mode === "enable-all-relations" || mode === "enable-target-sense-relations") {
   const modelVersion = `${process.env.AZURE_EMBEDDING_MODEL || "text-embedding-3-small"}:${process.env.AZURE_EMBEDDING_DEPLOYMENT}:${process.env.AZURE_EMBEDDING_API_VERSION || "2024-10-21"}:${process.env.AZURE_EMBEDDING_DIMENSIONS || "1536"}`;
-  const backfillPrefix = `phrase_occurrence_embedding_backfill_v1:${modelVersion}:`;
+  const representationVersion = "usage_meaning_v1";
+  const promptVersion = "phrase_occurrence_sense_v1";
+  const backfillPrefix = `phrase_occurrence_embedding_backfill_v2:${representationVersion}:${promptVersion}:${modelVersion}:`;
   const missing = await prisma.$queryRaw`
     SELECT COUNT(*)::int AS count
       FROM "phrase_occurrences" occurrence
       JOIN "phrases" phrase ON phrase."id" = occurrence."phraseId" AND phrase."status" = ${"normalized"}
      WHERE occurrence."sourceField" = ${"ai_expression"}
+       AND (${mode === "enable-target-sense-relations" ? targetUserId : null}::text IS NULL OR occurrence."userId" = ${mode === "enable-target-sense-relations" ? targetUserId : null})
        AND NOT EXISTS (
          SELECT 1 FROM "phrase_occurrence_embeddings" embedding
-          WHERE embedding."occurrenceId" = occurrence."id" AND embedding."modelVersion" = ${modelVersion}
+          WHERE embedding."occurrenceId" = occurrence."id"
+            AND embedding."modelVersion" = ${modelVersion}
+            AND embedding."representationVersion" = ${representationVersion}
        )
        AND NOT EXISTS (
          SELECT 1 FROM "card_enrichment_jobs" job
@@ -102,17 +112,23 @@ if (mode === "enable-all-relations") {
 await prisma.$disconnect();
 
 const updates = new Map();
-if (mode === "target") {
-  updates.set("RELATED_PHRASE_CONTEXT_ENABLED", "true");
-  updates.set("RELATED_PHRASE_CONTEXT_USER_ID", targetUserId);
+if (mode === "target-sense-backfill") {
   updates.set("CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_ENABLED", "true");
   updates.set("CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_USER_ID", targetUserId);
+  updates.set("CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_REPRESENTATION_VERSION", "usage_meaning_v1");
+} else if (mode === "enable-target-sense-relations") {
+  updates.set("RELATED_PHRASE_CONTEXT_ENABLED", "true");
+  updates.set("RELATED_PHRASE_CONTEXT_USER_ID", targetUserId);
+  updates.set("RELATED_PHRASE_CONTEXT_REPRESENTATION_VERSION", "usage_meaning_v1");
+  updates.set("CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_ENABLED", "false");
 } else if (mode === "broad-backfill") {
   updates.set("CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_ENABLED", "true");
   updates.set("CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_USER_ID", "");
+  updates.set("CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_REPRESENTATION_VERSION", "usage_meaning_v1");
 } else if (mode === "enable-all-relations") {
   updates.set("RELATED_PHRASE_CONTEXT_ENABLED", "true");
   updates.set("RELATED_PHRASE_CONTEXT_USER_ID", "");
+  updates.set("RELATED_PHRASE_CONTEXT_REPRESENTATION_VERSION", "usage_meaning_v1");
   updates.set("CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_ENABLED", "false");
   updates.set("CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_USER_ID", "");
 } else if (mode === "disable") {
@@ -121,7 +137,10 @@ if (mode === "target") {
   updates.set("CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_ENABLED", "false");
   updates.set("CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_USER_ID", "");
 }
-updates.set("RELATED_PHRASE_CONTEXT_MIN_SIMILARITY", "0.78");
+if (mode === "enable-target-sense-relations" || mode === "enable-all-relations") {
+  updates.set("RELATED_PHRASE_SENSE_MIN_SIMILARITY", "0.45");
+  updates.set("RELATED_PHRASE_SENSE_WEIGHT", "0.70");
+}
 updates.set("CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_BATCH_SIZE", "5");
 updates.set("CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_MAX_OUTSTANDING", "10");
 updates.set("CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_SCAN_INTERVAL_MS", "60000");
@@ -138,7 +157,7 @@ fs.writeFileSync(temp, next, { mode: fs.statSync(path).mode });
 fs.renameSync(temp, path);
 NODE
 
-if [[ "$mode" == "broad-backfill" ]]; then
+if [[ "$mode" == "broad-backfill" || "$mode" == "target-sense-backfill" ]]; then
   pm2 restart ecosystem.production.config.cjs --only oio-worker-production --update-env >/dev/null
 else
   pm2 restart ecosystem.production.config.cjs --only oio-api-production,oio-worker-production --update-env >/dev/null

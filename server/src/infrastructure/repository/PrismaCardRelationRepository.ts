@@ -233,8 +233,10 @@ export class PrismaCardRelationRepository {
     userId: string;
     sourceId: string;
     modelVersion: string;
+    representationVersion: string;
     minPhraseSimilarity: number;
-    minContextSimilarity: number;
+    minRepresentationSimilarity: number;
+    representationWeight: number;
     limit: number;
   }): Promise<SemanticPhraseRelationRow[]> {
     const rows = await this.prisma.$queryRawUnsafe<Array<SemanticPhraseRelationRow & { semanticScore: number | string }>>(
@@ -257,6 +259,7 @@ export class PrismaCardRelationRepository {
              ON current_context_embedding."occurrenceId" = occurrence."id"
             AND current_context_embedding."userId" = occurrence."userId"
             AND current_context_embedding."modelVersion" = $3
+            AND current_context_embedding."representationVersion" = $4
            JOIN LATERAL (
              SELECT segment."text"
                FROM "card_rewrite_segments" AS segment
@@ -281,11 +284,18 @@ export class PrismaCardRelationRepository {
                 anchors."segmentId" AS "currentSegmentId", anchors."surfaceText" AS "currentSurfaceText",
                 anchors."startUtf16" AS "currentStartUtf16", anchors."endUtf16" AS "currentEndUtf16",
                 anchors."currentSentence",
-                (1 - (candidate_context_embedding."embedding" <=> anchors."contextEmbedding"))::double precision AS "semanticScore",
+                (
+                  (1 - (candidate_phrase_embedding."embedding" <=> anchors."phraseEmbedding")) * (1 - $7::double precision)
+                  + (1 - (candidate_context_embedding."embedding" <=> anchors."contextEmbedding")) * $7::double precision
+                )::double precision AS "semanticScore",
                 (1 - (candidate_phrase_embedding."embedding" <=> anchors."phraseEmbedding"))::double precision AS "phraseScore",
+                (1 - (candidate_context_embedding."embedding" <=> anchors."contextEmbedding"))::double precision AS "representationScore",
                 ROW_NUMBER() OVER (
                   PARTITION BY anchors."occurrenceId", historical."cardId"
-                  ORDER BY candidate_context_embedding."embedding" <=> anchors."contextEmbedding" ASC,
+                  ORDER BY (
+                             (1 - (candidate_phrase_embedding."embedding" <=> anchors."phraseEmbedding")) * (1 - $7::double precision)
+                             + (1 - (candidate_context_embedding."embedding" <=> anchors."contextEmbedding")) * $7::double precision
+                           ) DESC,
                            historical."cardCreatedAt" DESC, historical."id" DESC
                 ) AS "pairRank"
            FROM anchors
@@ -307,6 +317,7 @@ export class PrismaCardRelationRepository {
              ON candidate_context_embedding."occurrenceId" = historical."id"
             AND candidate_context_embedding."userId" = $1
             AND candidate_context_embedding."modelVersion" = $3
+            AND candidate_context_embedding."representationVersion" = $4
            JOIN LATERAL (
              SELECT segment."text"
                FROM "card_rewrite_segments" AS segment
@@ -325,8 +336,8 @@ export class PrismaCardRelationRepository {
             AND historical_card."userId" = $1
             AND historical_card."status" = 'completed'
             AND historical_card."deletedAt" IS NULL
-          WHERE (1 - (candidate_phrase_embedding."embedding" <=> anchors."phraseEmbedding")) >= $4
-            AND (1 - (candidate_context_embedding."embedding" <=> anchors."contextEmbedding")) >= $5
+          WHERE (1 - (candidate_phrase_embedding."embedding" <=> anchors."phraseEmbedding")) >= $5
+            AND (1 - (candidate_context_embedding."embedding" <=> anchors."contextEmbedding")) >= $6
        )
        SELECT "phraseId", "phrase", 'card'::text AS "sourceKind", "sourceId", "topic",
               CASE WHEN "clozeBlankId" IS NULL THEN 'appeared' ELSE 'clozed' END AS "evidence",
@@ -335,12 +346,14 @@ export class PrismaCardRelationRepository {
          FROM scored
         WHERE "pairRank" = 1
         ORDER BY "semanticScore" DESC, "phraseScore" DESC, "cardCreatedAt" DESC, "sourceId" ASC
-        LIMIT $6`,
+        LIMIT $8`,
       input.userId,
       input.sourceId,
       input.modelVersion,
+      input.representationVersion,
       input.minPhraseSimilarity,
-      input.minContextSimilarity,
+      input.minRepresentationSimilarity,
+      input.representationWeight,
       input.limit,
     );
     return rows.map((row) => ({ ...row, semanticScore: Number(row.semanticScore) }));
