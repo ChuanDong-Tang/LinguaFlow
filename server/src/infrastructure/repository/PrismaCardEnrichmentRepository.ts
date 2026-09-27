@@ -31,6 +31,16 @@ import {
   enqueuePhraseOccurrenceEmbeddingGeneration,
   loadPhraseOccurrenceEmbeddingSourceData,
 } from "./PhraseOccurrenceEmbeddingJobs.js";
+import {
+  PHRASE_RELATION_JUDGE_JOB_TYPE,
+  PHRASE_RELATION_JUDGE_SOURCE_KIND,
+  phraseRelationJudgeHashInput,
+  phraseRelationJudgeInputVersion,
+} from "@lf/core/Prompts/phraseRelationJudgePrompt.js";
+import {
+  loadPhraseRelationJudgeSourceData,
+  phraseRelationRetrievalConfigFromPayload,
+} from "./PhraseRelationJudgeJobs.js";
 
 export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository {
   constructor(private readonly prisma: PrismaClient) {}
@@ -449,6 +459,97 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
     });
   }
 
+  async enqueueMissingPhraseRelationJudgeJobs(input: {
+    modelVersion: string;
+    representationVersion: string;
+    promptVersion: string;
+    minPhraseSimilarity: number;
+    minRepresentationSimilarity: number;
+    representationWeight: number;
+    limit: number;
+    maxOutstanding: number;
+    userId?: string;
+  }): Promise<number> {
+    return this.prisma.$transaction(async (tx) => {
+      const lockKey = input.userId ? `phrase_relation_judge_scan:${input.userId}` : "phrase_relation_judge_scan:all";
+      const lock = await tx.$queryRaw<Array<{ acquired: boolean }>>`
+        SELECT pg_try_advisory_xact_lock(hashtext(${lockKey})) AS "acquired"
+      `;
+      if (!lock[0]?.acquired) return 0;
+      const outstanding = await tx.cardEnrichmentJob.count({
+        where: {
+          jobType: PHRASE_RELATION_JUDGE_JOB_TYPE,
+          status: { in: ["queued", "processing"] },
+          ...(input.userId ? { userId: input.userId } : {}),
+        },
+      });
+      const availableSlots = Math.max(0, Math.max(1, input.maxOutstanding) - outstanding);
+      if (!availableSlots) return 0;
+      const scanLimit = Math.min(Math.max(1, input.limit), availableSlots);
+      const rows = await tx.$queryRaw<Array<{ occurrenceId: string; userId: string }>>`
+        SELECT occurrence."id" AS "occurrenceId", occurrence."userId"
+          FROM "phrase_occurrences" AS occurrence
+          JOIN "phrase_occurrence_embeddings" AS embedding
+            ON embedding."occurrenceId" = occurrence."id"
+           AND embedding."userId" = occurrence."userId"
+           AND embedding."modelVersion" = ${input.modelVersion}
+           AND embedding."representationVersion" = ${input.representationVersion}
+         WHERE occurrence."sourceField" = 'ai_expression'
+           AND occurrence."clozeBlankId" IS NOT NULL
+           AND (${input.userId ?? null}::text IS NULL OR occurrence."userId" = ${input.userId ?? null})
+           AND NOT EXISTS (
+             SELECT 1 FROM "phrase_occurrence_relation_decisions" AS decision
+              WHERE decision."anchorOccurrenceId" = occurrence."id"
+                AND decision."promptVersion" = ${input.promptVersion}
+           )
+         ORDER BY occurrence."updatedAt" DESC, occurrence."id" ASC
+         LIMIT ${scanLimit * 8}
+      `;
+      const config = {
+        modelVersion: input.modelVersion,
+        representationVersion: input.representationVersion,
+        minPhraseSimilarity: input.minPhraseSimilarity,
+        minRepresentationSimilarity: input.minRepresentationSimilarity,
+        representationWeight: input.representationWeight,
+      };
+      let enqueued = 0;
+      for (const row of rows) {
+        if (enqueued >= scanLimit) break;
+        const source = await loadPhraseRelationJudgeSourceData(tx, row.occurrenceId, row.userId, config);
+        if (!source) continue;
+        const inputHash = createHash("sha256").update(phraseRelationJudgeHashInput(source)).digest("hex");
+        const decision = await tx.phraseOccurrenceRelationDecision.findUnique({
+          where: { anchorOccurrenceId_promptVersion: { anchorOccurrenceId: row.occurrenceId, promptVersion: input.promptVersion } },
+          select: { inputHash: true },
+        });
+        if (decision?.inputHash === inputHash) continue;
+        const inputVersion = phraseRelationJudgeInputVersion(inputHash);
+        const key = {
+          userId: row.userId,
+          sourceKind: PHRASE_RELATION_JUDGE_SOURCE_KIND,
+          sourceId: row.occurrenceId,
+          jobType: PHRASE_RELATION_JUDGE_JOB_TYPE,
+          inputVersion,
+        };
+        const existing = await tx.cardEnrichmentJob.findUnique({
+          where: { userId_sourceKind_sourceId_jobType_inputVersion: key },
+          select: { id: true },
+        });
+        if (existing) continue;
+        await tx.cardEnrichmentJob.create({
+          data: {
+            ...key,
+            inputHash,
+            priority: 0,
+            payload: { schemaVersion: 1, promptVersion: input.promptVersion, ...config },
+          },
+        });
+        enqueued += 1;
+      }
+      return enqueued;
+    });
+  }
+
   async claimNextRewriteAlignmentJob(workerId: string, leaseExpiresAt: Date): Promise<CardEnrichmentJobEntity | null> {
     return this.claimNextJob(
       "align_rewrite_original",
@@ -600,6 +701,10 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
 
   async claimNextPhraseOccurrenceEmbeddingJob(workerId: string, leaseExpiresAt: Date): Promise<CardEnrichmentJobEntity | null> {
     return this.claimNextJob("generate_phrase_occurrence_embedding", workerId, leaseExpiresAt);
+  }
+
+  async claimNextPhraseRelationJudgeJob(workerId: string, leaseExpiresAt: Date): Promise<CardEnrichmentJobEntity | null> {
+    return this.claimNextJob(PHRASE_RELATION_JUDGE_JOB_TYPE, workerId, leaseExpiresAt);
   }
 
   async claimNextPhraseNormalizationJob(workerId: string, leaseExpiresAt: Date): Promise<CardEnrichmentJobEntity | null> {
@@ -1192,6 +1297,13 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
     return loadPhraseOccurrenceEmbeddingSourceData(this.prisma, job.sourceId, job.userId);
   }
 
+  async loadPhraseRelationJudgeSource(job: CardEnrichmentJobEntity) {
+    if (job.sourceKind !== PHRASE_RELATION_JUDGE_SOURCE_KIND) return null;
+    const config = phraseRelationRetrievalConfigFromPayload(job.payload);
+    if (!config) return null;
+    return loadPhraseRelationJudgeSourceData(this.prisma, job.sourceId, job.userId, config);
+  }
+
   async completePhraseEmbeddingJob(job: CardEnrichmentJobEntity, result: EmbeddingResult): Promise<boolean> {
     return this.prisma.$transaction(async (tx) => {
       const claimed = await tx.cardEnrichmentJob.updateMany({
@@ -1265,6 +1377,60 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
         representation?.meaningText ?? null, representation?.polarity ?? null, representation?.modality ?? null,
         representation?.meaningKind ?? null, result.dimensions, job.inputHash, vector,
       );
+      return true;
+    });
+  }
+
+  async completePhraseRelationJudgeJob(job: CardEnrichmentJobEntity, result: {
+    selectedOccurrenceId: string | null;
+    promptVersion: string;
+    provider: string;
+    model: string;
+  }): Promise<boolean> {
+    return this.prisma.$transaction(async (tx) => {
+      const config = phraseRelationRetrievalConfigFromPayload(job.payload);
+      const source = config ? await loadPhraseRelationJudgeSourceData(tx, job.sourceId, job.userId, config) : null;
+      const currentHash = source ? createHash("sha256").update(phraseRelationJudgeHashInput(source)).digest("hex") : null;
+      if (!source || currentHash !== job.inputHash) {
+        await tx.cardEnrichmentJob.updateMany({
+          where: { id: job.id, status: "processing", workerId: job.workerId },
+          data: { status: "completed", completedAt: new Date(), leaseExpiresAt: null, workerId: null, lastError: "PHRASE_RELATION_JUDGE_INPUT_STALE" },
+        });
+        return false;
+      }
+      const selected = result.selectedOccurrenceId
+        ? source.candidates.find((candidate) => candidate.occurrenceId === result.selectedOccurrenceId)
+        : null;
+      if (result.selectedOccurrenceId && !selected) throw new Error("PHRASE_RELATION_JUDGE_SELECTION_INVALID");
+      const claimed = await tx.cardEnrichmentJob.updateMany({
+        where: { id: job.id, status: "processing", workerId: job.workerId, inputHash: job.inputHash },
+        data: { status: "completed", completedAt: new Date(), leaseExpiresAt: null, workerId: null, lastError: null },
+      });
+      if (claimed.count !== 1) return false;
+      await tx.phraseOccurrenceRelationDecision.upsert({
+        where: { anchorOccurrenceId_promptVersion: { anchorOccurrenceId: source.anchor.occurrenceId, promptVersion: result.promptVersion } },
+        create: {
+          userId: source.userId,
+          anchorOccurrenceId: source.anchor.occurrenceId,
+          selectedOccurrenceId: selected?.occurrenceId ?? null,
+          promptVersion: result.promptVersion,
+          inputHash: job.inputHash,
+          candidateOccurrenceIds: source.candidates.map((candidate) => candidate.occurrenceId),
+          status: selected ? "selected" : "none",
+          selectedSemanticScore: selected?.semanticScore ?? null,
+          provider: result.provider,
+          model: result.model,
+        },
+        update: {
+          selectedOccurrenceId: selected?.occurrenceId ?? null,
+          inputHash: job.inputHash,
+          candidateOccurrenceIds: source.candidates.map((candidate) => candidate.occurrenceId),
+          status: selected ? "selected" : "none",
+          selectedSemanticScore: selected?.semanticScore ?? null,
+          provider: result.provider,
+          model: result.model,
+        },
+      });
       return true;
     });
   }

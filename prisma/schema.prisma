@@ -8,15 +8,15 @@ datasource db {
 }
 
 model User {
-  id                          String                       @id @default(cuid())
+  id                          String                             @id @default(cuid())
   nickname                    String?
   email                       String?
   phone                       String?
   avatarUrl                   String?
-  status                      UserStatus                   @default(active)
-  role                        UserRole                     @default(user)
-  createdAt                   DateTime                     @default(now())
-  updatedAt                   DateTime                     @updatedAt
+  status                      UserStatus                         @default(active)
+  role                        UserRole                           @default(user)
+  createdAt                   DateTime                           @default(now())
+  updatedAt                   DateTime                           @updatedAt
   authIdentities              UserAuthIdentity[]
   sessions                    UserSession[]
   conversations               Conversation[]
@@ -45,6 +45,7 @@ model User {
   phrases                     Phrase[]
   phraseVariants              PhraseVariant[]
   phraseOccurrences           PhraseOccurrence[]
+  phraseRelationDecisions     PhraseOccurrenceRelationDecision[]
   cardEnrichmentJobs          CardEnrichmentJob[]
   recallSessions              RecallSession[]
   dictionaryLookupCaches      DictionaryLookupCache[]
@@ -544,16 +545,43 @@ model PhraseOccurrence {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  phrase     Phrase                      @relation(fields: [phraseId], references: [id], onDelete: Cascade)
-  user       User                        @relation(fields: [userId], references: [id], onDelete: Cascade)
-  card       Card                        @relation(fields: [cardId], references: [id], onDelete: Cascade)
-  embeddings PhraseOccurrenceEmbedding[]
+  phrase                      Phrase                             @relation(fields: [phraseId], references: [id], onDelete: Cascade)
+  user                        User                               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  card                        Card                               @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  embeddings                  PhraseOccurrenceEmbedding[]
+  relationDecisionsAsAnchor   PhraseOccurrenceRelationDecision[] @relation("PhraseRelationAnchor")
+  relationDecisionsAsSelected PhraseOccurrenceRelationDecision[] @relation("PhraseRelationSelected")
 
   @@unique([phraseId, cardId, sourceField, segmentKey, startUtf16, endUtf16])
   @@index([phraseId, cardId])
   @@index([userId, cardId, sourceField, phraseId])
   @@index([userId, phraseId, sourceField, cardCreatedAt])
   @@map("phrase_occurrences")
+}
+
+model PhraseOccurrenceRelationDecision {
+  id                     String   @id @default(cuid())
+  userId                 String
+  anchorOccurrenceId     String
+  selectedOccurrenceId   String?
+  promptVersion          String
+  inputHash              String
+  candidateOccurrenceIds Json
+  status                 String
+  selectedSemanticScore  Float?
+  provider               String?
+  model                  String?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  user               User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  anchorOccurrence   PhraseOccurrence  @relation("PhraseRelationAnchor", fields: [anchorOccurrenceId], references: [id], onDelete: Cascade)
+  selectedOccurrence PhraseOccurrence? @relation("PhraseRelationSelected", fields: [selectedOccurrenceId], references: [id], onDelete: SetNull)
+
+  @@unique([anchorOccurrenceId, promptVersion])
+  @@index([userId, promptVersion, status])
+  @@index([selectedOccurrenceId])
+  @@map("phrase_occurrence_relation_decisions")
 }
 
 model PhraseOccurrenceEmbedding {

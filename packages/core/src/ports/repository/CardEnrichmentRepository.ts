@@ -1,4 +1,5 @@
 import type { EmbeddingResult } from "../ai/EmbeddingProvider.js";
+import type { PhraseRelationJudgeSource } from "../../Prompts/phraseRelationJudgePrompt.js";
 
 export interface CardEnrichmentJobEntity {
   id: string;
@@ -127,6 +128,17 @@ export interface CardEnrichmentRepository {
     maxOutstanding: number;
     userId?: string;
   }): Promise<number>;
+  enqueueMissingPhraseRelationJudgeJobs(input: {
+    modelVersion: string;
+    representationVersion: string;
+    promptVersion: string;
+    minPhraseSimilarity: number;
+    minRepresentationSimilarity: number;
+    representationWeight: number;
+    limit: number;
+    maxOutstanding: number;
+    userId?: string;
+  }): Promise<number>;
   claimNextRewriteAlignmentJob(workerId: string, leaseExpiresAt: Date): Promise<CardEnrichmentJobEntity | null>;
   loadRewriteAlignmentSource(job: CardEnrichmentJobEntity): Promise<CardRewriteAlignmentSource | null>;
   completeRewriteAlignmentJob(
@@ -151,6 +163,14 @@ export interface CardEnrichmentRepository {
     polarity?: string | null;
     modality?: string | null;
     meaningKind?: string | null;
+  }): Promise<boolean>;
+  claimNextPhraseRelationJudgeJob(workerId: string, leaseExpiresAt: Date): Promise<CardEnrichmentJobEntity | null>;
+  loadPhraseRelationJudgeSource(job: CardEnrichmentJobEntity): Promise<PhraseRelationJudgeSource | null>;
+  completePhraseRelationJudgeJob(job: CardEnrichmentJobEntity, result: {
+    selectedOccurrenceId: string | null;
+    promptVersion: string;
+    provider: string;
+    model: string;
   }): Promise<boolean>;
   completeWithoutResult(job: CardEnrichmentJobEntity, reason: string): Promise<boolean>;
   completeJob(job: CardEnrichmentJobEntity): Promise<boolean>;

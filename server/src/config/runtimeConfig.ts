@@ -128,6 +128,8 @@ export interface RuntimeConfig {
   relatedPhraseContextRepresentationVersion: PhraseOccurrenceRepresentationVersion;
   relatedPhraseSenseMinSimilarity: number;
   relatedPhraseSenseWeight: number;
+  relatedPhraseJudgeEnabled: boolean;
+  relatedPhraseJudgeUserId: string | null;
   cardCreateUserRateLimit: number;
   cardCreateGlobalRateLimit: number;
   cardCreateRateWindowMs: number;
@@ -171,6 +173,11 @@ export interface RuntimeConfig {
   cardPhraseOccurrenceEmbeddingBackfillScanIntervalMs: number;
   cardPhraseOccurrenceEmbeddingBackfillUserId: string | null;
   cardPhraseOccurrenceEmbeddingBackfillRepresentationVersion: PhraseOccurrenceRepresentationVersion;
+  cardPhraseRelationJudgeBackfillEnabled: boolean;
+  cardPhraseRelationJudgeBackfillBatchSize: number;
+  cardPhraseRelationJudgeBackfillMaxOutstanding: number;
+  cardPhraseRelationJudgeBackfillScanIntervalMs: number;
+  cardPhraseRelationJudgeBackfillUserId: string | null;
   cardRewriteAlignmentEnabled: boolean;
   cardRewriteAlignmentBackfillEnabled: boolean;
   cardRewriteAlignmentBatchSize: number;
@@ -352,6 +359,8 @@ export function getRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeC
     relatedPhraseContextRepresentationVersion: readPhraseOccurrenceRepresentationVersion(env.RELATED_PHRASE_CONTEXT_REPRESENTATION_VERSION),
     relatedPhraseSenseMinSimilarity: readUnitFloat(env.RELATED_PHRASE_SENSE_MIN_SIMILARITY, 0.45),
     relatedPhraseSenseWeight: readUnitFloat(env.RELATED_PHRASE_SENSE_WEIGHT, 0.70),
+    relatedPhraseJudgeEnabled: readBoolean(env.RELATED_PHRASE_JUDGE_ENABLED, false),
+    relatedPhraseJudgeUserId: trimToNull(env.RELATED_PHRASE_JUDGE_USER_ID),
     cardCreateUserRateLimit: readPositiveInt(env.CARD_CREATE_USER_RATE_LIMIT, 5),
     cardCreateGlobalRateLimit: readPositiveInt(env.CARD_CREATE_GLOBAL_RATE_LIMIT, 120),
     cardCreateRateWindowMs: readPositiveInt(env.CARD_CREATE_RATE_WINDOW_MS, 60_000),
@@ -395,6 +404,11 @@ export function getRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeC
     cardPhraseOccurrenceEmbeddingBackfillScanIntervalMs: readPositiveInt(env.CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_SCAN_INTERVAL_MS, 60_000),
     cardPhraseOccurrenceEmbeddingBackfillUserId: trimToNull(env.CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_USER_ID),
     cardPhraseOccurrenceEmbeddingBackfillRepresentationVersion: readPhraseOccurrenceRepresentationVersion(env.CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_REPRESENTATION_VERSION),
+    cardPhraseRelationJudgeBackfillEnabled: readBoolean(env.CARD_PHRASE_RELATION_JUDGE_BACKFILL_ENABLED, false),
+    cardPhraseRelationJudgeBackfillBatchSize: readPositiveInt(env.CARD_PHRASE_RELATION_JUDGE_BACKFILL_BATCH_SIZE, 5),
+    cardPhraseRelationJudgeBackfillMaxOutstanding: readPositiveInt(env.CARD_PHRASE_RELATION_JUDGE_BACKFILL_MAX_OUTSTANDING, 10),
+    cardPhraseRelationJudgeBackfillScanIntervalMs: readPositiveInt(env.CARD_PHRASE_RELATION_JUDGE_BACKFILL_SCAN_INTERVAL_MS, 60_000),
+    cardPhraseRelationJudgeBackfillUserId: trimToNull(env.CARD_PHRASE_RELATION_JUDGE_BACKFILL_USER_ID),
     cardRewriteAlignmentEnabled: readBoolean(env.CARD_REWRITE_ALIGNMENT_ENABLED ?? env.CARD_AUXILIARY_BACKFILL_ENABLED, true),
     cardRewriteAlignmentBackfillEnabled: readBoolean(env.CARD_REWRITE_ALIGNMENT_BACKFILL_ENABLED, false),
     cardRewriteAlignmentBatchSize: readPositiveInt(env.CARD_REWRITE_ALIGNMENT_BATCH_SIZE ?? env.CARD_AUXILIARY_BACKFILL_BATCH_SIZE, 20),

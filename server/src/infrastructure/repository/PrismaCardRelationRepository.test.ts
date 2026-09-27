@@ -78,3 +78,28 @@ test("V2 requires matching polarity and external modality in the same lookup", a
   assert.match(sql, /anchors\."currentPolarity" = 'neutral'/u);
   assert.equal(parameters.at(-1), true);
 });
+
+test("verified phrase lookup reads only selected decisions for the current prompt", async () => {
+  let sql = "";
+  let parameters: unknown[] = [];
+  const prisma = {
+    async $queryRaw(strings: TemplateStringsArray, ...values: unknown[]) {
+      sql = strings.join("?");
+      parameters = values;
+      return [{ semanticScore: "0.93" }];
+    },
+  };
+  const repository = new PrismaCardRelationRepository(prisma as never);
+
+  const rows = await repository.findVerifiedRelatedPhrases({
+    userId: "user-1",
+    sourceId: "card-1",
+    promptVersion: "phrase_relation_judge_v1",
+    limit: 1,
+  });
+
+  assert.match(sql, /phrase_occurrence_relation_decisions/u);
+  assert.match(sql, /decision\."status" = 'selected'/u);
+  assert.deepEqual(parameters, ["card-1", "user-1", "phrase_relation_judge_v1", 1]);
+  assert.equal(rows[0]?.semanticScore, 0.93);
+});

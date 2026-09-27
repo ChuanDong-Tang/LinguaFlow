@@ -382,6 +382,59 @@ export class PrismaCardRelationRepository {
     return rows.map((row) => ({ ...row, semanticScore: Number(row.semanticScore) }));
   }
 
+  async findVerifiedRelatedPhrases(input: {
+    userId: string;
+    sourceId: string;
+    promptVersion: string;
+    limit: number;
+  }): Promise<SemanticPhraseRelationRow[]> {
+    const rows = await this.prisma.$queryRaw<Array<SemanticPhraseRelationRow & { semanticScore: number | string }>>`
+      SELECT candidate_phrase."id" AS "phraseId", candidate_phrase."canonicalText" AS "phrase",
+             'card'::text AS "sourceKind", candidate."cardId" AS "sourceId", candidate_card."topic",
+             CASE WHEN candidate."clozeBlankId" IS NULL THEN 'appeared' ELSE 'clozed' END AS "evidence",
+             candidate."surfaceText", candidate_segment."text" AS "sentence",
+             anchor."segmentId" AS "currentSegmentId", anchor."surfaceText" AS "currentSurfaceText",
+             anchor."startUtf16" AS "currentStartUtf16", anchor."endUtf16" AS "currentEndUtf16",
+             anchor_segment."text" AS "currentSentence", candidate."cardCreatedAt",
+             decision."selectedSemanticScore" AS "semanticScore"
+        FROM "phrase_occurrence_relation_decisions" AS decision
+        JOIN "phrase_occurrences" AS anchor
+          ON anchor."id" = decision."anchorOccurrenceId"
+         AND anchor."userId" = decision."userId"
+         AND anchor."cardId" = ${input.sourceId}
+        JOIN "phrase_occurrences" AS candidate
+          ON candidate."id" = decision."selectedOccurrenceId"
+         AND candidate."userId" = decision."userId"
+        JOIN "phrases" AS candidate_phrase
+          ON candidate_phrase."id" = candidate."phraseId"
+         AND candidate_phrase."userId" = decision."userId"
+        JOIN "cards" AS candidate_card
+          ON candidate_card."id" = candidate."cardId"
+         AND candidate_card."userId" = decision."userId"
+         AND candidate_card."status" = 'completed'
+         AND candidate_card."deletedAt" IS NULL
+        JOIN LATERAL (
+          SELECT segment."text" FROM "card_rewrite_segments" AS segment
+           WHERE segment."entryId" = anchor."cardId"
+             AND (segment."id" = anchor."segmentId" OR position(lower(anchor."surfaceText") in lower(segment."text")) > 0)
+           ORDER BY (segment."id" = anchor."segmentId") DESC, segment."ordinal" ASC LIMIT 1
+        ) AS anchor_segment ON TRUE
+        JOIN LATERAL (
+          SELECT segment."text" FROM "card_rewrite_segments" AS segment
+           WHERE segment."entryId" = candidate."cardId"
+             AND (segment."id" = candidate."segmentId" OR position(lower(candidate."surfaceText") in lower(segment."text")) > 0)
+           ORDER BY (segment."id" = candidate."segmentId") DESC, segment."ordinal" ASC LIMIT 1
+        ) AS candidate_segment ON TRUE
+       WHERE decision."userId" = ${input.userId}
+         AND decision."promptVersion" = ${input.promptVersion}
+         AND decision."status" = 'selected'
+         AND decision."selectedOccurrenceId" IS NOT NULL
+       ORDER BY decision."selectedSemanticScore" DESC NULLS LAST, decision."updatedAt" DESC, decision."id" ASC
+       LIMIT ${Math.max(1, Math.min(input.limit, 10))}
+    `;
+    return rows.map((row) => ({ ...row, semanticScore: Number(row.semanticScore) }));
+  }
+
   async findPhraseOccurrenceHistory(input: {
     userId: string;
     phraseId: string;

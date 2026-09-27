@@ -331,6 +331,8 @@ export function createApp() {
       contextRepresentationVersion: runtimeConfig.relatedPhraseContextRepresentationVersion,
       minSenseSimilarity: runtimeConfig.relatedPhraseSenseMinSimilarity,
       senseWeight: runtimeConfig.relatedPhraseSenseWeight,
+      phraseJudgeEnabled: runtimeConfig.relatedPhraseJudgeEnabled,
+      phraseJudgeUserId: runtimeConfig.relatedPhraseJudgeUserId,
       topicMaxChars: runtimeConfig.cardTopicMaxChars,
     },
     cardImageService,

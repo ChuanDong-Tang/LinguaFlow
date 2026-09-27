@@ -124,6 +124,56 @@ test("V2 enables semantic feature compatibility filtering", async () => {
   assert.equal(contextInputs[0]?.requireSemanticCompatibility, true);
 });
 
+test("judge rollout serves only one persisted relation and fails closed without a decision", async () => {
+  const calls: string[] = [];
+  const repository = {
+    findVerifiedRelatedPhrases: async () => {
+      calls.push("verified");
+      return [{ ...current, semanticScore: 0.93 }, { ...current, sourceId: "second-card", semanticScore: 0.92 }];
+    },
+    findContextuallyRelatedPhrases: async () => {
+      calls.push("context");
+      return [{ ...current, semanticScore: 0.99 }];
+    },
+    findSemanticallyRelatedPhrases: async () => {
+      calls.push("phrase");
+      return [{ ...current, semanticScore: 0.99 }];
+    },
+  };
+  const service = new CardRelationService(repository as never, {
+    modelVersion: "embedding-v1",
+    minTopicSimilarity: 0.7,
+    contextRelationsEnabled: true,
+    phraseJudgeEnabled: true,
+    phraseJudgeUserId: "user-target",
+  });
+
+  const target = await service.relatedPhrases("user-target", "card:current-card", 100);
+  const other = await service.relatedPhrases("user-other", "card:current-card", 100);
+
+  assert.deepEqual(calls, ["verified", "context"]);
+  assert.equal(target.length, 1);
+  assert.equal(other.length, 1);
+});
+
+test("judge rollout does not fall back to vector results while a decision is missing", async () => {
+  let fallbackCalls = 0;
+  const repository = {
+    findVerifiedRelatedPhrases: async () => [],
+    findContextuallyRelatedPhrases: async () => { fallbackCalls += 1; return [{ ...current, semanticScore: 0.99 }]; },
+    findSemanticallyRelatedPhrases: async () => { fallbackCalls += 1; return [{ ...current, semanticScore: 0.99 }]; },
+  };
+  const service = new CardRelationService(repository as never, {
+    modelVersion: "embedding-v1",
+    minTopicSimilarity: 0.7,
+    phraseJudgeEnabled: true,
+    phraseJudgeUserId: "user-target",
+  });
+
+  assert.deepEqual(await service.relatedPhrases("user-target", "card:current-card", 10), []);
+  assert.equal(fallbackCalls, 0);
+});
+
 test("keeps topic relations when no semantic language relation exists", async () => {
   const repository = {
     findRelatedTopics: async () => [{ sourceId: "topic-card", topic: "new house renovation", score: 0.88 }],

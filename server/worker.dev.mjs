@@ -50,6 +50,8 @@ import { PhraseEmbeddingWorkerService } from "./src/services/card/PhraseEmbeddin
 import { PhraseEmbeddingBackfillScanner } from "./src/workers/card/PhraseEmbeddingBackfillScanner.ts";
 import { PhraseOccurrenceEmbeddingWorkerService } from "./src/services/card/PhraseOccurrenceEmbeddingWorkerService.ts";
 import { PhraseOccurrenceEmbeddingBackfillScanner } from "./src/workers/card/PhraseOccurrenceEmbeddingBackfillScanner.ts";
+import { PhraseRelationJudgeWorkerService } from "./src/services/card/PhraseRelationJudgeWorkerService.ts";
+import { PhraseRelationJudgeBackfillScanner } from "./src/workers/card/PhraseRelationJudgeBackfillScanner.ts";
 import {
   PHRASE_OCCURRENCE_CONTEXT_MEANING_PROMPT_VERSION,
   PHRASE_OCCURRENCE_CONTEXT_MEANING_REPRESENTATION_VERSION,
@@ -527,6 +529,37 @@ const phraseOccurrenceEmbeddingBackfillScanner = embeddingProvider && runtime.ca
       },
     )
   : null;
+const phraseRelationJudgeWorker = runtime.cardPhraseRelationJudgeBackfillEnabled
+  ? new SerialCardJobWorker(
+      new PhraseRelationJudgeWorkerService(cardEnrichmentRepository, cardAiProvider, systemEventLogRepository, {}, resourceGovernor),
+      {
+        workerIdPrefix: "phrase-relation-judge",
+        errorLabel: "phrase-relation-judge-worker",
+        concurrencyGuard: undefined,
+        concurrencyScope: "llm",
+        concurrencyLimit: runtime.cardRewriteGlobalConcurrency,
+      },
+    )
+  : null;
+const phraseRelationJudgeBackfillScanner = embeddingProvider && runtime.cardPhraseRelationJudgeBackfillEnabled
+  ? new PhraseRelationJudgeBackfillScanner(
+      cardEnrichmentRepository,
+      {
+        modelVersion: embeddingProvider.modelVersion,
+        representationVersion: runtime.relatedPhraseContextRepresentationVersion,
+        minPhraseSimilarity: runtime.relatedPhraseMinSimilarity,
+        minRepresentationSimilarity: runtime.relatedPhraseSenseMinSimilarity,
+        representationWeight: runtime.relatedPhraseSenseWeight,
+      },
+      systemEventLogRepository,
+      {
+        intervalMs: runtime.cardPhraseRelationJudgeBackfillScanIntervalMs,
+        batchSize: runtime.cardPhraseRelationJudgeBackfillBatchSize,
+        maxOutstanding: runtime.cardPhraseRelationJudgeBackfillMaxOutstanding,
+        ...(runtime.cardPhraseRelationJudgeBackfillUserId ? { userId: runtime.cardPhraseRelationJudgeBackfillUserId } : {}),
+      },
+    )
+  : null;
 const cardImageCleanupWorker = new CardImageCleanupWorker(
   cardRepository,
   cardImageStorageProvider,
@@ -569,6 +602,8 @@ const workerGroups = {
     phraseEmbeddingWorker,
     phraseOccurrenceEmbeddingBackfillScanner,
     phraseOccurrenceEmbeddingWorker,
+    phraseRelationJudgeBackfillScanner,
+    phraseRelationJudgeWorker,
     phraseNormalizationWorker,
     phraseHistoryIndexWorker,
     cardPhraseIndexWorker,

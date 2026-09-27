@@ -9,6 +9,7 @@ import {
   PHRASE_OCCURRENCE_SENSE_REPRESENTATION_VERSION,
   type PhraseOccurrenceRepresentationVersion,
 } from "@lf/core/Prompts/phraseOccurrenceSensePrompt.js";
+import { PHRASE_RELATION_JUDGE_PROMPT_VERSION } from "@lf/core/Prompts/phraseRelationJudgePrompt.js";
 
 export interface CardRelationPreview {
   id: string;
@@ -45,6 +46,8 @@ export class CardRelationService {
       contextRepresentationVersion?: PhraseOccurrenceRepresentationVersion;
       minSenseSimilarity?: number;
       senseWeight?: number;
+      phraseJudgeEnabled?: boolean;
+      phraseJudgeUserId?: string | null;
       topicMaxChars?: number;
     },
     private readonly imageService?: CardImageService,
@@ -107,11 +110,20 @@ export class CardRelationService {
     if (!this.options.modelVersion) return [];
     const useContextRelations = this.options.contextRelationsEnabled === true
       && (!this.options.contextRelationsUserId || this.options.contextRelationsUserId === userId);
+    const usePhraseJudge = this.options.phraseJudgeEnabled === true
+      && (!this.options.phraseJudgeUserId || this.options.phraseJudgeUserId === userId);
     const representationVersion = this.options.contextRepresentationVersion
       ?? PHRASE_OCCURRENCE_MARKED_SENTENCE_REPRESENTATION_VERSION;
     const useSenseRanking = representationVersion === PHRASE_OCCURRENCE_SENSE_REPRESENTATION_VERSION
       || representationVersion === PHRASE_OCCURRENCE_CONTEXT_MEANING_REPRESENTATION_VERSION;
-    const rows = (await (useContextRelations
+    const rows = (await (usePhraseJudge
+      ? this.repository.findVerifiedRelatedPhrases({
+          userId,
+          sourceId: ref.sourceId,
+          promptVersion: PHRASE_RELATION_JUDGE_PROMPT_VERSION,
+          limit: 1,
+        })
+      : useContextRelations
       ? this.repository.findContextuallyRelatedPhrases({
           userId,
           sourceId: ref.sourceId,
@@ -132,7 +144,9 @@ export class CardRelationService {
           modelVersion: this.options.modelVersion,
           minSimilarity: this.options.minLanguageSimilarity ?? 0.72,
           limit,
-        }))).map((row) => ({ ...row, matchMode: "semantic" as const }));
+        })))
+      .slice(0, usePhraseJudge ? 1 : undefined)
+      .map((row) => ({ ...row, matchMode: "semantic" as const }));
     return rows.map((row) => ({
       recordId: cardRecordId("card", row.sourceId),
       topic: row.topic,
