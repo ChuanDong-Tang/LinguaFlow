@@ -383,7 +383,7 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
            AND phrase."status" = 'normalized'
           JOIN "card_rewrite_segments" AS segment
             ON segment."id" = occurrence."segmentId"
-           AND segment."cardId" = occurrence."cardId"
+           AND segment."entryId" = occurrence."cardId"
          WHERE occurrence."sourceField" = 'ai_expression'
            AND (${input.userId ?? null}::text IS NULL OR occurrence."userId" = ${input.userId ?? null})
            AND NOT EXISTS (
@@ -1193,7 +1193,7 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
          AND phrase."status" = 'normalized'
         JOIN "card_rewrite_segments" AS segment
           ON segment."id" = occurrence."segmentId"
-         AND segment."cardId" = occurrence."cardId"
+         AND segment."entryId" = occurrence."cardId"
        WHERE occurrence."id" = ${job.sourceId}
          AND occurrence."userId" = ${job.userId}
          AND occurrence."sourceField" = 'ai_expression'
@@ -1240,7 +1240,7 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
       });
       const segment = occurrence?.segmentId
         ? await tx.cardRewriteSegment.findFirst({
-            where: { id: occurrence.segmentId, cardId: occurrence.cardId },
+            where: { id: occurrence.segmentId, entryId: occurrence.cardId },
             select: { text: true },
           })
         : null;

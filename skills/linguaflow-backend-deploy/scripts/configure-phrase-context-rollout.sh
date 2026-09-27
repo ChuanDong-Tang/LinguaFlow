@@ -17,7 +17,7 @@ const prisma = new PrismaClient();
 const modelVersion = `${process.env.AZURE_EMBEDDING_MODEL || "text-embedding-3-small"}:${process.env.AZURE_EMBEDDING_DEPLOYMENT}:${process.env.AZURE_EMBEDDING_API_VERSION || "2024-10-21"}:${process.env.AZURE_EMBEDDING_DIMENSIONS || "1536"}`;
 const targetUserId = String(process.env.CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_USER_ID || "").trim() || null;
 const [eligible, embedded, jobs] = await Promise.all([
-  prisma.$queryRaw`SELECT COUNT(*)::int AS count FROM "phrase_occurrences" occurrence JOIN "phrases" phrase ON phrase."id" = occurrence."phraseId" AND phrase."status" = ${"normalized"} JOIN "card_rewrite_segments" segment ON segment."id" = occurrence."segmentId" AND segment."cardId" = occurrence."cardId" WHERE occurrence."sourceField" = ${"ai_expression"} AND (${targetUserId}::text IS NULL OR occurrence."userId" = ${targetUserId})`,
+  prisma.$queryRaw`SELECT COUNT(*)::int AS count FROM "phrase_occurrences" occurrence JOIN "phrases" phrase ON phrase."id" = occurrence."phraseId" AND phrase."status" = ${"normalized"} JOIN "card_rewrite_segments" segment ON segment."id" = occurrence."segmentId" AND segment."entryId" = occurrence."cardId" WHERE occurrence."sourceField" = ${"ai_expression"} AND (${targetUserId}::text IS NULL OR occurrence."userId" = ${targetUserId})`,
   prisma.$queryRaw`SELECT COUNT(*)::int AS count FROM "phrase_occurrence_embeddings" embedding JOIN "phrase_occurrences" occurrence ON occurrence."id" = embedding."occurrenceId" WHERE embedding."modelVersion" = ${modelVersion} AND (${targetUserId}::text IS NULL OR occurrence."userId" = ${targetUserId})`,
   prisma.cardEnrichmentJob.groupBy({ by: ["status"], where: { jobType: "generate_phrase_occurrence_embedding", ...(targetUserId ? { userId: targetUserId } : {}) }, _count: { _all: true } }),
 ]);
@@ -78,7 +78,7 @@ if (mode === "enable-all-relations") {
     SELECT COUNT(*)::int AS count
       FROM "phrase_occurrences" occurrence
       JOIN "phrases" phrase ON phrase."id" = occurrence."phraseId" AND phrase."status" = ${"normalized"}
-      JOIN "card_rewrite_segments" segment ON segment."id" = occurrence."segmentId" AND segment."cardId" = occurrence."cardId"
+      JOIN "card_rewrite_segments" segment ON segment."id" = occurrence."segmentId" AND segment."entryId" = occurrence."cardId"
      WHERE occurrence."sourceField" = ${"ai_expression"}
        AND NOT EXISTS (
          SELECT 1 FROM "phrase_occurrence_embeddings" embedding

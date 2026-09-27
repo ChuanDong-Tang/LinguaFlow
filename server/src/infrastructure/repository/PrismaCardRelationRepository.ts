@@ -259,7 +259,7 @@ export class PrismaCardRelationRepository {
             AND current_context_embedding."modelVersion" = $3
            JOIN "card_rewrite_segments" AS current_segment
              ON current_segment."id" = occurrence."segmentId"
-            AND current_segment."cardId" = occurrence."cardId"
+            AND current_segment."entryId" = occurrence."cardId"
           WHERE occurrence."userId" = $1
             AND occurrence."cardId" = $2
             AND occurrence."sourceField" = 'ai_expression'
@@ -299,7 +299,7 @@ export class PrismaCardRelationRepository {
             AND candidate_context_embedding."modelVersion" = $3
            JOIN "card_rewrite_segments" AS historical_segment
              ON historical_segment."id" = historical."segmentId"
-            AND historical_segment."cardId" = historical."cardId"
+            AND historical_segment."entryId" = historical."cardId"
            JOIN "cards" AS historical_card
              ON historical_card."id" = historical."cardId"
             AND historical_card."userId" = $1

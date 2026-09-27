@@ -21,7 +21,7 @@ export async function enqueuePhraseOccurrenceEmbeddingForOccurrence(
   if (!occurrence || occurrence.sourceField !== "ai_expression" || !occurrence.segmentId
     || occurrence.phrase.status !== "normalized") return;
   const segment = await tx.cardRewriteSegment.findFirst({
-    where: { id: occurrence.segmentId, cardId: occurrence.cardId },
+    where: { id: occurrence.segmentId, entryId: occurrence.cardId },
     select: { text: true },
   });
   if (!segment) return;
