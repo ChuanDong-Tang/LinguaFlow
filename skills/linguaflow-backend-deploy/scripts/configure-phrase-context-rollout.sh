@@ -2,7 +2,7 @@
 set -euo pipefail
 
 usage() {
-  echo "Usage: $0 --status | --target-sense-backfill <email> --confirm-production | --enable-target-sense-relations <email> --confirm-production | --broad-backfill --confirm-production | --enable-all-relations --confirm-production | --disable --confirm-production" >&2
+  echo "Usage: $0 --status | --target-sense-backfill <email> --confirm-production | --enable-target-sense-canary <email> --confirm-production | --enable-target-sense-relations <email> --confirm-production | --broad-backfill --confirm-production | --enable-all-relations --confirm-production | --disable --confirm-production" >&2
   exit 2
 }
 
@@ -21,12 +21,13 @@ const relationRepresentation = String(process.env.RELATED_PHRASE_CONTEXT_REPRESE
 const promptVersion = backfillRepresentation === "usage_meaning_v1" ? "phrase_occurrence_sense_v1" : "direct_embedding_v1";
 const backfillPrefix = `phrase_occurrence_embedding_backfill_v2:${backfillRepresentation}:${promptVersion}:${modelVersion}:`;
 const senseInputMarker = `:${backfillRepresentation}:`;
-const [eligible, embedded, handled, jobs, allRepresentationJobs] = await Promise.all([
+const [eligible, embedded, handled, jobs, allRepresentationJobs, failedRepresentationJobs] = await Promise.all([
   prisma.$queryRaw`SELECT COUNT(*)::int AS count FROM "phrase_occurrences" occurrence JOIN "phrases" phrase ON phrase."id" = occurrence."phraseId" AND phrase."status" = ${"normalized"} WHERE occurrence."sourceField" = ${"ai_expression"} AND (${targetUserId}::text IS NULL OR occurrence."userId" = ${targetUserId})`,
   prisma.$queryRaw`SELECT COUNT(*)::int AS count FROM "phrase_occurrence_embeddings" embedding JOIN "phrase_occurrences" occurrence ON occurrence."id" = embedding."occurrenceId" WHERE embedding."modelVersion" = ${modelVersion} AND embedding."representationVersion" = ${backfillRepresentation} AND (${targetUserId}::text IS NULL OR occurrence."userId" = ${targetUserId})`,
   prisma.$queryRaw`SELECT COUNT(*)::int AS count FROM "phrase_occurrences" occurrence JOIN "phrases" phrase ON phrase."id" = occurrence."phraseId" AND phrase."status" = ${"normalized"} WHERE occurrence."sourceField" = ${"ai_expression"} AND (${targetUserId}::text IS NULL OR occurrence."userId" = ${targetUserId}) AND (EXISTS (SELECT 1 FROM "phrase_occurrence_embeddings" embedding WHERE embedding."occurrenceId" = occurrence."id" AND embedding."modelVersion" = ${modelVersion} AND embedding."representationVersion" = ${backfillRepresentation}) OR EXISTS (SELECT 1 FROM "card_enrichment_jobs" job WHERE job."userId" = occurrence."userId" AND job."sourceKind" = ${"phrase_occurrence"} AND job."sourceId" = occurrence."id" AND job."jobType" = ${"generate_phrase_occurrence_embedding"} AND job."status" = ${"completed"} AND left(job."inputVersion", ${backfillPrefix.length}::integer) = ${backfillPrefix}))`,
   prisma.cardEnrichmentJob.groupBy({ by: ["status"], where: { jobType: "generate_phrase_occurrence_embedding", inputVersion: { startsWith: backfillPrefix }, ...(targetUserId ? { userId: targetUserId } : {}) }, _count: { _all: true } }),
   prisma.cardEnrichmentJob.groupBy({ by: ["status"], where: { jobType: "generate_phrase_occurrence_embedding", inputVersion: { contains: senseInputMarker }, ...(targetUserId ? { userId: targetUserId } : {}) }, _count: { _all: true } }),
+  prisma.cardEnrichmentJob.groupBy({ by: ["lastError"], where: { jobType: "generate_phrase_occurrence_embedding", inputVersion: { contains: senseInputMarker }, status: "failed", ...(targetUserId ? { userId: targetUserId } : {}) }, _count: { _all: true } }),
 ]);
 const total = Number(eligible[0]?.count || 0);
 const done = Number(embedded[0]?.count || 0);
@@ -43,6 +44,12 @@ console.log(`skipped=${Math.max(0, handledCount - done)}`);
 console.log(`missing=${Math.max(0, total - handledCount)}`);
 for (const row of jobs) console.log(`jobs_${row.status}=${row._count._all}`);
 for (const row of allRepresentationJobs) console.log(`representation_jobs_${row.status}=${row._count._all}`);
+const failedCodes = new Map();
+for (const row of failedRepresentationJobs) {
+  const code = String(row.lastError || "UNKNOWN").match(/[A-Z][A-Z0-9_]{3,}/u)?.[0] || "UNKNOWN";
+  failedCodes.set(code, (failedCodes.get(code) || 0) + row._count._all);
+}
+for (const [code, count] of failedCodes) console.log(`representation_failed_${code}=${count}`);
 await prisma.$disconnect();
 NODE
     echo api_status=$(pm2 jlist | node -e '"'"'let r="";process.stdin.on("data",c=>r+=c);process.stdin.on("end",()=>process.stdout.write(JSON.parse(r).find(x=>x.name==="oio-api-production")?.pm2_env?.status||"missing"))'"'"')
@@ -51,7 +58,7 @@ NODE
 fi
 
 case "$action" in
-  --target-sense-backfill|--enable-target-sense-relations)
+  --target-sense-backfill|--enable-target-sense-canary|--enable-target-sense-relations)
     [[ $# -eq 3 && "${3:-}" == "--confirm-production" ]] || usage
     target_email="$2"
     mode="${action#--}"
@@ -79,10 +86,26 @@ import { PrismaClient } from "@prisma/client";
 const prisma = new PrismaClient();
 const mode = process.env.MODE;
 let targetUserId = "";
-if (mode === "target-sense-backfill" || mode === "enable-target-sense-relations") {
+if (mode === "target-sense-backfill" || mode === "enable-target-sense-canary" || mode === "enable-target-sense-relations") {
   const users = await prisma.user.findMany({ where: { email: process.env.TARGET_EMAIL }, select: { id: true }, take: 2 });
   if (users.length !== 1) throw new Error(`TARGET_USER_CARDINALITY_${users.length}`);
   targetUserId = users[0].id;
+}
+if (mode === "enable-target-sense-canary") {
+  const modelVersion = `${process.env.AZURE_EMBEDDING_MODEL || "text-embedding-3-small"}:${process.env.AZURE_EMBEDDING_DEPLOYMENT}:${process.env.AZURE_EMBEDDING_API_VERSION || "2024-10-21"}:${process.env.AZURE_EMBEDDING_DIMENSIONS || "1536"}`;
+  const coverage = await prisma.$queryRaw`
+    SELECT COUNT(*)::int AS count
+      FROM "phrase_occurrences" occurrence
+      JOIN "phrase_occurrence_embeddings" embedding
+        ON embedding."occurrenceId" = occurrence."id"
+       AND embedding."modelVersion" = ${modelVersion}
+       AND embedding."representationVersion" = ${"usage_meaning_v1"}
+     WHERE occurrence."userId" = ${targetUserId}
+       AND occurrence."sourceField" = ${"ai_expression"}
+       AND occurrence."clozeBlankId" IS NOT NULL`;
+  if (Number(coverage[0]?.count || 0) < 10) {
+    throw new Error(`SENSE_CANARY_COVERAGE_INSUFFICIENT_${coverage[0]?.count || 0}`);
+  }
 }
 if (mode === "enable-all-relations" || mode === "enable-target-sense-relations") {
   const modelVersion = `${process.env.AZURE_EMBEDDING_MODEL || "text-embedding-3-small"}:${process.env.AZURE_EMBEDDING_DEPLOYMENT}:${process.env.AZURE_EMBEDDING_API_VERSION || "2024-10-21"}:${process.env.AZURE_EMBEDDING_DIMENSIONS || "1536"}`;
@@ -124,6 +147,13 @@ if (mode === "target-sense-backfill") {
   updates.set("RELATED_PHRASE_CONTEXT_USER_ID", targetUserId);
   updates.set("RELATED_PHRASE_CONTEXT_REPRESENTATION_VERSION", "usage_meaning_v1");
   updates.set("CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_ENABLED", "false");
+} else if (mode === "enable-target-sense-canary") {
+  updates.set("RELATED_PHRASE_CONTEXT_ENABLED", "true");
+  updates.set("RELATED_PHRASE_CONTEXT_USER_ID", targetUserId);
+  updates.set("RELATED_PHRASE_CONTEXT_REPRESENTATION_VERSION", "usage_meaning_v1");
+  updates.set("CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_ENABLED", "true");
+  updates.set("CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_USER_ID", targetUserId);
+  updates.set("CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_REPRESENTATION_VERSION", "usage_meaning_v1");
 } else if (mode === "broad-backfill") {
   updates.set("CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_ENABLED", "true");
   updates.set("CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_USER_ID", "");
@@ -140,7 +170,7 @@ if (mode === "target-sense-backfill") {
   updates.set("CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_ENABLED", "false");
   updates.set("CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_USER_ID", "");
 }
-if (mode === "enable-target-sense-relations" || mode === "enable-all-relations") {
+if (mode === "enable-target-sense-canary" || mode === "enable-target-sense-relations" || mode === "enable-all-relations") {
   updates.set("RELATED_PHRASE_SENSE_MIN_SIMILARITY", "0.45");
   updates.set("RELATED_PHRASE_SENSE_WEIGHT", "0.70");
 }
