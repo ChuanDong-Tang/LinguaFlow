@@ -24,7 +24,7 @@ test("keeps the semantic judge scan bounded and user scoped", async () => {
     minPhraseSimilarity: 0.72,
     minRepresentationSimilarity: 0.45,
     representationWeight: 0.7,
-    promptVersion: "phrase_relation_judge_v1",
+    promptVersion: "phrase_relation_judge_v2",
     limit: 5,
     maxOutstanding: 10,
     userId: "user-target",

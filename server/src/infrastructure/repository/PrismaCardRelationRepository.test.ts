@@ -94,12 +94,12 @@ test("verified phrase lookup reads only selected decisions for the current promp
   const rows = await repository.findVerifiedRelatedPhrases({
     userId: "user-1",
     sourceId: "card-1",
-    promptVersion: "phrase_relation_judge_v1",
+    promptVersion: "phrase_relation_judge_v2",
     limit: 1,
   });
 
   assert.match(sql, /phrase_occurrence_relation_decisions/u);
   assert.match(sql, /decision\."status" = 'selected'/u);
-  assert.deepEqual(parameters, ["card-1", "user-1", "phrase_relation_judge_v1", 1]);
+  assert.deepEqual(parameters, ["card-1", "user-1", "phrase_relation_judge_v2", 1]);
   assert.equal(rows[0]?.semanticScore, 0.93);
 });

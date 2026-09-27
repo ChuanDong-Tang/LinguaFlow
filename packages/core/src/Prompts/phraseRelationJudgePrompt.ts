@@ -1,6 +1,6 @@
 export const PHRASE_RELATION_JUDGE_JOB_TYPE = "judge_phrase_relation";
 export const PHRASE_RELATION_JUDGE_SOURCE_KIND = "phrase_occurrence";
-export const PHRASE_RELATION_JUDGE_PROMPT_VERSION = "phrase_relation_judge_v1";
+export const PHRASE_RELATION_JUDGE_PROMPT_VERSION = "phrase_relation_judge_v2";
 export const PHRASE_RELATION_JUDGE_MAX_CANDIDATES = 5;
 
 export interface PhraseRelationJudgeOccurrence {
@@ -28,10 +28,12 @@ export function buildPhraseRelationJudgePrompt(source: PhraseRelationJudgeSource
 } {
   const candidates = source.candidates.slice(0, PHRASE_RELATION_JUDGE_MAX_CANDIDATES);
   const systemPrompt = [
-    "You judge whether two highlighted expressions have the same contextual meaning and communicative function.",
-    "Choose at most one candidate that a learner could reasonably substitute for the anchor in an equivalent situation.",
+    "You judge whether two highlighted expressions teach the same practical meaning in their shown contexts.",
+    "Choose at most one candidate whose central meaning and usage purpose closely match the anchor.",
+    "Accept useful near-paraphrases even when tense, inflection, register, emphasis, or degree words differ slightly (for example, 'really addictive' and 'so addictive').",
+    "The expressions do not need to be interchangeable word-for-word inside the original sentences.",
     "Reject candidates that merely share a word, topic, broad category, sentiment, or grammatical shape.",
-    "Reject different senses of the same word or phrasal verb, different polarity, modality, degree, participant role, or action.",
+    "Reject different senses of the same word or phrasal verb, opposite polarity, incompatible modality, participant role, or action (for example, 'cracking up' meaning laughing versus 'cracked' meaning broken).",
     "When uncertain, choose none.",
     "Return exactly one XML tag: <choice>candidate_N</choice> or <choice>none</choice>.",
   ].join("\n");

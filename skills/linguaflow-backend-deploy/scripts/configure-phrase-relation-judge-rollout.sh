@@ -15,7 +15,7 @@ if [[ "$action" == "--status" ]]; then
 import { PrismaClient } from "@prisma/client";
 const prisma = new PrismaClient();
 const targetUserId = String(process.env.CARD_PHRASE_RELATION_JUDGE_BACKFILL_USER_ID || process.env.RELATED_PHRASE_JUDGE_USER_ID || "").trim() || null;
-const promptVersion = "phrase_relation_judge_v1";
+const promptVersion = "phrase_relation_judge_v2";
 const [eligible, decisions, jobs, failures] = targetUserId ? await Promise.all([
   prisma.$queryRaw`SELECT COUNT(*)::int AS count FROM "phrase_occurrences" occurrence JOIN "phrase_occurrence_embeddings" embedding ON embedding."occurrenceId" = occurrence."id" AND embedding."representationVersion" = ${"usage_meaning_v2"} WHERE occurrence."userId" = ${targetUserId} AND occurrence."sourceField" = ${"ai_expression"} AND occurrence."clozeBlankId" IS NOT NULL`,
   prisma.phraseOccurrenceRelationDecision.groupBy({ by: ["status"], where: { userId: targetUserId, promptVersion }, _count: { _all: true } }),
