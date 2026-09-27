@@ -22,6 +22,7 @@ import { CARD_REWRITE_ALIGNMENT_PROMPT_VERSION } from "@lf/core/Prompts/cardRewr
 import {
   enqueuePhraseOccurrenceEmbeddingForOccurrence,
   enqueuePhraseOccurrenceEmbeddingGeneration,
+  loadPhraseOccurrenceEmbeddingSourceData,
 } from "./PhraseOccurrenceEmbeddingJobs.js";
 
 export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository {
@@ -363,27 +364,13 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
       if (!availableSlots) return 0;
       const scanLimit = Math.min(Math.max(1, input.limit), availableSlots);
       const backfillInputVersionPrefix = `phrase_occurrence_embedding_backfill_v1:${input.modelVersion}:`;
-      const rows = await tx.$queryRaw<Array<{
-        occurrenceId: string;
-        userId: string;
-        cardId: string;
-        languageCode: string;
-        canonicalText: string;
-        sentence: string;
-        startUtf16: number;
-        endUtf16: number;
-      }>>`
-        SELECT occurrence."id" AS "occurrenceId", occurrence."userId", occurrence."cardId",
-               phrase."languageCode", phrase."canonicalText", segment."text" AS "sentence",
-               occurrence."startUtf16", occurrence."endUtf16"
+      const rows = await tx.$queryRaw<Array<{ occurrenceId: string; userId: string }>>`
+        SELECT occurrence."id" AS "occurrenceId", occurrence."userId"
           FROM "phrase_occurrences" AS occurrence
           JOIN "phrases" AS phrase
             ON phrase."id" = occurrence."phraseId"
            AND phrase."userId" = occurrence."userId"
            AND phrase."status" = 'normalized'
-          JOIN "card_rewrite_segments" AS segment
-            ON segment."id" = occurrence."segmentId"
-           AND segment."entryId" = occurrence."cardId"
          WHERE occurrence."sourceField" = 'ai_expression'
            AND (${input.userId ?? null}::text IS NULL OR occurrence."userId" = ${input.userId ?? null})
            AND NOT EXISTS (
@@ -412,13 +399,12 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
       `;
       let enqueued = 0;
       for (const row of rows) {
-        const embeddingInput = buildPhraseOccurrenceEmbeddingInput(row);
+        const source = await loadPhraseOccurrenceEmbeddingSourceData(tx, row.occurrenceId, row.userId);
+        const embeddingInput = source ? buildPhraseOccurrenceEmbeddingInput(source) : null;
         const hashInput = embeddingInput ?? JSON.stringify([
-          row.languageCode,
-          row.canonicalText,
-          row.sentence,
-          row.startUtf16,
-          row.endUtf16,
+          row.userId,
+          row.occurrenceId,
+          "source_missing",
         ]);
         const inputHash = createHash("sha256").update(hashInput).digest("hex");
         await enqueuePhraseOccurrenceEmbeddingGeneration(tx, {
@@ -1173,33 +1159,7 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
 
   async loadPhraseOccurrenceEmbeddingSource(job: CardEnrichmentJobEntity) {
     if (job.sourceKind !== "phrase_occurrence") return null;
-    const rows = await this.prisma.$queryRaw<Array<{
-      occurrenceId: string;
-      userId: string;
-      cardId: string;
-      languageCode: string;
-      canonicalText: string;
-      sentence: string;
-      startUtf16: number;
-      endUtf16: number;
-    }>>`
-      SELECT occurrence."id" AS "occurrenceId", occurrence."userId", occurrence."cardId",
-             phrase."languageCode", phrase."canonicalText", segment."text" AS "sentence",
-             occurrence."startUtf16", occurrence."endUtf16"
-        FROM "phrase_occurrences" AS occurrence
-        JOIN "phrases" AS phrase
-          ON phrase."id" = occurrence."phraseId"
-         AND phrase."userId" = occurrence."userId"
-         AND phrase."status" = 'normalized'
-        JOIN "card_rewrite_segments" AS segment
-          ON segment."id" = occurrence."segmentId"
-         AND segment."entryId" = occurrence."cardId"
-       WHERE occurrence."id" = ${job.sourceId}
-         AND occurrence."userId" = ${job.userId}
-         AND occurrence."sourceField" = 'ai_expression'
-       LIMIT 1
-    `;
-    return rows[0] ?? null;
+    return loadPhraseOccurrenceEmbeddingSourceData(this.prisma, job.sourceId, job.userId);
   }
 
   async completePhraseEmbeddingJob(job: CardEnrichmentJobEntity, result: EmbeddingResult): Promise<boolean> {
@@ -1227,32 +1187,8 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
 
   async completePhraseOccurrenceEmbeddingJob(job: CardEnrichmentJobEntity, result: EmbeddingResult): Promise<boolean> {
     return this.prisma.$transaction(async (tx) => {
-      const occurrence = await tx.phraseOccurrence.findFirst({
-        where: { id: job.sourceId, userId: job.userId, sourceField: "ai_expression" },
-        select: {
-          id: true,
-          cardId: true,
-          segmentId: true,
-          startUtf16: true,
-          endUtf16: true,
-          phrase: { select: { languageCode: true, canonicalText: true, status: true } },
-        },
-      });
-      const segment = occurrence?.segmentId
-        ? await tx.cardRewriteSegment.findFirst({
-            where: { id: occurrence.segmentId, entryId: occurrence.cardId },
-            select: { text: true },
-          })
-        : null;
-      const currentInput = occurrence && segment && occurrence.phrase.status === "normalized"
-        ? buildPhraseOccurrenceEmbeddingInput({
-            languageCode: occurrence.phrase.languageCode,
-            canonicalText: occurrence.phrase.canonicalText,
-            sentence: segment.text,
-            startUtf16: occurrence.startUtf16,
-            endUtf16: occurrence.endUtf16,
-          })
-        : null;
+      const occurrence = await loadPhraseOccurrenceEmbeddingSourceData(tx, job.sourceId, job.userId);
+      const currentInput = occurrence ? buildPhraseOccurrenceEmbeddingInput(occurrence) : null;
       const currentHash = currentInput ? createHash("sha256").update(currentInput).digest("hex") : null;
       if (!occurrence || currentHash !== job.inputHash) {
         await tx.cardEnrichmentJob.updateMany({
@@ -1281,7 +1217,7 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
          DO UPDATE SET "provider" = EXCLUDED."provider", "model" = EXCLUDED."model",
            "dimensions" = EXCLUDED."dimensions", "inputHash" = EXCLUDED."inputHash",
            "embedding" = EXCLUDED."embedding", "updatedAt" = CURRENT_TIMESTAMP`,
-        randomUUID(), job.userId, occurrence.cardId, occurrence.id, result.provider,
+        randomUUID(), job.userId, occurrence.cardId, occurrence.occurrenceId, result.provider,
         result.model, result.modelVersion, result.dimensions, job.inputHash, vector,
       );
       return true;

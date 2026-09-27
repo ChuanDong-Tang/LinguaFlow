@@ -257,9 +257,19 @@ export class PrismaCardRelationRepository {
              ON current_context_embedding."occurrenceId" = occurrence."id"
             AND current_context_embedding."userId" = occurrence."userId"
             AND current_context_embedding."modelVersion" = $3
-           JOIN "card_rewrite_segments" AS current_segment
-             ON current_segment."id" = occurrence."segmentId"
-            AND current_segment."entryId" = occurrence."cardId"
+           JOIN LATERAL (
+             SELECT segment."text"
+               FROM "card_rewrite_segments" AS segment
+              WHERE segment."entryId" = occurrence."cardId"
+                AND (
+                  segment."id" = occurrence."segmentId"
+                  OR position(lower(occurrence."surfaceText") in lower(segment."text")) > 0
+                )
+              ORDER BY (segment."id" = occurrence."segmentId") DESC,
+                       (lower(substring(segment."text" FROM occurrence."startUtf16" + 1 FOR occurrence."endUtf16" - occurrence."startUtf16")) = lower(occurrence."surfaceText")) DESC,
+                       segment."ordinal" ASC
+              LIMIT 1
+           ) AS current_segment ON TRUE
           WHERE occurrence."userId" = $1
             AND occurrence."cardId" = $2
             AND occurrence."sourceField" = 'ai_expression'
@@ -297,9 +307,19 @@ export class PrismaCardRelationRepository {
              ON candidate_context_embedding."occurrenceId" = historical."id"
             AND candidate_context_embedding."userId" = $1
             AND candidate_context_embedding."modelVersion" = $3
-           JOIN "card_rewrite_segments" AS historical_segment
-             ON historical_segment."id" = historical."segmentId"
-            AND historical_segment."entryId" = historical."cardId"
+           JOIN LATERAL (
+             SELECT segment."text"
+               FROM "card_rewrite_segments" AS segment
+              WHERE segment."entryId" = historical."cardId"
+                AND (
+                  segment."id" = historical."segmentId"
+                  OR position(lower(historical."surfaceText") in lower(segment."text")) > 0
+                )
+              ORDER BY (segment."id" = historical."segmentId") DESC,
+                       (lower(substring(segment."text" FROM historical."startUtf16" + 1 FOR historical."endUtf16" - historical."startUtf16")) = lower(historical."surfaceText")) DESC,
+                       segment."ordinal" ASC
+              LIMIT 1
+           ) AS historical_segment ON TRUE
            JOIN "cards" AS historical_card
              ON historical_card."id" = historical."cardId"
             AND historical_card."userId" = $1

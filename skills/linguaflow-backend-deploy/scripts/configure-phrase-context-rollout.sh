@@ -16,20 +16,24 @@ import { PrismaClient } from "@prisma/client";
 const prisma = new PrismaClient();
 const modelVersion = `${process.env.AZURE_EMBEDDING_MODEL || "text-embedding-3-small"}:${process.env.AZURE_EMBEDDING_DEPLOYMENT}:${process.env.AZURE_EMBEDDING_API_VERSION || "2024-10-21"}:${process.env.AZURE_EMBEDDING_DIMENSIONS || "1536"}`;
 const targetUserId = String(process.env.CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_USER_ID || "").trim() || null;
-const [eligible, embedded, jobs] = await Promise.all([
-  prisma.$queryRaw`SELECT COUNT(*)::int AS count FROM "phrase_occurrences" occurrence JOIN "phrases" phrase ON phrase."id" = occurrence."phraseId" AND phrase."status" = ${"normalized"} JOIN "card_rewrite_segments" segment ON segment."id" = occurrence."segmentId" AND segment."entryId" = occurrence."cardId" WHERE occurrence."sourceField" = ${"ai_expression"} AND (${targetUserId}::text IS NULL OR occurrence."userId" = ${targetUserId})`,
+const backfillPrefix = `phrase_occurrence_embedding_backfill_v1:${modelVersion}:`;
+const [eligible, embedded, handled, jobs] = await Promise.all([
+  prisma.$queryRaw`SELECT COUNT(*)::int AS count FROM "phrase_occurrences" occurrence JOIN "phrases" phrase ON phrase."id" = occurrence."phraseId" AND phrase."status" = ${"normalized"} WHERE occurrence."sourceField" = ${"ai_expression"} AND (${targetUserId}::text IS NULL OR occurrence."userId" = ${targetUserId})`,
   prisma.$queryRaw`SELECT COUNT(*)::int AS count FROM "phrase_occurrence_embeddings" embedding JOIN "phrase_occurrences" occurrence ON occurrence."id" = embedding."occurrenceId" WHERE embedding."modelVersion" = ${modelVersion} AND (${targetUserId}::text IS NULL OR occurrence."userId" = ${targetUserId})`,
+  prisma.$queryRaw`SELECT COUNT(*)::int AS count FROM "phrase_occurrences" occurrence JOIN "phrases" phrase ON phrase."id" = occurrence."phraseId" AND phrase."status" = ${"normalized"} WHERE occurrence."sourceField" = ${"ai_expression"} AND (${targetUserId}::text IS NULL OR occurrence."userId" = ${targetUserId}) AND (EXISTS (SELECT 1 FROM "phrase_occurrence_embeddings" embedding WHERE embedding."occurrenceId" = occurrence."id" AND embedding."modelVersion" = ${modelVersion}) OR EXISTS (SELECT 1 FROM "card_enrichment_jobs" job WHERE job."userId" = occurrence."userId" AND job."sourceKind" = ${"phrase_occurrence"} AND job."sourceId" = occurrence."id" AND job."jobType" = ${"generate_phrase_occurrence_embedding"} AND job."status" = ${"completed"} AND left(job."inputVersion", ${backfillPrefix.length}::integer) = ${backfillPrefix}))`,
   prisma.cardEnrichmentJob.groupBy({ by: ["status"], where: { jobType: "generate_phrase_occurrence_embedding", ...(targetUserId ? { userId: targetUserId } : {}) }, _count: { _all: true } }),
 ]);
 const total = Number(eligible[0]?.count || 0);
 const done = Number(embedded[0]?.count || 0);
+const handledCount = Number(handled[0]?.count || 0);
 console.log(`context_relations_enabled=${String(process.env.RELATED_PHRASE_CONTEXT_ENABLED || "false").toLowerCase() === "true"}`);
 console.log(`context_relations_scope=${String(process.env.RELATED_PHRASE_CONTEXT_USER_ID || "").trim() ? "target_user" : "all_users"}`);
 console.log(`backfill_enabled=${String(process.env.CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_ENABLED || "false").toLowerCase() === "true"}`);
 console.log(`backfill_scope=${targetUserId ? "target_user" : "all_users"}`);
 console.log(`eligible=${total}`);
 console.log(`embedded=${done}`);
-console.log(`missing=${Math.max(0, total - done)}`);
+console.log(`skipped=${Math.max(0, handledCount - done)}`);
+console.log(`missing=${Math.max(0, total - handledCount)}`);
 for (const row of jobs) console.log(`jobs_${row.status}=${row._count._all}`);
 await prisma.$disconnect();
 NODE
@@ -74,15 +78,24 @@ if (mode === "target") {
 }
 if (mode === "enable-all-relations") {
   const modelVersion = `${process.env.AZURE_EMBEDDING_MODEL || "text-embedding-3-small"}:${process.env.AZURE_EMBEDDING_DEPLOYMENT}:${process.env.AZURE_EMBEDDING_API_VERSION || "2024-10-21"}:${process.env.AZURE_EMBEDDING_DIMENSIONS || "1536"}`;
+  const backfillPrefix = `phrase_occurrence_embedding_backfill_v1:${modelVersion}:`;
   const missing = await prisma.$queryRaw`
     SELECT COUNT(*)::int AS count
       FROM "phrase_occurrences" occurrence
       JOIN "phrases" phrase ON phrase."id" = occurrence."phraseId" AND phrase."status" = ${"normalized"}
-      JOIN "card_rewrite_segments" segment ON segment."id" = occurrence."segmentId" AND segment."entryId" = occurrence."cardId"
      WHERE occurrence."sourceField" = ${"ai_expression"}
        AND NOT EXISTS (
          SELECT 1 FROM "phrase_occurrence_embeddings" embedding
           WHERE embedding."occurrenceId" = occurrence."id" AND embedding."modelVersion" = ${modelVersion}
+       )
+       AND NOT EXISTS (
+         SELECT 1 FROM "card_enrichment_jobs" job
+          WHERE job."userId" = occurrence."userId"
+            AND job."sourceKind" = ${"phrase_occurrence"}
+            AND job."sourceId" = occurrence."id"
+            AND job."jobType" = ${"generate_phrase_occurrence_embedding"}
+            AND job."status" = ${"completed"}
+            AND left(job."inputVersion", ${backfillPrefix.length}::integer) = ${backfillPrefix}
        )`;
   if (Number(missing[0]?.count || 0) !== 0) throw new Error(`CONTEXT_BACKFILL_INCOMPLETE_${missing[0]?.count || 0}`);
 }
