@@ -142,8 +142,8 @@ export function parsePhraseOccurrenceContextMeaningOutput(output: string): Phras
   if (!PHRASE_OCCURRENCE_MODALITIES.includes(modality as PhraseOccurrenceModality)) {
     throw senseError("PHRASE_OCCURRENCE_CONTEXT_MODALITY_INVALID");
   }
-  const meaningKind = taggedValue(output, "meaning_kind");
-  if (!PHRASE_OCCURRENCE_MEANING_KINDS.includes(meaningKind as PhraseOccurrenceMeaningKind)) {
+  const meaningKind = normalizeMeaningKind(taggedValue(output, "meaning_kind"));
+  if (!meaningKind) {
     throw senseError("PHRASE_OCCURRENCE_CONTEXT_MEANING_KIND_INVALID");
   }
   if (/[<>]/u.test(meaning)) throw senseError("PHRASE_OCCURRENCE_CONTEXT_MEANING_INVALID_MARKUP");
@@ -151,7 +151,7 @@ export function parsePhraseOccurrenceContextMeaningOutput(output: string): Phras
     meaning,
     polarity: polarity as PhraseOccurrencePolarity,
     modality: modality as PhraseOccurrenceModality,
-    meaningKind: meaningKind as PhraseOccurrenceMeaningKind,
+    meaningKind,
   };
 }
 
@@ -200,6 +200,39 @@ function taggedValue(output: string, tag: string): string {
     ?.normalize("NFKC")
     .replace(/\s+/gu, " ")
     .trim() ?? "";
+}
+
+function normalizeMeaningKind(value: string): PhraseOccurrenceMeaningKind | null {
+  const normalized = value.toLocaleLowerCase().replace(/[\s-]+/gu, "_");
+  if (PHRASE_OCCURRENCE_MEANING_KINDS.includes(normalized as PhraseOccurrenceMeaningKind)) {
+    return normalized as PhraseOccurrenceMeaningKind;
+  }
+  const aliases: Record<string, PhraseOccurrenceMeaningKind> = {
+    entity: "referent",
+    person: "referent",
+    thing: "referent",
+    place: "referent",
+    object: "referent",
+    concept: "referent",
+    action: "process",
+    event: "process",
+    experience: "process",
+    state: "process",
+    quality: "property",
+    evaluation: "property",
+    comparison: "relation",
+    connection: "relation",
+    correspondence: "relation",
+    fit: "relation",
+    amount: "quantity",
+    number: "quantity",
+    time: "temporal",
+    location: "spatial",
+    direction: "spatial",
+    connector: "discourse",
+    discourse_function: "discourse",
+  };
+  return aliases[normalized] ?? null;
 }
 
 function senseError(code: string): Error & { code: string } {

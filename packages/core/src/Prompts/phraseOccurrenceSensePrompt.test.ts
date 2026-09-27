@@ -89,3 +89,12 @@ test("V2 rejects invalid semantic feature enums", () => {
     "<meaning_kind>unknown</meaning_kind>",
   ].join("\n")), /MEANING_KIND_INVALID/u);
 });
+
+test("V2 normalizes bounded meaning kind aliases", () => {
+  assert.equal(parsePhraseOccurrenceContextMeaningOutput([
+    "<meaning>continue in a condition</meaning>",
+    "<polarity>affirmed</polarity>",
+    "<modality>plain</modality>",
+    "<meaning_kind>state</meaning_kind>",
+  ].join("\n")).meaningKind, "process");
+});
