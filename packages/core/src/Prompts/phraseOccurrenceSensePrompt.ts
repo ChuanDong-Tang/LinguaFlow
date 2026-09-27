@@ -31,7 +31,8 @@ export const PHRASE_OCCURRENCE_MEANING_KINDS = [
 ] as const;
 export type PhraseOccurrencePolarity = typeof PHRASE_OCCURRENCE_POLARITIES[number];
 export type PhraseOccurrenceModality = typeof PHRASE_OCCURRENCE_MODALITIES[number];
-export type PhraseOccurrenceMeaningKind = typeof PHRASE_OCCURRENCE_MEANING_KINDS[number];
+type StandardPhraseOccurrenceMeaningKind = typeof PHRASE_OCCURRENCE_MEANING_KINDS[number];
+export type PhraseOccurrenceMeaningKind = StandardPhraseOccurrenceMeaningKind | `other:${string}`;
 
 export interface PhraseOccurrenceContextMeaning {
   meaning: string;
@@ -204,8 +205,8 @@ function taggedValue(output: string, tag: string): string {
 
 function normalizeMeaningKind(value: string): PhraseOccurrenceMeaningKind | null {
   const normalized = value.toLocaleLowerCase().replace(/[\s-]+/gu, "_");
-  if (PHRASE_OCCURRENCE_MEANING_KINDS.includes(normalized as PhraseOccurrenceMeaningKind)) {
-    return normalized as PhraseOccurrenceMeaningKind;
+  if (PHRASE_OCCURRENCE_MEANING_KINDS.includes(normalized as StandardPhraseOccurrenceMeaningKind)) {
+    return normalized as StandardPhraseOccurrenceMeaningKind;
   }
   const aliases: Record<string, PhraseOccurrenceMeaningKind> = {
     entity: "referent",
@@ -232,7 +233,8 @@ function normalizeMeaningKind(value: string): PhraseOccurrenceMeaningKind | null
     connector: "discourse",
     discourse_function: "discourse",
   };
-  return aliases[normalized] ?? null;
+  if (aliases[normalized]) return aliases[normalized];
+  return /^[a-z][a-z0-9_]{0,31}$/u.test(normalized) ? `other:${normalized}` : null;
 }
 
 function senseError(code: string): Error & { code: string } {

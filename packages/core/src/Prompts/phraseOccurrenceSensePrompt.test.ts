@@ -82,11 +82,17 @@ test("V2 rejects invalid semantic feature enums", () => {
     "<modality>uncertain</modality>",
     "<meaning_kind>process</meaning_kind>",
   ].join("\n")), /MODALITY_INVALID/u);
-  assert.throws(() => parsePhraseOccurrenceContextMeaningOutput([
+  assert.equal(parsePhraseOccurrenceContextMeaningOutput([
     "<meaning>possibly desire to act</meaning>",
     "<polarity>affirmed</polarity>",
     "<modality>possible</modality>",
     "<meaning_kind>unknown</meaning_kind>",
+  ].join("\n")).meaningKind, "other:unknown");
+  assert.throws(() => parsePhraseOccurrenceContextMeaningOutput([
+    "<meaning>possibly desire to act</meaning>",
+    "<polarity>affirmed</polarity>",
+    "<modality>possible</modality>",
+    "<meaning_kind></meaning_kind>",
   ].join("\n")), /MEANING_KIND_INVALID/u);
 });
 
