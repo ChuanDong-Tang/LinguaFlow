@@ -73,5 +73,6 @@ test("V2 requires matching polarity and external modality in the same lookup", a
 
   assert.match(sql, /candidate_context_embedding\."polarity" = anchors\."currentPolarity"/u);
   assert.match(sql, /candidate_context_embedding\."modality" = anchors\."currentModality"/u);
+  assert.match(sql, /anchors\."currentPolarity" = 'neutral'/u);
   assert.equal(parameters.at(-1), true);
 });

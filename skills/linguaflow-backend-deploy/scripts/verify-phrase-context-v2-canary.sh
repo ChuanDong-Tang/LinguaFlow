@@ -77,8 +77,10 @@ const rows = await prisma.$queryRawUnsafe(`
     SELECT * FROM raw_candidates
      WHERE "anchorPolarity" IS NOT NULL
        AND "candidatePolarity" = "anchorPolarity"
-       AND "anchorModality" IS NOT NULL
-       AND "candidateModality" = "anchorModality"
+       AND (
+         "anchorPolarity" = 'neutral'
+         OR ("anchorModality" IS NOT NULL AND "candidateModality" = "anchorModality")
+       )
   )
   SELECT
     (SELECT COUNT(*)::int FROM anchors) AS "coveredAnchors",
@@ -87,7 +89,7 @@ const rows = await prisma.$queryRawUnsafe(`
     (SELECT COUNT(*)::int FROM compatible) AS "candidatePairs",
     (SELECT COUNT(*)::int FROM raw_candidates
       WHERE "anchorPolarity" IS DISTINCT FROM "candidatePolarity"
-         OR "anchorModality" IS DISTINCT FROM "candidateModality") AS "featureIncompatibleRejected",
+         OR ("anchorPolarity" <> 'neutral' AND "anchorModality" IS DISTINCT FROM "candidateModality")) AS "featureIncompatibleRejected",
     (SELECT COUNT(*)::int FROM compatible
       WHERE lower("anchorSurface") = 'really want'
         AND lower("candidateSurface") = 'they might want') AS "knownNegativeSurviving",

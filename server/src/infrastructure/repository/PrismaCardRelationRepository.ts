@@ -346,8 +346,13 @@ export class PrismaCardRelationRepository {
               OR (
                 anchors."currentPolarity" IS NOT NULL
                 AND candidate_context_embedding."polarity" = anchors."currentPolarity"
-                AND anchors."currentModality" IS NOT NULL
-                AND candidate_context_embedding."modality" = anchors."currentModality"
+                AND (
+                  anchors."currentPolarity" = 'neutral'
+                  OR (
+                    anchors."currentModality" IS NOT NULL
+                    AND candidate_context_embedding."modality" = anchors."currentModality"
+                  )
+                )
               )
             )
        )
