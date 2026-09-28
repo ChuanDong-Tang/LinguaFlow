@@ -217,3 +217,63 @@ test("generates and persists one structured V2 context meaning", async () => {
     meaningKind: "process",
   });
 });
+
+test("atomically requests V2 relation judging for the configured user after its current embedding", async () => {
+  const inputHash = createHash("sha256")
+    .update(phraseOccurrenceContextMeaningPromptHashInput(source))
+    .digest("hex");
+  const job = {
+    ...occurrenceJob(inputHash),
+    inputVersion: `phrase_occurrence_embedding_input_v2:${PHRASE_OCCURRENCE_CONTEXT_MEANING_REPRESENTATION_VERSION}:${inputHash}`,
+    payload: { representationVersion: PHRASE_OCCURRENCE_CONTEXT_MEANING_REPRESENTATION_VERSION },
+  };
+  let relationJudge: unknown;
+  const repository = {
+    async claimNextPhraseOccurrenceEmbeddingJob() { return job; },
+    async loadPhraseOccurrenceEmbeddingSource() { return source; },
+    async completePhraseOccurrenceEmbeddingJob(_job: unknown, _result: unknown, _representation: unknown, value: unknown) {
+      relationJudge = value;
+      return true;
+    },
+  } as unknown as CardEnrichmentRepository;
+  const contextAiProvider: AIProvider = {
+    ...aiProvider,
+    async generateChatTextStream(_input, onEvent) {
+      await onEvent({ type: "delta", text: [
+        "<meaning>laugh uncontrollably</meaning>",
+        "<polarity>neutral</polarity>",
+        "<modality>plain</modality>",
+        "<meaning_kind>reaction</meaning_kind>",
+      ].join("\n") });
+      await onEvent({ type: "done" });
+    },
+  };
+
+  await new PhraseOccurrenceEmbeddingWorkerService(
+    repository,
+    provider,
+    undefined,
+    {},
+    undefined,
+    contextAiProvider,
+    {
+      enabled: true,
+      userId: source.userId,
+      promptVersion: "phrase_relation_judge_v2",
+      modelVersion: provider.modelVersion,
+      representationVersion: PHRASE_OCCURRENCE_CONTEXT_MEANING_REPRESENTATION_VERSION,
+      minPhraseSimilarity: 0.72,
+      minRepresentationSimilarity: 0.45,
+      representationWeight: 0.7,
+    },
+  ).claimAndProcess("worker-1");
+
+  assert.deepEqual(relationJudge, {
+    promptVersion: "phrase_relation_judge_v2",
+    modelVersion: provider.modelVersion,
+    representationVersion: PHRASE_OCCURRENCE_CONTEXT_MEANING_REPRESENTATION_VERSION,
+    minPhraseSimilarity: 0.72,
+    minRepresentationSimilarity: 0.45,
+    representationWeight: 0.7,
+  });
+});

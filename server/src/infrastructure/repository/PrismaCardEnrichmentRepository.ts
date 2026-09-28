@@ -1334,6 +1334,13 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
     polarity?: string | null;
     modality?: string | null;
     meaningKind?: string | null;
+  }, relationJudge?: {
+    promptVersion: string;
+    modelVersion: string;
+    representationVersion: string;
+    minPhraseSimilarity: number;
+    minRepresentationSimilarity: number;
+    representationWeight: number;
   }): Promise<boolean> {
     return this.prisma.$transaction(async (tx) => {
       const occurrence = await loadPhraseOccurrenceEmbeddingSourceData(tx, job.sourceId, job.userId);
@@ -1377,6 +1384,13 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
         representation?.meaningText ?? null, representation?.polarity ?? null, representation?.modality ?? null,
         representation?.meaningKind ?? null, result.dimensions, job.inputHash, vector,
       );
+      if (relationJudge) {
+        await enqueuePhraseRelationJudgeForOccurrence(tx, {
+          userId: job.userId,
+          occurrenceId: occurrence.occurrenceId,
+          ...relationJudge,
+        });
+      }
       return true;
     });
   }
@@ -1531,6 +1545,62 @@ async function enqueueEmbeddingGeneration(
       failedAt: null,
     },
   });
+}
+
+async function enqueuePhraseRelationJudgeForOccurrence(
+  tx: Prisma.TransactionClient,
+  input: {
+    userId: string;
+    occurrenceId: string;
+    promptVersion: string;
+    modelVersion: string;
+    representationVersion: string;
+    minPhraseSimilarity: number;
+    minRepresentationSimilarity: number;
+    representationWeight: number;
+  },
+): Promise<boolean> {
+  const config = {
+    modelVersion: input.modelVersion,
+    representationVersion: input.representationVersion,
+    minPhraseSimilarity: input.minPhraseSimilarity,
+    minRepresentationSimilarity: input.minRepresentationSimilarity,
+    representationWeight: input.representationWeight,
+  };
+  const source = await loadPhraseRelationJudgeSourceData(tx, input.occurrenceId, input.userId, config);
+  if (!source) return false;
+  const inputHash = createHash("sha256").update(phraseRelationJudgeHashInput(source)).digest("hex");
+  const decision = await tx.phraseOccurrenceRelationDecision.findUnique({
+    where: {
+      anchorOccurrenceId_promptVersion: {
+        anchorOccurrenceId: input.occurrenceId,
+        promptVersion: input.promptVersion,
+      },
+    },
+    select: { inputHash: true },
+  });
+  if (decision?.inputHash === inputHash) return false;
+  const key = {
+    userId: input.userId,
+    sourceKind: PHRASE_RELATION_JUDGE_SOURCE_KIND,
+    sourceId: input.occurrenceId,
+    jobType: PHRASE_RELATION_JUDGE_JOB_TYPE,
+    inputVersion: phraseRelationJudgeInputVersion(inputHash),
+  };
+  const existing = await tx.cardEnrichmentJob.findUnique({
+    where: { userId_sourceKind_sourceId_jobType_inputVersion: key },
+    select: { id: true },
+  });
+  if (existing) return false;
+  await tx.cardEnrichmentJob.create({
+    data: {
+      ...key,
+      inputHash,
+      priority: 0,
+      payload: { schemaVersion: 1, promptVersion: input.promptVersion, ...config },
+    },
+  });
+  return true;
 }
 
 function toJob(row: {

@@ -76,6 +76,7 @@ export async function loadPhraseOccurrenceEmbeddingSourceData(
 export async function enqueuePhraseOccurrenceEmbeddingForOccurrence(
   tx: any,
   occurrenceId: string,
+  options: { refreshExisting?: boolean } = {},
 ): Promise<void> {
   const occurrence = await loadPhraseOccurrenceEmbeddingSourceData(tx, occurrenceId);
   if (!occurrence) return;
@@ -97,6 +98,7 @@ export async function enqueuePhraseOccurrenceEmbeddingForOccurrence(
     inputVersion: `phrase_occurrence_embedding_input_v2:${representationVersion}:${inputHash}`,
     representationVersion,
     promptVersion: phraseOccurrencePromptVersion(representationVersion),
+    refreshExisting: options.refreshExisting,
   });
 }
 
@@ -177,6 +179,7 @@ export async function enqueuePhraseOccurrenceEmbeddingGeneration(
     inputVersion: string;
     representationVersion?: string;
     promptVersion?: string | null;
+    refreshExisting?: boolean;
   },
 ): Promise<void> {
   await tx.cardEnrichmentJob.upsert({
@@ -203,6 +206,23 @@ export async function enqueuePhraseOccurrenceEmbeddingGeneration(
         ...(input.promptVersion ? { promptVersion: input.promptVersion } : {}),
       },
     },
-    update: {},
+    update: input.refreshExisting ? {
+      status: "queued",
+      availableAt: new Date(),
+      inputHash: input.inputHash,
+      payload: {
+        occurrenceId: input.occurrenceId,
+        schemaVersion: input.representationVersion ? 2 : 1,
+        ...(input.representationVersion ? { representationVersion: input.representationVersion } : {}),
+        ...(input.promptVersion ? { promptVersion: input.promptVersion } : {}),
+      },
+      attempts: 0,
+      processingAt: null,
+      leaseExpiresAt: null,
+      workerId: null,
+      lastError: null,
+      completedAt: null,
+      failedAt: null,
+    } : {},
   });
 }

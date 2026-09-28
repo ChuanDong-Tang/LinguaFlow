@@ -163,6 +163,13 @@ export interface CardEnrichmentRepository {
     polarity?: string | null;
     modality?: string | null;
     meaningKind?: string | null;
+  }, relationJudge?: {
+    promptVersion: string;
+    modelVersion: string;
+    representationVersion: string;
+    minPhraseSimilarity: number;
+    minRepresentationSimilarity: number;
+    representationWeight: number;
   }): Promise<boolean>;
   claimNextPhraseRelationJudgeJob(workerId: string, leaseExpiresAt: Date): Promise<CardEnrichmentJobEntity | null>;
   loadPhraseRelationJudgeSource(job: CardEnrichmentJobEntity): Promise<PhraseRelationJudgeSource | null>;

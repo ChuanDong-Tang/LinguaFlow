@@ -52,6 +52,7 @@ import { PhraseOccurrenceEmbeddingWorkerService } from "./src/services/card/Phra
 import { PhraseOccurrenceEmbeddingBackfillScanner } from "./src/workers/card/PhraseOccurrenceEmbeddingBackfillScanner.ts";
 import { PhraseRelationJudgeWorkerService } from "./src/services/card/PhraseRelationJudgeWorkerService.ts";
 import { PhraseRelationJudgeBackfillScanner } from "./src/workers/card/PhraseRelationJudgeBackfillScanner.ts";
+import { PHRASE_RELATION_JUDGE_PROMPT_VERSION } from "@lf/core/Prompts/phraseRelationJudgePrompt.js";
 import {
   PHRASE_OCCURRENCE_CONTEXT_MEANING_PROMPT_VERSION,
   PHRASE_OCCURRENCE_CONTEXT_MEANING_REPRESENTATION_VERSION,
@@ -498,6 +499,16 @@ const phraseOccurrenceEmbeddingWorker = embeddingProvider
         {},
         resourceGovernor,
         cardAiProvider,
+        {
+          enabled: runtime.relatedPhraseJudgeEnabled,
+          userId: runtime.relatedPhraseJudgeUserId,
+          promptVersion: PHRASE_RELATION_JUDGE_PROMPT_VERSION,
+          modelVersion: embeddingProvider.modelVersion,
+          representationVersion: runtime.relatedPhraseContextRepresentationVersion,
+          minPhraseSimilarity: runtime.relatedPhraseMinSimilarity,
+          minRepresentationSimilarity: runtime.relatedPhraseSenseMinSimilarity,
+          representationWeight: runtime.relatedPhraseSenseWeight,
+        },
       ),
       {
         workerIdPrefix: "phrase-occurrence-embedding",
@@ -529,7 +540,7 @@ const phraseOccurrenceEmbeddingBackfillScanner = embeddingProvider && runtime.ca
       },
     )
   : null;
-const phraseRelationJudgeWorker = runtime.cardPhraseRelationJudgeBackfillEnabled
+const phraseRelationJudgeWorker = runtime.relatedPhraseJudgeEnabled || runtime.cardPhraseRelationJudgeBackfillEnabled
   ? new SerialCardJobWorker(
       new PhraseRelationJudgeWorkerService(cardEnrichmentRepository, cardAiProvider, systemEventLogRepository, {}, resourceGovernor),
       {

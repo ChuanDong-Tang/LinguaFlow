@@ -23,6 +23,17 @@ import {
   phraseOccurrenceRepresentationVersionFromJob,
 } from "../../infrastructure/repository/PhraseOccurrenceEmbeddingJobs.js";
 
+interface PhraseRelationJudgeEnqueueOptions {
+  enabled: boolean;
+  userId: string | null;
+  promptVersion: string;
+  modelVersion: string;
+  representationVersion: string;
+  minPhraseSimilarity: number;
+  minRepresentationSimilarity: number;
+  representationWeight: number;
+}
+
 export class PhraseOccurrenceEmbeddingWorkerService {
   constructor(
     private readonly repository: CardEnrichmentRepository,
@@ -31,6 +42,7 @@ export class PhraseOccurrenceEmbeddingWorkerService {
     private readonly options: { leaseMs?: number; maxAttempts?: number } = {},
     private readonly resourceGovernor?: ResourceGovernor,
     private readonly aiProvider?: AIProvider,
+    private readonly relationJudge?: PhraseRelationJudgeEnqueueOptions,
   ) {}
 
   async claimAndProcess(workerId: string): Promise<boolean> {
@@ -98,6 +110,18 @@ export class PhraseOccurrenceEmbeddingWorkerService {
       const result = this.resourceGovernor
         ? await this.resourceGovernor.executeConcurrency("embedding", job.userId, embed)
         : await embed();
+      const relationJudge = this.relationJudge?.enabled
+        && representationVersion === this.relationJudge.representationVersion
+        && (!this.relationJudge.userId || this.relationJudge.userId === job.userId)
+        ? {
+            promptVersion: this.relationJudge.promptVersion,
+            modelVersion: this.relationJudge.modelVersion,
+            representationVersion: this.relationJudge.representationVersion,
+            minPhraseSimilarity: this.relationJudge.minPhraseSimilarity,
+            minRepresentationSimilarity: this.relationJudge.minRepresentationSimilarity,
+            representationWeight: this.relationJudge.representationWeight,
+          }
+        : undefined;
       await this.repository.completePhraseOccurrenceEmbeddingJob(job, result, senseJob ? {
         representationVersion,
         promptVersion: representationVersion === PHRASE_OCCURRENCE_CONTEXT_MEANING_REPRESENTATION_VERSION
@@ -107,7 +131,7 @@ export class PhraseOccurrenceEmbeddingWorkerService {
         polarity,
         modality,
         meaningKind,
-      } : undefined);
+      } : undefined, relationJudge);
     } catch (error) {
       const retry = resolveEnrichmentRetry(error, job.attempts, this.options.maxAttempts ?? 3);
       await this.repository.rescheduleOrFail(job, safeEnrichmentErrorMessage(error), retry.retryAt, { preserveAttempt: retry.preserveAttempt });

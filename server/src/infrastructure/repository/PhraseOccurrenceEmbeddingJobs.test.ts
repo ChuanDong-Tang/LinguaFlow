@@ -140,3 +140,30 @@ test("new occurrences enqueue the configured V2 context meaning representation",
   assert.equal(create?.payload?.representationVersion, PHRASE_OCCURRENCE_CONTEXT_MEANING_REPRESENTATION_VERSION);
   assert.equal(create?.payload?.promptVersion, PHRASE_OCCURRENCE_CONTEXT_MEANING_PROMPT_VERSION);
 });
+
+test("re-adding the same cloze refreshes its existing V2 embedding job", async () => {
+  const previous = process.env.RELATED_PHRASE_CONTEXT_REPRESENTATION_VERSION;
+  const previousEnabled = process.env.RELATED_PHRASE_CONTEXT_ENABLED;
+  process.env.RELATED_PHRASE_CONTEXT_REPRESENTATION_VERSION = PHRASE_OCCURRENCE_CONTEXT_MEANING_REPRESENTATION_VERSION;
+  process.env.RELATED_PHRASE_CONTEXT_ENABLED = "true";
+  let upsert: Record<string, unknown> | null = null;
+  const client = {
+    ...fakeClient([{ id: "current-segment", text: "So ridiculous, I was cracking up.", ordinal: 0 }]),
+    cardEnrichmentJob: {
+      async upsert(input: Record<string, unknown>) { upsert = input; },
+    },
+  };
+  try {
+    await enqueuePhraseOccurrenceEmbeddingForOccurrence(client, "occurrence-1", { refreshExisting: true });
+  } finally {
+    if (previous === undefined) delete process.env.RELATED_PHRASE_CONTEXT_REPRESENTATION_VERSION;
+    else process.env.RELATED_PHRASE_CONTEXT_REPRESENTATION_VERSION = previous;
+    if (previousEnabled === undefined) delete process.env.RELATED_PHRASE_CONTEXT_ENABLED;
+    else process.env.RELATED_PHRASE_CONTEXT_ENABLED = previousEnabled;
+  }
+
+  const update = (upsert as { update?: Record<string, unknown> } | null)?.update;
+  assert.equal(update?.status, "queued");
+  assert.equal(update?.attempts, 0);
+  assert.equal(update?.completedAt, null);
+});

@@ -2489,7 +2489,7 @@ async function applyPhraseMutation(tx: any, input: {
     update: {},
   });
   if (phrase.status === "normalized") {
-    await enqueuePhraseOccurrenceEmbeddingForOccurrence(tx, phraseOccurrence.id);
+    await enqueuePhraseOccurrenceEmbeddingForOccurrence(tx, phraseOccurrence.id, { refreshExisting: true });
     const phraseEmbeddingHash = createHash("sha256")
       .update(`${phrase.languageCode}\n${phrase.canonicalText.normalize("NFKC").trim()}`)
       .digest("hex");
