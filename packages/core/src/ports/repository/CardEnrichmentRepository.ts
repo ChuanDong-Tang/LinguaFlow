@@ -170,6 +170,7 @@ export interface CardEnrichmentRepository {
     minPhraseSimilarity: number;
     minRepresentationSimilarity: number;
     representationWeight: number;
+    priority?: number;
   }): Promise<boolean>;
   claimNextPhraseRelationJudgeJob(workerId: string, leaseExpiresAt: Date): Promise<CardEnrichmentJobEntity | null>;
   loadPhraseRelationJudgeSource(job: CardEnrichmentJobEntity): Promise<PhraseRelationJudgeSource | null>;

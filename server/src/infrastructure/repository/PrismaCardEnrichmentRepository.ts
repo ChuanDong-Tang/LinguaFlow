@@ -452,6 +452,7 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
           }),
           representationVersion: input.representationVersion,
           promptVersion: expectedPromptVersion,
+          priority: -100,
         });
         enqueued += 1;
       }
@@ -540,7 +541,7 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
           data: {
             ...key,
             inputHash,
-            priority: 0,
+            priority: -100,
             payload: { schemaVersion: 1, promptVersion: input.promptVersion, ...config },
           },
         });
@@ -1341,6 +1342,7 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
     minPhraseSimilarity: number;
     minRepresentationSimilarity: number;
     representationWeight: number;
+    priority?: number;
   }): Promise<boolean> {
     return this.prisma.$transaction(async (tx) => {
       const occurrence = await loadPhraseOccurrenceEmbeddingSourceData(tx, job.sourceId, job.userId);
@@ -1558,6 +1560,7 @@ async function enqueuePhraseRelationJudgeForOccurrence(
     minPhraseSimilarity: number;
     minRepresentationSimilarity: number;
     representationWeight: number;
+    priority?: number;
   },
 ): Promise<boolean> {
   const config = {
@@ -1596,7 +1599,7 @@ async function enqueuePhraseRelationJudgeForOccurrence(
     data: {
       ...key,
       inputHash,
-      priority: 0,
+      priority: input.priority ?? 0,
       payload: { schemaVersion: 1, promptVersion: input.promptVersion, ...config },
     },
   });

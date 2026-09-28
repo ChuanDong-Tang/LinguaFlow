@@ -32,8 +32,9 @@ export function resolveEnrichmentRetry(
     const maxUpstreamAttempts = Math.max(maxAttempts, UPSTREAM_AI_RETRY_DELAYS_MS.length + 1);
     if (attempts >= maxUpstreamAttempts) return { retryAt: null, preserveAttempt: false };
     const delayIndex = Math.min(Math.max(0, attempts - 1), UPSTREAM_AI_RETRY_DELAYS_MS.length - 1);
+    const providerDelayMs = safeRetryAfterMs(error);
     return {
-      retryAt: new Date(now + UPSTREAM_AI_RETRY_DELAYS_MS[delayIndex]!),
+      retryAt: new Date(now + Math.max(UPSTREAM_AI_RETRY_DELAYS_MS[delayIndex]!, providerDelayMs ?? 0)),
       preserveAttempt: false,
     };
   }
@@ -56,6 +57,7 @@ export function safeEnrichmentErrorMetadata(error: unknown): Record<string, stri
     status?: unknown;
     upstreamCode?: unknown;
     failureKind?: unknown;
+    retryAfterMs?: unknown;
     name?: unknown;
   };
   const metadata: Record<string, string | number | boolean> = {};
@@ -64,15 +66,25 @@ export function safeEnrichmentErrorMetadata(error: unknown): Record<string, stri
   const upstreamCode = safeIdentifier(candidate.upstreamCode);
   const failureKind = safeIdentifier(candidate.failureKind);
   const errorName = safeIdentifier(candidate.name);
+  const retryAfterMs = safeRetryAfterMs(candidate);
   if (errorCode) metadata.errorCode = errorCode;
   if (status !== null) metadata.upstreamStatus = status;
   if (upstreamCode) metadata.upstreamCode = upstreamCode;
   if (failureKind) metadata.failureKind = failureKind;
   if (errorName) metadata.errorName = errorName;
+  if (retryAfterMs !== null) metadata.retryAfterMs = retryAfterMs;
   if (candidate.code === "UPSTREAM_AI_ERROR") {
     metadata.retryableUpstream = isRetryableUpstreamAIError(error);
   }
   return metadata;
+}
+
+function safeRetryAfterMs(value: unknown): number | null {
+  if (!value || typeof value !== "object") return null;
+  const retryAfterMs = Number((value as { retryAfterMs?: unknown }).retryAfterMs);
+  return Number.isFinite(retryAfterMs) && retryAfterMs > 0
+    ? Math.min(3_600_000, Math.max(1_000, Math.ceil(retryAfterMs)))
+    : null;
 }
 
 export function isRetryableUpstreamAIError(error: unknown): boolean {

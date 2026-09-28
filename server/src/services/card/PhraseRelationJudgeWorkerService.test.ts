@@ -6,6 +6,7 @@ import type { CardEnrichmentJobEntity, CardEnrichmentRepository } from "@lf/core
 import type { AIProvider } from "@lf/core/ports/ai/AIProvider.js";
 import type { CreateSystemEventLogInput, SystemEventLogRepository } from "@lf/core/ports/repository/SystemEventLogRepository.js";
 import { PhraseRelationJudgeWorkerService } from "./PhraseRelationJudgeWorkerService.js";
+import type { ResourceGovernor } from "../resource/ResourceGovernor.js";
 
 const source: PhraseRelationJudgeSource = {
   userId: "user-1",
@@ -65,6 +66,29 @@ test("persists none without calling AI when retrieval found no candidates", asyn
   await new PhraseRelationJudgeWorkerService(repository, ai).claimAndProcess("worker-1");
   assert.equal(generationCalls, 0);
   assert.equal(selected, null);
+});
+
+test("meters historical judge jobs through the dedicated backfill budget", async () => {
+  const job = { ...jobFor(source), priority: -100 };
+  const resources: string[] = [];
+  const repository = {
+    claimNextPhraseRelationJudgeJob: async () => job,
+    loadPhraseRelationJudgeSource: async () => source,
+    completePhraseRelationJudgeJob: async () => true,
+  } as unknown as CardEnrichmentRepository;
+  const ai = {
+    providerName: "test", modelName: "judge-model",
+    async generateChatTextStream(_input: unknown, onEvent: (event: { type: "delta"; text: string }) => void) {
+      onEvent({ type: "delta", text: "<choice>none</choice>" });
+    },
+  } as unknown as AIProvider;
+  const governor = {
+    async consumeRequest(resource: string) { resources.push(resource); },
+    async execute(resource: string, _userId: string, task: () => Promise<unknown>) { resources.push(resource); return task(); },
+  } as unknown as ResourceGovernor;
+
+  await new PhraseRelationJudgeWorkerService(repository, ai, undefined, {}, governor).claimAndProcess("worker-1");
+  assert.deepEqual(resources, ["llm_backfill", "llm"]);
 });
 
 test("records safe upstream metadata when relation judge retries", async () => {

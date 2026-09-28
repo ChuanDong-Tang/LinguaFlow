@@ -15,6 +15,7 @@ import {
   PHRASE_OCCURRENCE_SENSE_REPRESENTATION_VERSION,
 } from "@lf/core/Prompts/phraseOccurrenceSensePrompt.js";
 import { PhraseOccurrenceEmbeddingWorkerService } from "./PhraseOccurrenceEmbeddingWorkerService.js";
+import type { ResourceGovernor } from "../resource/ResourceGovernor.js";
 
 const source = {
   userId: "user-1",
@@ -124,17 +125,24 @@ test("generates a concise usage meaning before embedding a sense representation"
       return provider.embed(input);
     },
   };
+  const consumedResources: string[] = [];
+  const governor = {
+    async consumeRequest(resource: string) { consumedResources.push(resource); },
+    async execute(resource: string, _userId: string, task: () => Promise<unknown>) { consumedResources.push(resource); return task(); },
+    async executeConcurrency(_resource: string, _userId: string, task: () => Promise<unknown>) { return task(); },
+  } as unknown as ResourceGovernor;
 
   await new PhraseOccurrenceEmbeddingWorkerService(
     repository,
     senseEmbeddingProvider,
     undefined,
     {},
-    undefined,
+    governor,
     aiProvider,
   ).claimAndProcess("worker-1");
 
   assert.equal(embeddedInput, "usage meaning: laugh uncontrollably");
+  assert.deepEqual(consumedResources, ["llm_backfill", "llm"]);
   assert.deepEqual(completedRepresentation, {
     representationVersion: PHRASE_OCCURRENCE_SENSE_REPRESENTATION_VERSION,
     promptVersion: PHRASE_OCCURRENCE_SENSE_PROMPT_VERSION,
@@ -276,7 +284,37 @@ test("atomically requests V2 relation judging for the configured user after its 
     minPhraseSimilarity: 0.72,
     minRepresentationSimilarity: 0.45,
     representationWeight: 0.7,
+    priority: 0,
   });
+});
+
+test("does not consume the historical budget for realtime V2 generation", async () => {
+  const inputHash = createHash("sha256").update(phraseOccurrenceContextMeaningPromptHashInput(source)).digest("hex");
+  const job = {
+    ...occurrenceJob(inputHash),
+    inputVersion: `phrase_occurrence_embedding_input_v2:${PHRASE_OCCURRENCE_CONTEXT_MEANING_REPRESENTATION_VERSION}:${inputHash}`,
+    payload: { representationVersion: PHRASE_OCCURRENCE_CONTEXT_MEANING_REPRESENTATION_VERSION },
+  };
+  const resources: string[] = [];
+  const repository = {
+    async claimNextPhraseOccurrenceEmbeddingJob() { return job; },
+    async loadPhraseOccurrenceEmbeddingSource() { return source; },
+    async completePhraseOccurrenceEmbeddingJob() { return true; },
+  } as unknown as CardEnrichmentRepository;
+  const governor = {
+    async consumeRequest(resource: string) { resources.push(resource); },
+    async execute(resource: string, _userId: string, task: () => Promise<unknown>) { resources.push(resource); return task(); },
+    async executeConcurrency(_resource: string, _userId: string, task: () => Promise<unknown>) { return task(); },
+  } as unknown as ResourceGovernor;
+  const contextAiProvider: AIProvider = {
+    ...aiProvider,
+    async generateChatTextStream(_input, onEvent) {
+      await onEvent({ type: "delta", text: "<meaning>laugh uncontrollably</meaning>\n<polarity>neutral</polarity>\n<modality>plain</modality>\n<meaning_kind>reaction</meaning_kind>" });
+    },
+  };
+
+  await new PhraseOccurrenceEmbeddingWorkerService(repository, provider, undefined, {}, governor, contextAiProvider).claimAndProcess("worker-1");
+  assert.deepEqual(resources, ["llm"]);
 });
 
 test("records safe upstream metadata for retryable occurrence embedding failures", async () => {

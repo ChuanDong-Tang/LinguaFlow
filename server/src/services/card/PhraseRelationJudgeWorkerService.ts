@@ -50,7 +50,10 @@ export class PhraseRelationJudgeWorkerService {
           maxOutputTokens: 24,
           temperature: 0,
         }, (event) => { if (event.type === "delta") output += event.text; });
-        if (this.resourceGovernor) await this.resourceGovernor.execute("llm", source.userId, generate);
+        if (this.resourceGovernor) {
+          if (job.priority < 0) await this.resourceGovernor.consumeRequest("llm_backfill", source.userId);
+          await this.resourceGovernor.execute("llm", source.userId, generate);
+        }
         else await generate();
         selectedOccurrenceId = parsePhraseRelationJudgeOutput(output, source.candidates).selectedOccurrenceId;
       }

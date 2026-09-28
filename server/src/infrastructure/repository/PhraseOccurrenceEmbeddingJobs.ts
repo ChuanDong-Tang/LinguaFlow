@@ -180,6 +180,7 @@ export async function enqueuePhraseOccurrenceEmbeddingGeneration(
     representationVersion?: string;
     promptVersion?: string | null;
     refreshExisting?: boolean;
+    priority?: number;
   },
 ): Promise<void> {
   await tx.cardEnrichmentJob.upsert({
@@ -199,6 +200,7 @@ export async function enqueuePhraseOccurrenceEmbeddingGeneration(
       jobType: "generate_phrase_occurrence_embedding",
       inputHash: input.inputHash,
       inputVersion: input.inputVersion,
+      priority: input.priority ?? 0,
       payload: {
         occurrenceId: input.occurrenceId,
         schemaVersion: input.representationVersion ? 2 : 1,
@@ -210,6 +212,7 @@ export async function enqueuePhraseOccurrenceEmbeddingGeneration(
       status: "queued",
       availableAt: new Date(),
       inputHash: input.inputHash,
+      priority: input.priority ?? 0,
       payload: {
         occurrenceId: input.occurrenceId,
         schemaVersion: input.representationVersion ? 2 : 1,

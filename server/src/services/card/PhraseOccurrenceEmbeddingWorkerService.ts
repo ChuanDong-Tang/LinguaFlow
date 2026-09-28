@@ -93,7 +93,10 @@ export class PhraseOccurrenceEmbeddingWorkerService {
           maxOutputTokens: contextMeaningV2 ? 160 : 80,
           temperature: 0,
         }, (event) => { if (event.type === "delta") rawOutput += event.text; });
-        if (this.resourceGovernor) await this.resourceGovernor.execute("llm", source.userId, generate);
+        if (this.resourceGovernor) {
+          if (isHistoricalBackfill(job)) await this.resourceGovernor.consumeRequest("llm_backfill", source.userId);
+          await this.resourceGovernor.execute("llm", source.userId, generate);
+        }
         else await generate();
         if (contextMeaningV2) {
           const parsed = parsePhraseOccurrenceContextMeaningOutput(rawOutput);
@@ -121,6 +124,7 @@ export class PhraseOccurrenceEmbeddingWorkerService {
             minPhraseSimilarity: this.relationJudge.minPhraseSimilarity,
             minRepresentationSimilarity: this.relationJudge.minRepresentationSimilarity,
             representationWeight: this.relationJudge.representationWeight,
+            priority: isHistoricalBackfill(job) ? -100 : 0,
           }
         : undefined;
       await this.repository.completePhraseOccurrenceEmbeddingJob(job, result, senseJob ? {
@@ -159,6 +163,10 @@ export class PhraseOccurrenceEmbeddingWorkerService {
     }
     return true;
   }
+}
+
+function isHistoricalBackfill(job: { inputVersion: string; priority: number }): boolean {
+  return job.priority < 0 || job.inputVersion.startsWith("phrase_occurrence_embedding_backfill_v2:");
 }
 
 function workerError(code: string): Error & { code: string } {

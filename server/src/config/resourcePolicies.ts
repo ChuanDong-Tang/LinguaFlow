@@ -1,4 +1,4 @@
-export type ResourceKind = "llm" | "stt" | "tts" | "embedding";
+export type ResourceKind = "llm" | "llm_backfill" | "stt" | "tts" | "embedding";
 
 export type ResourcePolicy = {
   userRequestsPerMinute: number;
@@ -31,6 +31,13 @@ export function resolveResourcePolicies(env: NodeJS.ProcessEnv, legacy: LegacyRe
       userConcurrency: positiveInt(env.RESOURCE_LLM_USER_CONCURRENCY, 4),
       globalConcurrency: positiveInt(env.RESOURCE_LLM_GLOBAL_CONCURRENCY, legacy.llmGlobalConcurrency),
       leaseMs: positiveInt(env.RESOURCE_LLM_LEASE_MS, 120_000),
+    },
+    llm_backfill: {
+      userRequestsPerMinute: positiveInt(env.RESOURCE_LLM_BACKFILL_USER_RPM, 1),
+      globalRequestsPerMinute: positiveInt(env.RESOURCE_LLM_BACKFILL_GLOBAL_RPM, 1),
+      userConcurrency: positiveInt(env.RESOURCE_LLM_BACKFILL_USER_CONCURRENCY, 1),
+      globalConcurrency: positiveInt(env.RESOURCE_LLM_BACKFILL_GLOBAL_CONCURRENCY, 1),
+      leaseMs: positiveInt(env.RESOURCE_LLM_BACKFILL_LEASE_MS, 120_000),
     },
     stt: {
       userRequestsPerMinute: positiveInt(env.RESOURCE_STT_USER_RPM, legacy.sttUserRpm),

@@ -183,12 +183,12 @@ if (mode === "target-sense-backfill") {
   updates.set("CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_ENABLED", "true");
   updates.set("CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_USER_ID", "");
   updates.set("CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_REPRESENTATION_VERSION", "usage_meaning_v2");
-  updates.set("CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_BATCH_SIZE", "5");
-  updates.set("CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_MAX_OUTSTANDING", "10");
+  updates.set("CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_BATCH_SIZE", "1");
+  updates.set("CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_MAX_OUTSTANDING", "1");
   updates.set("CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_SCAN_INTERVAL_MS", "60000");
 } else if (mode === "throttle-all-low") {
-  updates.set("CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_BATCH_SIZE", "2");
-  updates.set("CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_MAX_OUTSTANDING", "4");
+  updates.set("CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_BATCH_SIZE", "1");
+  updates.set("CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_MAX_OUTSTANDING", "1");
   updates.set("CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_SCAN_INTERVAL_MS", "60000");
 } else if (mode === "broad-backfill") {
   updates.set("CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_ENABLED", "true");
@@ -212,7 +212,7 @@ if (mode === "enable-target-sense-canary" || mode === "enable-target-context-v2-
   updates.set("RELATED_PHRASE_SENSE_MIN_SIMILARITY", "0.45");
   updates.set("RELATED_PHRASE_SENSE_WEIGHT", "0.70");
 }
-if (mode !== "throttle-all-low" && mode !== "enable-target-context-v2-low") {
+if (mode !== "throttle-all-low" && mode !== "enable-target-context-v2-low" && mode !== "broad-context-v2-backfill") {
   updates.set("CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_BATCH_SIZE", "5");
   updates.set("CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_MAX_OUTSTANDING", "10");
   updates.set("CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_SCAN_INTERVAL_MS", "60000");

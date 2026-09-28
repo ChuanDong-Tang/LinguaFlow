@@ -133,6 +133,7 @@ export class GrokAIProvider implements AIProvider {
           status: response.ok ? undefined : response.status,
           upstreamCode: extractUpstreamCode(upstreamText),
           upstreamText,
+          retryAfterMs: parseRetryAfterMs(response.headers),
           failureKind: response.ok ? "stream" : "http",
         });
       }
@@ -226,6 +227,7 @@ type UpstreamAIError = Error & {
   status?: number;
   upstreamCode?: string;
   upstreamText?: string;
+  retryAfterMs?: number;
   failureKind: "http" | "stream" | "timeout" | "network";
 };
 
@@ -233,6 +235,7 @@ function upstreamAIError(input: {
   status?: number;
   upstreamCode?: string;
   upstreamText?: string;
+  retryAfterMs?: number;
   failureKind: UpstreamAIError["failureKind"];
 }): UpstreamAIError {
   const error = new Error("UPSTREAM_AI_ERROR") as UpstreamAIError;
@@ -242,7 +245,25 @@ function upstreamAIError(input: {
   const upstreamCode = safeUpstreamCode(input.upstreamCode);
   if (upstreamCode) error.upstreamCode = upstreamCode;
   if (input.upstreamText) error.upstreamText = input.upstreamText;
+  if (Number.isFinite(input.retryAfterMs) && Number(input.retryAfterMs) > 0) {
+    error.retryAfterMs = Math.min(3_600_000, Math.max(1_000, Math.ceil(Number(input.retryAfterMs))));
+  }
   return error;
+}
+
+export function parseRetryAfterMs(headers: Pick<Headers, "get">, now = Date.now()): number | undefined {
+  const millisecondValue = Number(headers.get("retry-after-ms"));
+  if (Number.isFinite(millisecondValue) && millisecondValue > 0) {
+    return Math.min(3_600_000, Math.max(1_000, Math.ceil(millisecondValue)));
+  }
+  const retryAfter = headers.get("retry-after")?.trim();
+  if (!retryAfter) return undefined;
+  const seconds = Number(retryAfter);
+  const delay = Number.isFinite(seconds)
+    ? seconds * 1_000
+    : Date.parse(retryAfter) - now;
+  if (!Number.isFinite(delay) || delay <= 0) return undefined;
+  return Math.min(3_600_000, Math.max(1_000, Math.ceil(delay)));
 }
 
 function isUpstreamAIError(error: unknown): error is UpstreamAIError {
