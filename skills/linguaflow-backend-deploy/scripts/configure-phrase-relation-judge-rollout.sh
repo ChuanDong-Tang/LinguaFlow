@@ -2,7 +2,7 @@
 set -euo pipefail
 
 usage() {
-  echo "Usage: $0 --status | --enable-target-high <email> --confirm-production | --enable-all-slow --confirm-production | --throttle-all-low --confirm-production | --stop-backfill --confirm-production | --disable --confirm-production" >&2
+  echo "Usage: $0 --status | --enable-target-high <email> --confirm-production | --enable-target-low <email> --confirm-production | --enable-all-slow --confirm-production | --throttle-all-low --confirm-production | --stop-backfill --confirm-production | --disable --confirm-production" >&2
   exit 2
 }
 
@@ -48,9 +48,9 @@ NODE
 fi
 
 case "$action" in
-  --enable-target-high)
+  --enable-target-high|--enable-target-low)
     [[ $# -eq 3 && "${3:-}" == "--confirm-production" ]] || usage
-    mode="enable-target-high"
+    mode="${action#--}"
     target_email="$2"
     ;;
   --enable-all-slow|--throttle-all-low|--stop-backfill|--disable)
@@ -76,7 +76,7 @@ import { PrismaClient } from "@prisma/client";
 const prisma = new PrismaClient();
 const mode = process.env.MODE;
 let targetUserId = "";
-if (mode === "enable-target-high") {
+if (mode === "enable-target-high" || mode === "enable-target-low") {
   const users = await prisma.user.findMany({ where: { email: process.env.TARGET_EMAIL }, select: { id: true }, take: 2 });
   if (users.length !== 1) throw new Error(`TARGET_USER_CARDINALITY_${users.length}`);
   targetUserId = users[0].id;
@@ -95,6 +95,12 @@ if (mode === "enable-target-high") {
   updates.set("CARD_PHRASE_RELATION_JUDGE_BACKFILL_BATCH_SIZE", "20");
   updates.set("CARD_PHRASE_RELATION_JUDGE_BACKFILL_MAX_OUTSTANDING", "40");
   updates.set("CARD_PHRASE_RELATION_JUDGE_BACKFILL_SCAN_INTERVAL_MS", "15000");
+} else if (mode === "enable-target-low") {
+  updates.set("CARD_PHRASE_RELATION_JUDGE_BACKFILL_ENABLED", "true");
+  updates.set("CARD_PHRASE_RELATION_JUDGE_BACKFILL_USER_ID", targetUserId);
+  updates.set("CARD_PHRASE_RELATION_JUDGE_BACKFILL_BATCH_SIZE", "1");
+  updates.set("CARD_PHRASE_RELATION_JUDGE_BACKFILL_MAX_OUTSTANDING", "1");
+  updates.set("CARD_PHRASE_RELATION_JUDGE_BACKFILL_SCAN_INTERVAL_MS", "60000");
 } else if (mode === "enable-all-slow") {
   updates.set("RELATED_PHRASE_JUDGE_ENABLED", "true");
   updates.set("RELATED_PHRASE_JUDGE_USER_ID", "");

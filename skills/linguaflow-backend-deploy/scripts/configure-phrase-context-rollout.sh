@@ -2,7 +2,7 @@
 set -euo pipefail
 
 usage() {
-  echo "Usage: $0 --status | --target-sense-backfill <email> --confirm-production | --enable-target-sense-canary <email> --confirm-production | --enable-target-context-v2-canary <email> --confirm-production | --enable-target-sense-relations <email> --confirm-production | --broad-context-v2-backfill --confirm-production | --throttle-all-low --confirm-production | --broad-backfill --confirm-production | --enable-all-relations --confirm-production | --stop-backfill --confirm-production | --disable --confirm-production" >&2
+  echo "Usage: $0 --status | --target-sense-backfill <email> --confirm-production | --enable-target-sense-canary <email> --confirm-production | --enable-target-context-v2-canary <email> --confirm-production | --enable-target-context-v2-low <email> --confirm-production | --enable-target-sense-relations <email> --confirm-production | --broad-context-v2-backfill --confirm-production | --throttle-all-low --confirm-production | --broad-backfill --confirm-production | --enable-all-relations --confirm-production | --stop-backfill --confirm-production | --disable --confirm-production" >&2
   exit 2
 }
 
@@ -66,7 +66,7 @@ NODE
 fi
 
 case "$action" in
-  --target-sense-backfill|--enable-target-sense-canary|--enable-target-context-v2-canary|--enable-target-sense-relations)
+  --target-sense-backfill|--enable-target-sense-canary|--enable-target-context-v2-canary|--enable-target-context-v2-low|--enable-target-sense-relations)
     [[ $# -eq 3 && "${3:-}" == "--confirm-production" ]] || usage
     target_email="$2"
     mode="${action#--}"
@@ -94,7 +94,7 @@ import { PrismaClient } from "@prisma/client";
 const prisma = new PrismaClient();
 const mode = process.env.MODE;
 let targetUserId = "";
-if (mode === "target-sense-backfill" || mode === "enable-target-sense-canary" || mode === "enable-target-context-v2-canary" || mode === "enable-target-sense-relations") {
+if (mode === "target-sense-backfill" || mode === "enable-target-sense-canary" || mode === "enable-target-context-v2-canary" || mode === "enable-target-context-v2-low" || mode === "enable-target-sense-relations") {
   const users = await prisma.user.findMany({ where: { email: process.env.TARGET_EMAIL }, select: { id: true }, take: 2 });
   if (users.length !== 1) throw new Error(`TARGET_USER_CARDINALITY_${users.length}`);
   targetUserId = users[0].id;
@@ -169,6 +169,13 @@ if (mode === "target-sense-backfill") {
   updates.set("CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_ENABLED", "true");
   updates.set("CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_USER_ID", targetUserId);
   updates.set("CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_REPRESENTATION_VERSION", "usage_meaning_v2");
+} else if (mode === "enable-target-context-v2-low") {
+  updates.set("CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_ENABLED", "true");
+  updates.set("CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_USER_ID", targetUserId);
+  updates.set("CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_REPRESENTATION_VERSION", "usage_meaning_v2");
+  updates.set("CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_BATCH_SIZE", "1");
+  updates.set("CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_MAX_OUTSTANDING", "1");
+  updates.set("CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_SCAN_INTERVAL_MS", "60000");
 } else if (mode === "broad-context-v2-backfill") {
   updates.set("RELATED_PHRASE_CONTEXT_ENABLED", "true");
   updates.set("RELATED_PHRASE_CONTEXT_USER_ID", "");
@@ -205,7 +212,7 @@ if (mode === "enable-target-sense-canary" || mode === "enable-target-context-v2-
   updates.set("RELATED_PHRASE_SENSE_MIN_SIMILARITY", "0.45");
   updates.set("RELATED_PHRASE_SENSE_WEIGHT", "0.70");
 }
-if (mode !== "throttle-all-low") {
+if (mode !== "throttle-all-low" && mode !== "enable-target-context-v2-low") {
   updates.set("CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_BATCH_SIZE", "5");
   updates.set("CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_MAX_OUTSTANDING", "10");
   updates.set("CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_SCAN_INTERVAL_MS", "60000");
