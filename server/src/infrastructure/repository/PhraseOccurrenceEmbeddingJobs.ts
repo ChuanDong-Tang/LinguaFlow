@@ -80,6 +80,9 @@ export async function enqueuePhraseOccurrenceEmbeddingForOccurrence(
 ): Promise<void> {
   const occurrence = await loadPhraseOccurrenceEmbeddingSourceData(tx, occurrenceId);
   if (!occurrence) return;
+  const judgeEnabled = process.env.RELATED_PHRASE_JUDGE_ENABLED?.trim().toLowerCase() === "true";
+  const judgeUserId = process.env.RELATED_PHRASE_JUDGE_USER_ID?.trim();
+  if (judgeEnabled && (!judgeUserId || judgeUserId === occurrence.userId)) return;
   const relationEnabled = process.env.RELATED_PHRASE_CONTEXT_ENABLED?.trim().toLowerCase() === "true";
   const backfillEnabled = process.env.CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_ENABLED?.trim().toLowerCase() === "true";
   const configuredRepresentation = backfillEnabled

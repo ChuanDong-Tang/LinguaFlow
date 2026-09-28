@@ -22,7 +22,7 @@ function jobFor(value: PhraseRelationJudgeSource): CardEnrichmentJobEntity {
     id: "job-1", userId: value.userId, sourceKind: "phrase_occurrence", sourceId: value.anchor.occurrenceId,
     jobType: "judge_phrase_relation", attempts: 1, priority: 0,
     inputHash: createHash("sha256").update(phraseRelationJudgeHashInput(value)).digest("hex"),
-    inputVersion: "phrase_relation_judge_v2:hash", workerId: "worker-1", payload: {},
+    inputVersion: "phrase_relation_judge_v3:hash", workerId: "worker-1", payload: {},
   };
 }
 
@@ -45,7 +45,7 @@ test("judges all recalled candidates once and persists the selected occurrence",
 
   assert.equal(await new PhraseRelationJudgeWorkerService(repository, ai).claimAndProcess("worker-1"), true);
   assert.equal(generationCalls, 1);
-  assert.deepEqual(completions, [{ selectedOccurrenceId: "good", promptVersion: "phrase_relation_judge_v2", provider: "test", model: "judge-model" }]);
+  assert.deepEqual(completions, [{ selectedOccurrenceId: "good", promptVersion: "phrase_relation_judge_v3", provider: "test", model: "judge-model" }]);
 });
 
 test("persists none without calling AI when retrieval found no candidates", async () => {

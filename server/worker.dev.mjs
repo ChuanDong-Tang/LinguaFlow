@@ -468,7 +468,23 @@ const cardEnrichmentWorker = hasCompleteEmbeddingConfig
   : null;
 const phraseEmbeddingWorker = embeddingProvider
   ? new SerialCardJobWorker(
-      new PhraseEmbeddingWorkerService(cardEnrichmentRepository, embeddingProvider, systemEventLogRepository, {}, resourceGovernor),
+      new PhraseEmbeddingWorkerService(
+        cardEnrichmentRepository,
+        embeddingProvider,
+        systemEventLogRepository,
+        {},
+        resourceGovernor,
+        {
+          enabled: runtime.relatedPhraseJudgeEnabled,
+          userId: runtime.relatedPhraseJudgeUserId,
+          promptVersion: PHRASE_RELATION_JUDGE_PROMPT_VERSION,
+          modelVersion: embeddingProvider.modelVersion,
+          representationVersion: runtime.relatedPhraseContextRepresentationVersion,
+          minPhraseSimilarity: runtime.relatedPhraseMinSimilarity,
+          minRepresentationSimilarity: runtime.relatedPhraseSenseMinSimilarity,
+          representationWeight: runtime.relatedPhraseSenseWeight,
+        },
+      ),
       {
         workerIdPrefix: "phrase-embedding",
         errorLabel: "phrase-embedding-worker",

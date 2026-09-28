@@ -12,6 +12,17 @@ export class PhraseEmbeddingWorkerService {
     private readonly systemEventLogRepository?: SystemEventLogRepository,
     private readonly options: { leaseMs?: number; maxAttempts?: number } = {},
     private readonly resourceGovernor?: ResourceGovernor,
+    private readonly relationJudge?: {
+      enabled: boolean;
+      userId?: string | null;
+      promptVersion: string;
+      modelVersion: string;
+      representationVersion: string;
+      minPhraseSimilarity: number;
+      minRepresentationSimilarity: number;
+      representationWeight: number;
+      priority?: number;
+    },
   ) {}
 
   async claimAndProcess(workerId: string): Promise<boolean> {
@@ -36,7 +47,11 @@ export class PhraseEmbeddingWorkerService {
       const result = this.resourceGovernor
         ? await this.resourceGovernor.executeConcurrency("embedding", job.userId, embed)
         : await embed();
-      await this.repository.completePhraseEmbeddingJob(job, result);
+      const relationJudge = this.relationJudge?.enabled
+        && (!this.relationJudge.userId || this.relationJudge.userId === job.userId)
+        ? this.relationJudge
+        : undefined;
+      await this.repository.completePhraseEmbeddingJob(job, result, relationJudge);
     } catch (error) {
       const retry = resolveEnrichmentRetry(error, job.attempts, this.options.maxAttempts ?? 3);
       await this.repository.rescheduleOrFail(job, safeEnrichmentErrorMessage(error), retry.retryAt, { preserveAttempt: retry.preserveAttempt });

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { loadPhraseRelationJudgeSourceData, phraseRelationRetrievalConfigFromPayload } from "./PhraseRelationJudgeJobs.js";
 
-test("loads one anchor and a bounded contextual candidate set", async () => {
+test("loads one anchor and a bounded phrase-recall candidate set", async () => {
   const queries: string[] = [];
   let call = 0;
   const prisma = {
@@ -20,8 +20,9 @@ test("loads one anchor and a bounded contextual candidate set", async () => {
   });
 
   assert.equal(source?.candidates[0]?.semanticScore, 0.91);
-  assert.match(queries[1] ?? "", /LIMIT 5/u);
-  assert.match(queries[1] ?? "", /candidate_context_embedding\."meaningKind" = anchor\."meaningKind"/u);
+  assert.match(queries[1] ?? "", /LIMIT \?/u);
+  assert.match(queries[1] ?? "", /candidate_phrase_embedding\."embedding" <=> anchor\."phraseEmbedding"/u);
+  assert.doesNotMatch(queries[1] ?? "", /candidate_context_embedding/u);
 });
 
 test("rejects incomplete retrieval job payloads", () => {

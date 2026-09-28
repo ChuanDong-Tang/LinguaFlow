@@ -60,6 +60,43 @@ test("embeds the normalized phrase only while its queued input is current", asyn
   assert.equal(completed, true);
 });
 
+test("passes relation judge configuration only for an enabled matching user", async () => {
+  const input = "en-US\nfit in";
+  const job = phraseJob(createHash("sha256").update(input).digest("hex"));
+  let received: unknown;
+  const repository = {
+    async claimNextPhraseEmbeddingJob() { return job; },
+    async loadPhraseEmbeddingSource() {
+      return { userId: job.userId, phraseId: job.sourceId, languageCode: "en-US", canonicalText: "fit in" };
+    },
+    async completePhraseEmbeddingJob(_job, _result, relationJudge) {
+      received = relationJudge;
+      return true;
+    },
+  } as CardEnrichmentRepository;
+  const relationJudge = {
+    enabled: true,
+    userId: job.userId,
+    promptVersion: "phrase_relation_judge_v3",
+    modelVersion: embeddingProvider.modelVersion,
+    representationVersion: "usage_meaning_v2",
+    minPhraseSimilarity: 0.72,
+    minRepresentationSimilarity: 0.45,
+    representationWeight: 0.7,
+  };
+
+  await new PhraseEmbeddingWorkerService(
+    repository,
+    embeddingProvider,
+    undefined,
+    {},
+    undefined,
+    relationJudge,
+  ).claimAndProcess("worker-1");
+
+  assert.deepEqual(received, relationJudge);
+});
+
 test("discards a stale phrase embedding job without calling the provider", async () => {
   const job = phraseJob("stale-hash");
   let embedded = false;

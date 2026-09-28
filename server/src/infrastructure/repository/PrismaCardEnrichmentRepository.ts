@@ -490,11 +490,10 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
       const rows = await tx.$queryRaw<Array<{ occurrenceId: string; userId: string }>>`
         SELECT occurrence."id" AS "occurrenceId", occurrence."userId"
           FROM "phrase_occurrences" AS occurrence
-          JOIN "phrase_occurrence_embeddings" AS embedding
-            ON embedding."occurrenceId" = occurrence."id"
+          JOIN "phrase_embeddings" AS embedding
+            ON embedding."phraseId" = occurrence."phraseId"
            AND embedding."userId" = occurrence."userId"
            AND embedding."modelVersion" = ${input.modelVersion}
-           AND embedding."representationVersion" = ${input.representationVersion}
          WHERE occurrence."sourceField" = 'ai_expression'
            AND occurrence."clozeBlankId" IS NOT NULL
            AND (${input.userId ?? null}::text IS NULL OR occurrence."userId" = ${input.userId ?? null})
@@ -1309,7 +1308,15 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
     return loadPhraseRelationJudgeSourceData(this.prisma, job.sourceId, job.userId, config);
   }
 
-  async completePhraseEmbeddingJob(job: CardEnrichmentJobEntity, result: EmbeddingResult): Promise<boolean> {
+  async completePhraseEmbeddingJob(job: CardEnrichmentJobEntity, result: EmbeddingResult, relationJudge?: {
+    promptVersion: string;
+    modelVersion: string;
+    representationVersion: string;
+    minPhraseSimilarity: number;
+    minRepresentationSimilarity: number;
+    representationWeight: number;
+    priority?: number;
+  }): Promise<boolean> {
     return this.prisma.$transaction(async (tx) => {
       const claimed = await tx.cardEnrichmentJob.updateMany({
         where: { id: job.id, status: "processing", workerId: job.workerId, inputHash: job.inputHash },
@@ -1328,6 +1335,24 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
         randomUUID(), job.userId, job.sourceId, result.provider, result.model,
         result.modelVersion, result.dimensions, job.inputHash, vector,
       );
+      if (relationJudge) {
+        const occurrences = await tx.phraseOccurrence.findMany({
+          where: {
+            phraseId: job.sourceId,
+            userId: job.userId,
+            sourceField: "ai_expression",
+            clozeBlankId: { not: null },
+          },
+          select: { id: true },
+        });
+        for (const occurrence of occurrences) {
+          await enqueuePhraseRelationJudgeForOccurrence(tx, {
+            userId: job.userId,
+            occurrenceId: occurrence.id,
+            ...relationJudge,
+          });
+        }
+      }
       return true;
     });
   }

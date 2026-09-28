@@ -167,3 +167,27 @@ test("re-adding the same cloze refreshes its existing V2 embedding job", async (
   assert.equal(update?.attempts, 0);
   assert.equal(update?.completedAt, null);
 });
+
+test("judge V3 bypasses occurrence-level AI representation jobs for its rollout scope", async () => {
+  const previousEnabled = process.env.RELATED_PHRASE_JUDGE_ENABLED;
+  const previousUserId = process.env.RELATED_PHRASE_JUDGE_USER_ID;
+  process.env.RELATED_PHRASE_JUDGE_ENABLED = "true";
+  process.env.RELATED_PHRASE_JUDGE_USER_ID = "user-1";
+  let upserted = false;
+  const client = {
+    ...fakeClient([{ id: "current-segment", text: "So ridiculous, I was cracking up.", ordinal: 0 }]),
+    cardEnrichmentJob: {
+      async upsert() { upserted = true; },
+    },
+  };
+  try {
+    await enqueuePhraseOccurrenceEmbeddingForOccurrence(client, "occurrence-1");
+  } finally {
+    if (previousEnabled === undefined) delete process.env.RELATED_PHRASE_JUDGE_ENABLED;
+    else process.env.RELATED_PHRASE_JUDGE_ENABLED = previousEnabled;
+    if (previousUserId === undefined) delete process.env.RELATED_PHRASE_JUDGE_USER_ID;
+    else process.env.RELATED_PHRASE_JUDGE_USER_ID = previousUserId;
+  }
+
+  assert.equal(upserted, false);
+});

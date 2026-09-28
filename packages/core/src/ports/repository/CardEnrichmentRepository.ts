@@ -153,7 +153,15 @@ export interface CardEnrichmentRepository {
   completeEmbeddingJob(job: CardEnrichmentJobEntity, result: EmbeddingResult): Promise<boolean>;
   claimNextPhraseEmbeddingJob(workerId: string, leaseExpiresAt: Date): Promise<CardEnrichmentJobEntity | null>;
   loadPhraseEmbeddingSource(job: CardEnrichmentJobEntity): Promise<PhraseEmbeddingSource | null>;
-  completePhraseEmbeddingJob(job: CardEnrichmentJobEntity, result: EmbeddingResult): Promise<boolean>;
+  completePhraseEmbeddingJob(job: CardEnrichmentJobEntity, result: EmbeddingResult, relationJudge?: {
+    promptVersion: string;
+    modelVersion: string;
+    representationVersion: string;
+    minPhraseSimilarity: number;
+    minRepresentationSimilarity: number;
+    representationWeight: number;
+    priority?: number;
+  }): Promise<boolean>;
   claimNextPhraseOccurrenceEmbeddingJob(workerId: string, leaseExpiresAt: Date): Promise<CardEnrichmentJobEntity | null>;
   loadPhraseOccurrenceEmbeddingSource(job: CardEnrichmentJobEntity): Promise<PhraseOccurrenceEmbeddingSource | null>;
   completePhraseOccurrenceEmbeddingJob(job: CardEnrichmentJobEntity, result: EmbeddingResult, representation?: {

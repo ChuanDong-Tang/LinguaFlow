@@ -4,6 +4,7 @@ import type {
   PhraseRelationJudgeOccurrence,
   PhraseRelationJudgeSource,
 } from "@lf/core/Prompts/phraseRelationJudgePrompt.js";
+import { PHRASE_RELATION_JUDGE_MAX_CANDIDATES } from "@lf/core/Prompts/phraseRelationJudgePrompt.js";
 
 type DbClient = PrismaClient | Prisma.TransactionClient;
 
@@ -51,9 +52,7 @@ export async function loadPhraseRelationJudgeSourceData(
   const rows = await prisma.$queryRaw<Array<PhraseRelationJudgeCandidate & { semanticScore: number | string }>>`
     WITH anchor AS (
       SELECT occurrence."id", occurrence."phraseId", occurrence."cardId", phrase."languageCode",
-             phrase_embedding."embedding" AS "phraseEmbedding",
-             context_embedding."embedding" AS "contextEmbedding",
-             context_embedding."polarity", context_embedding."modality", context_embedding."meaningKind"
+             phrase_embedding."embedding" AS "phraseEmbedding"
         FROM "phrase_occurrences" AS occurrence
         JOIN "phrases" AS phrase
           ON phrase."id" = occurrence."phraseId" AND phrase."userId" = occurrence."userId"
@@ -61,27 +60,17 @@ export async function loadPhraseRelationJudgeSourceData(
           ON phrase_embedding."phraseId" = occurrence."phraseId"
          AND phrase_embedding."userId" = occurrence."userId"
          AND phrase_embedding."modelVersion" = ${config.modelVersion}
-        JOIN "phrase_occurrence_embeddings" AS context_embedding
-          ON context_embedding."occurrenceId" = occurrence."id"
-         AND context_embedding."userId" = occurrence."userId"
-         AND context_embedding."modelVersion" = ${config.modelVersion}
-         AND context_embedding."representationVersion" = ${config.representationVersion}
        WHERE occurrence."id" = ${occurrenceId} AND occurrence."userId" = ${userId}
     ), scored AS (
       SELECT historical."id" AS "occurrenceId", candidate_phrase."languageCode",
              historical."surfaceText", historical_segment."text" AS "sentence",
              historical."startUtf16", historical."endUtf16",
-             (
-               (1 - (candidate_phrase_embedding."embedding" <=> anchor."phraseEmbedding")) * (1 - ${config.representationWeight}::double precision)
-               + (1 - (candidate_context_embedding."embedding" <=> anchor."contextEmbedding")) * ${config.representationWeight}::double precision
-             )::double precision AS "semanticScore",
+             (1 - (candidate_phrase_embedding."embedding" <=> anchor."phraseEmbedding"))::double precision AS "semanticScore",
              historical."cardCreatedAt",
              ROW_NUMBER() OVER (
                PARTITION BY historical."cardId"
-               ORDER BY (
-                 (1 - (candidate_phrase_embedding."embedding" <=> anchor."phraseEmbedding")) * (1 - ${config.representationWeight}::double precision)
-                 + (1 - (candidate_context_embedding."embedding" <=> anchor."contextEmbedding")) * ${config.representationWeight}::double precision
-               ) DESC, historical."id" DESC
+               ORDER BY (1 - (candidate_phrase_embedding."embedding" <=> anchor."phraseEmbedding")) DESC,
+                        historical."id" DESC
              ) AS "cardRank"
         FROM anchor
         JOIN "phrase_embeddings" AS candidate_phrase_embedding
@@ -98,11 +87,6 @@ export async function loadPhraseRelationJudgeSourceData(
          AND historical."userId" = ${userId}
          AND historical."sourceField" = 'ai_expression'
          AND historical."cardId" <> anchor."cardId"
-        JOIN "phrase_occurrence_embeddings" AS candidate_context_embedding
-          ON candidate_context_embedding."occurrenceId" = historical."id"
-         AND candidate_context_embedding."userId" = ${userId}
-         AND candidate_context_embedding."modelVersion" = ${config.modelVersion}
-         AND candidate_context_embedding."representationVersion" = ${config.representationVersion}
         JOIN LATERAL (
           SELECT segment."text"
             FROM "card_rewrite_segments" AS segment
@@ -118,22 +102,12 @@ export async function loadPhraseRelationJudgeSourceData(
          AND historical_card."status" = 'completed'
          AND historical_card."deletedAt" IS NULL
        WHERE (1 - (candidate_phrase_embedding."embedding" <=> anchor."phraseEmbedding")) >= ${config.minPhraseSimilarity}
-         AND (1 - (candidate_context_embedding."embedding" <=> anchor."contextEmbedding")) >= ${config.minRepresentationSimilarity}
-         AND anchor."polarity" IS NOT NULL
-         AND candidate_context_embedding."polarity" = anchor."polarity"
-         AND anchor."meaningKind" IS NOT NULL
-         AND anchor."meaningKind" <> 'other:missing'
-         AND candidate_context_embedding."meaningKind" = anchor."meaningKind"
-         AND candidate_context_embedding."meaningKind" <> 'other:missing'
-         AND (anchor."polarity" = 'neutral' OR (
-           anchor."modality" IS NOT NULL AND candidate_context_embedding."modality" = anchor."modality"
-         ))
     )
     SELECT "occurrenceId", "languageCode", "surfaceText", "sentence", "startUtf16", "endUtf16", "semanticScore"
       FROM scored
      WHERE "cardRank" = 1
      ORDER BY "semanticScore" DESC, "cardCreatedAt" DESC, "occurrenceId" ASC
-     LIMIT 5
+     LIMIT ${PHRASE_RELATION_JUDGE_MAX_CANDIDATES}
   `;
   return {
     userId,

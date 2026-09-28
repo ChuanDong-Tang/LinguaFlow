@@ -1,7 +1,7 @@
 export const PHRASE_RELATION_JUDGE_JOB_TYPE = "judge_phrase_relation";
 export const PHRASE_RELATION_JUDGE_SOURCE_KIND = "phrase_occurrence";
-export const PHRASE_RELATION_JUDGE_PROMPT_VERSION = "phrase_relation_judge_v2";
-export const PHRASE_RELATION_JUDGE_MAX_CANDIDATES = 5;
+export const PHRASE_RELATION_JUDGE_PROMPT_VERSION = "phrase_relation_judge_v3";
+export const PHRASE_RELATION_JUDGE_MAX_CANDIDATES = 12;
 
 export interface PhraseRelationJudgeOccurrence {
   occurrenceId: string;
@@ -30,6 +30,7 @@ export function buildPhraseRelationJudgePrompt(source: PhraseRelationJudgeSource
   const systemPrompt = [
     "You judge whether two highlighted expressions teach the same practical meaning in their shown contexts.",
     "Choose at most one candidate whose central meaning and usage purpose closely match the anchor.",
+    "Candidates are broad retrieval results; lexical or embedding similarity alone is never sufficient evidence.",
     "Accept useful near-paraphrases even when tense, inflection, register, emphasis, or degree words differ slightly (for example, 'really addictive' and 'so addictive').",
     "The expressions do not need to be interchangeable word-for-word inside the original sentences.",
     "Reject candidates that merely share a word, topic, broad category, sentiment, or grammatical shape.",

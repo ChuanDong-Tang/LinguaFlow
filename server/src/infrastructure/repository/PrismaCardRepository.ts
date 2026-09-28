@@ -2512,7 +2512,18 @@ async function applyPhraseMutation(tx: any, input: {
         inputVersion: `phrase_embedding_input_v1:${phraseEmbeddingHash}`,
         payload: { phraseId: phrase.id, schemaVersion: 1 },
       },
-      update: {},
+      update: {
+        status: "queued",
+        availableAt: new Date(),
+        inputHash: phraseEmbeddingHash,
+        attempts: 0,
+        processingAt: null,
+        leaseExpiresAt: null,
+        workerId: null,
+        lastError: null,
+        completedAt: null,
+        failedAt: null,
+      },
     });
   }
 }
