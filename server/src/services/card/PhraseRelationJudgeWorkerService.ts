@@ -9,7 +9,7 @@ import type { AIProvider } from "@lf/core/ports/ai/AIProvider.js";
 import type { CardEnrichmentRepository } from "@lf/core/ports/repository/CardEnrichmentRepository.js";
 import type { SystemEventLogRepository } from "@lf/core/ports/repository/SystemEventLogRepository.js";
 import type { ResourceGovernor } from "../resource/ResourceGovernor.js";
-import { resolveEnrichmentRetry, safeEnrichmentErrorMessage } from "./EnrichmentJobRetry.js";
+import { resolveEnrichmentRetry, safeEnrichmentErrorMessage, safeEnrichmentErrorMetadata } from "./EnrichmentJobRetry.js";
 
 export class PhraseRelationJudgeWorkerService {
   constructor(
@@ -26,6 +26,7 @@ export class PhraseRelationJudgeWorkerService {
       new Date(Date.now() + (this.options.leaseMs ?? 60_000)),
     );
     if (!job) return false;
+    const startedAt = Date.now();
     try {
       const source = await this.repository.loadPhraseRelationJudgeSource(job);
       if (!source) {
@@ -62,18 +63,24 @@ export class PhraseRelationJudgeWorkerService {
     } catch (error) {
       const retry = resolveEnrichmentRetry(error, job.attempts, this.options.maxAttempts ?? 3);
       await this.repository.rescheduleOrFail(job, safeEnrichmentErrorMessage(error), retry.retryAt, { preserveAttempt: retry.preserveAttempt });
-      if (!retry.retryAt) {
-        await this.logs?.create({
-          userId: job.userId,
-          module: "card",
-          event: "phrase.relation_judge.failed",
-          level: "error",
-          status: "failed",
-          errorCode: typeof error === "object" && error !== null && "code" in error ? String(error.code) : "PHRASE_RELATION_JUDGE_FAILED",
-          errorMessage: (error instanceof Error ? error.message : String(error ?? "unknown")).slice(0, 500),
-          metadata: { occurrenceId: job.sourceId, promptVersion: PHRASE_RELATION_JUDGE_PROMPT_VERSION },
-        }).catch(() => undefined);
-      }
+      await this.logs?.create({
+        requestId: `phrase_relation_judge_${job.id}`,
+        userId: job.userId,
+        module: "card",
+        event: retry.retryAt ? "phrase.relation_judge.retry" : "phrase.relation_judge.failed",
+        level: retry.retryAt ? "warn" : "error",
+        status: retry.retryAt ? "ignored" : "failed",
+        errorCode: typeof error === "object" && error !== null && "code" in error ? String(error.code) : "PHRASE_RELATION_JUDGE_FAILED",
+        errorMessage: safeEnrichmentErrorMessage(error),
+        metadata: {
+          occurrenceId: job.sourceId,
+          promptVersion: PHRASE_RELATION_JUDGE_PROMPT_VERSION,
+          attempts: job.attempts,
+          durationMs: Date.now() - startedAt,
+          nextAttemptAt: retry.retryAt?.toISOString() ?? null,
+          ...safeEnrichmentErrorMetadata(error),
+        },
+      }).catch(() => undefined);
     }
     return true;
   }

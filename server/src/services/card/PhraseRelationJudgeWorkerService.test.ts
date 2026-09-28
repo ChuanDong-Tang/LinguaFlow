@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import { phraseRelationJudgeHashInput, type PhraseRelationJudgeSource } from "@lf/core/Prompts/phraseRelationJudgePrompt.js";
 import type { CardEnrichmentJobEntity, CardEnrichmentRepository } from "@lf/core/ports/repository/CardEnrichmentRepository.js";
 import type { AIProvider } from "@lf/core/ports/ai/AIProvider.js";
+import type { CreateSystemEventLogInput, SystemEventLogRepository } from "@lf/core/ports/repository/SystemEventLogRepository.js";
 import { PhraseRelationJudgeWorkerService } from "./PhraseRelationJudgeWorkerService.js";
 
 const source: PhraseRelationJudgeSource = {
@@ -64,4 +65,70 @@ test("persists none without calling AI when retrieval found no candidates", asyn
   await new PhraseRelationJudgeWorkerService(repository, ai).claimAndProcess("worker-1");
   assert.equal(generationCalls, 0);
   assert.equal(selected, null);
+});
+
+test("records safe upstream metadata when relation judge retries", async () => {
+  const job = jobFor(source);
+  let retryAt: Date | null | undefined;
+  let event: CreateSystemEventLogInput | null = null;
+  const repository = {
+    claimNextPhraseRelationJudgeJob: async () => job,
+    loadPhraseRelationJudgeSource: async () => source,
+    rescheduleOrFail: async (_job: unknown, _message: string, nextAttempt: Date | null) => { retryAt = nextAttempt; return true; },
+  } as unknown as CardEnrichmentRepository;
+  const upstreamError = Object.assign(new Error("UPSTREAM_AI_ERROR"), {
+    code: "UPSTREAM_AI_ERROR",
+    status: 429,
+    upstreamCode: "RateLimitReached",
+    failureKind: "http",
+  });
+  const ai = {
+    providerName: "test", modelName: "judge-model",
+    async generateChatTextStream() { throw upstreamError; },
+  } as unknown as AIProvider;
+  const logs = {
+    async create(input: CreateSystemEventLogInput) { event = input; return {} as never; },
+  } as SystemEventLogRepository;
+
+  await new PhraseRelationJudgeWorkerService(repository, ai, logs).claimAndProcess("worker-1");
+
+  assert.ok(retryAt instanceof Date);
+  assert.equal(event?.event, "phrase.relation_judge.retry");
+  assert.equal(event?.status, "ignored");
+  assert.equal(event?.metadata?.upstreamStatus, 429);
+  assert.equal(event?.metadata?.upstreamCode, "RateLimitReached");
+  assert.equal(event?.metadata?.failureKind, "http");
+  assert.equal(event?.metadata?.retryableUpstream, true);
+});
+
+test("records safe upstream metadata when relation judge reaches terminal failure", async () => {
+  const job = { ...jobFor(source), attempts: 4 };
+  let retryAt: Date | null | undefined;
+  let event: CreateSystemEventLogInput | null = null;
+  const repository = {
+    claimNextPhraseRelationJudgeJob: async () => job,
+    loadPhraseRelationJudgeSource: async () => source,
+    rescheduleOrFail: async (_job: unknown, _message: string, nextAttempt: Date | null) => { retryAt = nextAttempt; return true; },
+  } as unknown as CardEnrichmentRepository;
+  const upstreamError = Object.assign(new Error("UPSTREAM_AI_ERROR"), {
+    code: "UPSTREAM_AI_ERROR",
+    upstreamCode: "AI_PROVIDER_TIMEOUT",
+    failureKind: "timeout",
+  });
+  const ai = {
+    providerName: "test", modelName: "judge-model",
+    async generateChatTextStream() { throw upstreamError; },
+  } as unknown as AIProvider;
+  const logs = {
+    async create(input: CreateSystemEventLogInput) { event = input; return {} as never; },
+  } as SystemEventLogRepository;
+
+  await new PhraseRelationJudgeWorkerService(repository, ai, logs).claimAndProcess("worker-1");
+
+  assert.equal(retryAt, null);
+  assert.equal(event?.event, "phrase.relation_judge.failed");
+  assert.equal(event?.status, "failed");
+  assert.equal(event?.metadata?.upstreamCode, "AI_PROVIDER_TIMEOUT");
+  assert.equal(event?.metadata?.failureKind, "timeout");
+  assert.equal(event?.metadata?.retryableUpstream, true);
 });
