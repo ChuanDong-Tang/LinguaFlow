@@ -729,6 +729,7 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
     return this.prisma.$transaction(async (tx) => {
       const inputVersionClause = inputVersion ? `AND "inputVersion" = $2` : "";
       const nowParameter = inputVersion ? "$3" : "$2";
+      const utcNowExpression = `(${nowParameter}::timestamptz AT TIME ZONE 'UTC')`;
       const now = new Date();
       const rows = await tx.$queryRawUnsafe<Array<{ id: string }>>(
         `SELECT "id"
@@ -736,8 +737,8 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
           WHERE "jobType" = $1
             ${inputVersionClause}
             AND (
-              ("status" = 'queued' AND "availableAt" <= ${nowParameter})
-              OR ("status" = 'processing' AND "leaseExpiresAt" < ${nowParameter})
+              ("status" = 'queued' AND "availableAt" <= ${utcNowExpression})
+              OR ("status" = 'processing' AND "leaseExpiresAt" < ${utcNowExpression})
             )
           ORDER BY "priority" DESC, "availableAt" ASC, "createdAt" ASC
           FOR UPDATE SKIP LOCKED
