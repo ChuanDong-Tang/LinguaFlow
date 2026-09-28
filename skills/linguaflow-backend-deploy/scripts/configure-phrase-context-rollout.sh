@@ -230,7 +230,7 @@ fs.writeFileSync(temp, next, { mode: fs.statSync(path).mode });
 fs.renameSync(temp, path);
 NODE
 
-if [[ "$mode" == "broad-backfill" || "$mode" == "target-sense-backfill" || "$mode" == "throttle-all-low" || "$mode" == "stop-backfill" ]]; then
+if [[ "$mode" == "broad-backfill" || "$mode" == "target-sense-backfill" || "$mode" == "enable-target-context-v2-low" || "$mode" == "throttle-all-low" || "$mode" == "stop-backfill" ]]; then
   pm2 restart ecosystem.production.config.cjs --only oio-worker-production --update-env >/dev/null
 else
   pm2 restart ecosystem.production.config.cjs --only oio-api-production,oio-worker-production --update-env >/dev/null
