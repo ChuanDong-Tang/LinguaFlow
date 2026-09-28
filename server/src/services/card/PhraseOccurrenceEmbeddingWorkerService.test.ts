@@ -331,6 +331,7 @@ test("records safe upstream metadata for retryable occurrence embedding failures
     modelVersion: provider.modelVersion,
     attempts: 1,
     nextAttemptAt: retryAt.toISOString(),
+    errorCode: "UPSTREAM_AI_ERROR",
     upstreamStatus: 429,
     upstreamCode: "RateLimitReached",
     failureKind: "http",

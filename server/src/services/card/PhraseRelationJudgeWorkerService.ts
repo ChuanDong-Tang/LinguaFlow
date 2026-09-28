@@ -80,7 +80,9 @@ export class PhraseRelationJudgeWorkerService {
           nextAttemptAt: retry.retryAt?.toISOString() ?? null,
           ...safeEnrichmentErrorMetadata(error),
         },
-      }).catch(() => undefined);
+      }).catch((logError) => {
+        console.error("[phrase-relation-judge-worker] system event log write failed", safeEnrichmentErrorMetadata(logError));
+      });
     }
     return true;
   }

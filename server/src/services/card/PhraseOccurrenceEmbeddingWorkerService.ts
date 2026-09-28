@@ -153,7 +153,9 @@ export class PhraseOccurrenceEmbeddingWorkerService {
           nextAttemptAt: retry.retryAt?.toISOString() ?? null,
           ...safeEnrichmentErrorMetadata(error),
         },
-      }).catch(() => undefined);
+      }).catch((logError) => {
+        console.error("[phrase-occurrence-embedding-worker] system event log write failed", safeEnrichmentErrorMetadata(logError));
+      });
     }
     return true;
   }

@@ -59,10 +59,12 @@ export function safeEnrichmentErrorMetadata(error: unknown): Record<string, stri
     name?: unknown;
   };
   const metadata: Record<string, string | number | boolean> = {};
+  const errorCode = safeIdentifier(candidate.code);
   const status = safeHttpStatus(candidate.status);
   const upstreamCode = safeIdentifier(candidate.upstreamCode);
   const failureKind = safeIdentifier(candidate.failureKind);
   const errorName = safeIdentifier(candidate.name);
+  if (errorCode) metadata.errorCode = errorCode;
   if (status !== null) metadata.upstreamStatus = status;
   if (upstreamCode) metadata.upstreamCode = upstreamCode;
   if (failureKind) metadata.failureKind = failureKind;
