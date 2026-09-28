@@ -2,7 +2,7 @@
 set -euo pipefail
 
 usage() {
-  echo "Usage: $0 --status | --enable-target-high <email> --confirm-production | --enable-all-slow --confirm-production | --stop-backfill --confirm-production | --disable --confirm-production" >&2
+  echo "Usage: $0 --status | --enable-target-high <email> --confirm-production | --enable-all-slow --confirm-production | --throttle-all-low --confirm-production | --stop-backfill --confirm-production | --disable --confirm-production" >&2
   exit 2
 }
 
@@ -30,6 +30,7 @@ console.log(`judge_backfill_enabled=${String(process.env.CARD_PHRASE_RELATION_JU
 console.log(`judge_backfill_scope=${targetUserId ? "target_user" : "all_users"}`);
 console.log(`judge_batch=${process.env.CARD_PHRASE_RELATION_JUDGE_BACKFILL_BATCH_SIZE || "5"}`);
 console.log(`judge_max_outstanding=${process.env.CARD_PHRASE_RELATION_JUDGE_BACKFILL_MAX_OUTSTANDING || "10"}`);
+console.log(`judge_scan_interval_ms=${process.env.CARD_PHRASE_RELATION_JUDGE_BACKFILL_SCAN_INTERVAL_MS || "60000"}`);
 console.log(`eligible=${eligibleCount}`);
 for (const row of decisions) console.log(`decisions_${row.status}=${row._count._all}`);
 console.log(`decisions_total=${decidedCount}`);
@@ -52,7 +53,7 @@ case "$action" in
     mode="enable-target-high"
     target_email="$2"
     ;;
-  --enable-all-slow|--stop-backfill|--disable)
+  --enable-all-slow|--throttle-all-low|--stop-backfill|--disable)
     [[ $# -eq 2 && "${2:-}" == "--confirm-production" ]] || usage
     mode="${action#--}"
     target_email=""
@@ -103,6 +104,10 @@ if (mode === "enable-target-high") {
   updates.set("CARD_PHRASE_RELATION_JUDGE_BACKFILL_BATCH_SIZE", "5");
   updates.set("CARD_PHRASE_RELATION_JUDGE_BACKFILL_MAX_OUTSTANDING", "10");
   updates.set("CARD_PHRASE_RELATION_JUDGE_BACKFILL_SCAN_INTERVAL_MS", "60000");
+} else if (mode === "throttle-all-low") {
+  updates.set("CARD_PHRASE_RELATION_JUDGE_BACKFILL_BATCH_SIZE", "2");
+  updates.set("CARD_PHRASE_RELATION_JUDGE_BACKFILL_MAX_OUTSTANDING", "4");
+  updates.set("CARD_PHRASE_RELATION_JUDGE_BACKFILL_SCAN_INTERVAL_MS", "60000");
 } else if (mode === "stop-backfill") {
   updates.set("CARD_PHRASE_RELATION_JUDGE_BACKFILL_ENABLED", "false");
 } else if (mode === "disable") {
@@ -124,7 +129,11 @@ fs.writeFileSync(temp, next, { mode: fs.statSync(path).mode });
 fs.renameSync(temp, path);
 NODE
 
-pm2 restart ecosystem.production.config.cjs --only oio-api-production,oio-worker-production --update-env >/dev/null
+if [[ "$mode" == "throttle-all-low" || "$mode" == "stop-backfill" ]]; then
+  pm2 restart ecosystem.production.config.cjs --only oio-worker-production --update-env >/dev/null
+else
+  pm2 restart ecosystem.production.config.cjs --only oio-api-production,oio-worker-production --update-env >/dev/null
+fi
 sleep 2
 test "$(pm2 pid oio-api-production)" != "0"
 test "$(pm2 pid oio-worker-production)" != "0"

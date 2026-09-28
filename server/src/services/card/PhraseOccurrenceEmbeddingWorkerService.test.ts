@@ -4,6 +4,7 @@ import test from "node:test";
 import type { EmbeddingProvider } from "@lf/core/ports/ai/EmbeddingProvider.js";
 import type { AIProvider } from "@lf/core/ports/ai/AIProvider.js";
 import type { CardEnrichmentJobEntity, CardEnrichmentRepository } from "@lf/core/ports/repository/CardEnrichmentRepository.js";
+import type { CreateSystemEventLogInput, SystemEventLogRepository } from "@lf/core/ports/repository/SystemEventLogRepository.js";
 import { buildPhraseOccurrenceEmbeddingInput } from "@lf/core/text/phraseOccurrenceEmbedding.js";
 import {
   phraseOccurrenceContextMeaningPromptHashInput,
@@ -276,4 +277,115 @@ test("atomically requests V2 relation judging for the configured user after its 
     minRepresentationSimilarity: 0.45,
     representationWeight: 0.7,
   });
+});
+
+test("records safe upstream metadata for retryable occurrence embedding failures", async () => {
+  const inputHash = createHash("sha256")
+    .update(phraseOccurrenceContextMeaningPromptHashInput(source))
+    .digest("hex");
+  const job = {
+    ...occurrenceJob(inputHash),
+    inputVersion: `phrase_occurrence_embedding_input_v2:${PHRASE_OCCURRENCE_CONTEXT_MEANING_REPRESENTATION_VERSION}:${inputHash}`,
+    payload: { representationVersion: PHRASE_OCCURRENCE_CONTEXT_MEANING_REPRESENTATION_VERSION },
+  };
+  let retryAt: Date | null = null;
+  let event: CreateSystemEventLogInput | null = null;
+  const repository = {
+    async claimNextPhraseOccurrenceEmbeddingJob() { return job; },
+    async loadPhraseOccurrenceEmbeddingSource() { return source; },
+    async rescheduleOrFail(_job: unknown, _message: string, value: Date | null) { retryAt = value; return true; },
+  } as unknown as CardEnrichmentRepository;
+  const logs = {
+    async create(input: CreateSystemEventLogInput) { event = input; return {} as never; },
+  } as SystemEventLogRepository;
+  const upstreamError = Object.assign(new Error("UPSTREAM_AI_ERROR"), {
+    code: "UPSTREAM_AI_ERROR",
+    status: 429,
+    upstreamCode: "RateLimitReached",
+    failureKind: "http",
+  });
+  const failingProvider: AIProvider = {
+    ...aiProvider,
+    async generateChatTextStream() { throw upstreamError; },
+  };
+
+  await new PhraseOccurrenceEmbeddingWorkerService(
+    repository,
+    provider,
+    logs,
+    {},
+    undefined,
+    failingProvider,
+  ).claimAndProcess("worker-1");
+
+  assert.ok(retryAt);
+  assert.ok(event);
+  assert.equal(event.event, "phrase.occurrence_embedding.retry");
+  assert.equal(event.level, "warn");
+  assert.equal(event.status, "ignored");
+  const metadata = event.metadata as Record<string, unknown>;
+  assert.equal(typeof metadata.durationMs, "number");
+  const { durationMs: _durationMs, ...stableMetadata } = metadata;
+  assert.deepEqual(stableMetadata, {
+    occurrenceId: source.occurrenceId,
+    modelVersion: provider.modelVersion,
+    attempts: 1,
+    nextAttemptAt: retryAt.toISOString(),
+    upstreamStatus: 429,
+    upstreamCode: "RateLimitReached",
+    failureKind: "http",
+    errorName: "Error",
+    retryableUpstream: true,
+  });
+});
+
+test("records safe upstream metadata when occurrence embedding retries are exhausted", async () => {
+  const inputHash = createHash("sha256")
+    .update(phraseOccurrenceContextMeaningPromptHashInput(source))
+    .digest("hex");
+  const job = {
+    ...occurrenceJob(inputHash),
+    attempts: 4,
+    inputVersion: `phrase_occurrence_embedding_input_v2:${PHRASE_OCCURRENCE_CONTEXT_MEANING_REPRESENTATION_VERSION}:${inputHash}`,
+    payload: { representationVersion: PHRASE_OCCURRENCE_CONTEXT_MEANING_REPRESENTATION_VERSION },
+  };
+  let persistedRetryAt: Date | null | undefined;
+  let event: CreateSystemEventLogInput | null = null;
+  const repository = {
+    async claimNextPhraseOccurrenceEmbeddingJob() { return job; },
+    async loadPhraseOccurrenceEmbeddingSource() { return source; },
+    async rescheduleOrFail(_job: unknown, _message: string, value: Date | null) { persistedRetryAt = value; return true; },
+  } as unknown as CardEnrichmentRepository;
+  const logs = {
+    async create(input: CreateSystemEventLogInput) { event = input; return {} as never; },
+  } as SystemEventLogRepository;
+  const upstreamError = Object.assign(new Error("UPSTREAM_AI_ERROR"), {
+    code: "UPSTREAM_AI_ERROR",
+    upstreamCode: "AI_PROVIDER_TIMEOUT",
+    failureKind: "timeout",
+  });
+  const failingProvider: AIProvider = {
+    ...aiProvider,
+    async generateChatTextStream() { throw upstreamError; },
+  };
+
+  await new PhraseOccurrenceEmbeddingWorkerService(
+    repository,
+    provider,
+    logs,
+    {},
+    undefined,
+    failingProvider,
+  ).claimAndProcess("worker-1");
+
+  assert.equal(persistedRetryAt, null);
+  assert.ok(event);
+  assert.equal(event.event, "phrase.occurrence_embedding.failed");
+  assert.equal(event.level, "error");
+  assert.equal(event.status, "failed");
+  const metadata = event.metadata as Record<string, unknown>;
+  assert.equal(metadata.nextAttemptAt, null);
+  assert.equal(metadata.upstreamCode, "AI_PROVIDER_TIMEOUT");
+  assert.equal(metadata.failureKind, "timeout");
+  assert.equal(metadata.retryableUpstream, true);
 });

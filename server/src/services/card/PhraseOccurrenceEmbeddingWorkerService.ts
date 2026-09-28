@@ -16,7 +16,7 @@ import type { AIProvider } from "@lf/core/ports/ai/AIProvider.js";
 import type { CardEnrichmentRepository } from "@lf/core/ports/repository/CardEnrichmentRepository.js";
 import type { SystemEventLogRepository } from "@lf/core/ports/repository/SystemEventLogRepository.js";
 import type { ResourceGovernor } from "../resource/ResourceGovernor.js";
-import { resolveEnrichmentRetry, safeEnrichmentErrorMessage } from "./EnrichmentJobRetry.js";
+import { resolveEnrichmentRetry, safeEnrichmentErrorMessage, safeEnrichmentErrorMetadata } from "./EnrichmentJobRetry.js";
 import {
   isPhraseOccurrenceSenseJob,
   phraseOccurrenceRepresentationHashInput,
@@ -51,6 +51,7 @@ export class PhraseOccurrenceEmbeddingWorkerService {
       new Date(Date.now() + (this.options.leaseMs ?? 60_000)),
     );
     if (!job) return false;
+    const startedAt = Date.now();
     try {
       const source = await this.repository.loadPhraseOccurrenceEmbeddingSource(job);
       if (!source) {
@@ -135,18 +136,24 @@ export class PhraseOccurrenceEmbeddingWorkerService {
     } catch (error) {
       const retry = resolveEnrichmentRetry(error, job.attempts, this.options.maxAttempts ?? 3);
       await this.repository.rescheduleOrFail(job, safeEnrichmentErrorMessage(error), retry.retryAt, { preserveAttempt: retry.preserveAttempt });
-      if (!retry.retryAt) {
-        await this.systemEventLogRepository?.create({
-          userId: job.userId,
-          module: "card",
-          event: "phrase.occurrence_embedding.failed",
-          level: "error",
-          status: "failed",
-          errorCode: typeof error === "object" && error !== null && "code" in error ? String(error.code) : "PHRASE_OCCURRENCE_EMBEDDING_FAILED",
-          errorMessage: (error instanceof Error ? error.message : String(error ?? "unknown")).slice(0, 500),
-          metadata: { occurrenceId: job.sourceId, modelVersion: this.embeddingProvider.modelVersion },
-        }).catch(() => undefined);
-      }
+      await this.systemEventLogRepository?.create({
+        requestId: `phrase_occurrence_embedding_${job.id}`,
+        userId: job.userId,
+        module: "card",
+        event: retry.retryAt ? "phrase.occurrence_embedding.retry" : "phrase.occurrence_embedding.failed",
+        level: retry.retryAt ? "warn" : "error",
+        status: retry.retryAt ? "ignored" : "failed",
+        errorCode: typeof error === "object" && error !== null && "code" in error ? String(error.code) : "PHRASE_OCCURRENCE_EMBEDDING_FAILED",
+        errorMessage: safeEnrichmentErrorMessage(error),
+        metadata: {
+          occurrenceId: job.sourceId,
+          modelVersion: this.embeddingProvider.modelVersion,
+          attempts: job.attempts,
+          durationMs: Date.now() - startedAt,
+          nextAttemptAt: retry.retryAt?.toISOString() ?? null,
+          ...safeEnrichmentErrorMetadata(error),
+        },
+      }).catch(() => undefined);
     }
     return true;
   }

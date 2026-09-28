@@ -2,7 +2,7 @@
 set -euo pipefail
 
 usage() {
-  echo "Usage: $0 --status | --target-sense-backfill <email> --confirm-production | --enable-target-sense-canary <email> --confirm-production | --enable-target-context-v2-canary <email> --confirm-production | --enable-target-sense-relations <email> --confirm-production | --broad-context-v2-backfill --confirm-production | --broad-backfill --confirm-production | --enable-all-relations --confirm-production | --stop-backfill --confirm-production | --disable --confirm-production" >&2
+  echo "Usage: $0 --status | --target-sense-backfill <email> --confirm-production | --enable-target-sense-canary <email> --confirm-production | --enable-target-context-v2-canary <email> --confirm-production | --enable-target-sense-relations <email> --confirm-production | --broad-context-v2-backfill --confirm-production | --throttle-all-low --confirm-production | --broad-backfill --confirm-production | --enable-all-relations --confirm-production | --stop-backfill --confirm-production | --disable --confirm-production" >&2
   exit 2
 }
 
@@ -43,6 +43,9 @@ console.log(`context_representation=${relationRepresentation}`);
 console.log(`backfill_enabled=${String(process.env.CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_ENABLED || "false").toLowerCase() === "true"}`);
 console.log(`backfill_scope=${targetUserId ? "target_user" : "all_users"}`);
 console.log(`backfill_representation=${backfillRepresentation}`);
+console.log(`backfill_batch=${process.env.CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_BATCH_SIZE || "5"}`);
+console.log(`backfill_max_outstanding=${process.env.CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_MAX_OUTSTANDING || "10"}`);
+console.log(`backfill_scan_interval_ms=${process.env.CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_SCAN_INTERVAL_MS || "60000"}`);
 console.log(`eligible=${total}`);
 console.log(`embedded=${done}`);
 console.log(`skipped=${Math.max(0, handledCount - done)}`);
@@ -68,7 +71,7 @@ case "$action" in
     target_email="$2"
     mode="${action#--}"
     ;;
-  --broad-context-v2-backfill|--broad-backfill|--enable-all-relations|--stop-backfill|--disable)
+  --broad-context-v2-backfill|--throttle-all-low|--broad-backfill|--enable-all-relations|--stop-backfill|--disable)
     [[ $# -eq 2 && "${2:-}" == "--confirm-production" ]] || usage
     target_email=""
     mode="${action#--}"
@@ -176,6 +179,10 @@ if (mode === "target-sense-backfill") {
   updates.set("CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_BATCH_SIZE", "5");
   updates.set("CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_MAX_OUTSTANDING", "10");
   updates.set("CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_SCAN_INTERVAL_MS", "60000");
+} else if (mode === "throttle-all-low") {
+  updates.set("CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_BATCH_SIZE", "2");
+  updates.set("CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_MAX_OUTSTANDING", "4");
+  updates.set("CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_SCAN_INTERVAL_MS", "60000");
 } else if (mode === "broad-backfill") {
   updates.set("CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_ENABLED", "true");
   updates.set("CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_USER_ID", "");
@@ -198,9 +205,11 @@ if (mode === "enable-target-sense-canary" || mode === "enable-target-context-v2-
   updates.set("RELATED_PHRASE_SENSE_MIN_SIMILARITY", "0.45");
   updates.set("RELATED_PHRASE_SENSE_WEIGHT", "0.70");
 }
-updates.set("CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_BATCH_SIZE", "5");
-updates.set("CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_MAX_OUTSTANDING", "10");
-updates.set("CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_SCAN_INTERVAL_MS", "60000");
+if (mode !== "throttle-all-low") {
+  updates.set("CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_BATCH_SIZE", "5");
+  updates.set("CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_MAX_OUTSTANDING", "10");
+  updates.set("CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_SCAN_INTERVAL_MS", "60000");
+}
 const path = ".env";
 const original = fs.readFileSync(path, "utf8");
 const kept = original.split(/\r?\n/u).filter((line) => {
@@ -214,7 +223,7 @@ fs.writeFileSync(temp, next, { mode: fs.statSync(path).mode });
 fs.renameSync(temp, path);
 NODE
 
-if [[ "$mode" == "broad-backfill" || "$mode" == "target-sense-backfill" ]]; then
+if [[ "$mode" == "broad-backfill" || "$mode" == "target-sense-backfill" || "$mode" == "throttle-all-low" || "$mode" == "stop-backfill" ]]; then
   pm2 restart ecosystem.production.config.cjs --only oio-worker-production --update-env >/dev/null
 else
   pm2 restart ecosystem.production.config.cjs --only oio-api-production,oio-worker-production --update-env >/dev/null
