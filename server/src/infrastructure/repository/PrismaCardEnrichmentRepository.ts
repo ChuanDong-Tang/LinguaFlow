@@ -728,20 +728,23 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
   ): Promise<CardEnrichmentJobEntity | null> {
     return this.prisma.$transaction(async (tx) => {
       const inputVersionClause = inputVersion ? `AND "inputVersion" = $2` : "";
+      const nowParameter = inputVersion ? "$3" : "$2";
+      const now = new Date();
       const rows = await tx.$queryRawUnsafe<Array<{ id: string }>>(
         `SELECT "id"
            FROM "card_enrichment_jobs"
           WHERE "jobType" = $1
             ${inputVersionClause}
             AND (
-              ("status" = 'queued' AND "availableAt" <= CURRENT_TIMESTAMP)
-              OR ("status" = 'processing' AND "leaseExpiresAt" < CURRENT_TIMESTAMP)
+              ("status" = 'queued' AND "availableAt" <= ${nowParameter})
+              OR ("status" = 'processing' AND "leaseExpiresAt" < ${nowParameter})
             )
           ORDER BY "priority" DESC, "availableAt" ASC, "createdAt" ASC
           FOR UPDATE SKIP LOCKED
           LIMIT 1`,
         jobType,
         ...(inputVersion ? [inputVersion] : []),
+        now,
       );
       const id = rows[0]?.id;
       if (!id) return null;
