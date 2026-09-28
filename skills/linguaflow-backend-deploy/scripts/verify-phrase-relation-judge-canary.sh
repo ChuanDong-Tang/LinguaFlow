@@ -26,11 +26,67 @@ const users = await prisma.user.findMany({ where: { email: process.env.TARGET_EM
 if (users.length !== 1) throw new Error(`TARGET_USER_CARDINALITY_${users.length}`);
 const userId = users[0].id;
 const anchorFilter = String(process.env.TARGET_ANCHOR || "").trim() || null;
-const promptVersion = "phrase_relation_judge_v2";
+const promptVersion = "phrase_relation_judge_v3";
+const latestJob = await prisma.cardEnrichmentJob.findFirst({
+  where: { userId, jobType: "judge_phrase_relation", inputVersion: { startsWith: `${promptVersion}:` } },
+  orderBy: { createdAt: "desc" },
+  select: { payload: true },
+});
+const currentModelVersion = latestJob?.payload && typeof latestJob.payload === "object"
+  ? String(latestJob.payload.modelVersion || "")
+  : "";
+if (!currentModelVersion) throw new Error("V3_MODEL_VERSION_MISSING");
 const counts = await prisma.phraseOccurrenceRelationDecision.groupBy({
   by: ["status"], where: { userId, promptVersion }, _count: { _all: true },
 });
-console.log(JSON.stringify({ type: "counts", values: Object.fromEntries(counts.map((row) => [row.status, row._count._all])) }));
+console.log(JSON.stringify({ type: "counts", modelVersion: currentModelVersion, values: Object.fromEntries(counts.map((row) => [row.status, row._count._all])) }));
+const recallCoverage = await prisma.$queryRaw`
+  WITH anchor_scores AS (
+    SELECT anchor."id" AS "anchorId",
+           MAX(1 - (candidate_embedding."embedding" <=> anchor_embedding."embedding"))::double precision AS "maxScore"
+      FROM "phrase_occurrences" anchor
+      JOIN "phrases" anchor_phrase ON anchor_phrase."id" = anchor."phraseId" AND anchor_phrase."userId" = anchor."userId" AND anchor_phrase."status" = ${"normalized"}
+      JOIN "phrase_embeddings" anchor_embedding ON anchor_embedding."phraseId" = anchor."phraseId" AND anchor_embedding."userId" = anchor."userId" AND anchor_embedding."modelVersion" = ${currentModelVersion}
+      JOIN "phrase_embeddings" candidate_embedding ON candidate_embedding."userId" = anchor."userId" AND candidate_embedding."modelVersion" = anchor_embedding."modelVersion" AND candidate_embedding."phraseId" <> anchor."phraseId"
+      JOIN "phrases" candidate_phrase ON candidate_phrase."id" = candidate_embedding."phraseId" AND candidate_phrase."userId" = anchor."userId" AND candidate_phrase."languageCode" = anchor_phrase."languageCode" AND candidate_phrase."status" = ${"normalized"}
+      JOIN "phrase_occurrences" candidate ON candidate."phraseId" = candidate_phrase."id" AND candidate."userId" = anchor."userId" AND candidate."sourceField" = ${"ai_expression"} AND candidate."cardId" <> anchor."cardId"
+      JOIN LATERAL (SELECT segment."id" FROM "card_rewrite_segments" segment WHERE segment."entryId" = candidate."cardId" AND (segment."id" = candidate."segmentId" OR position(lower(candidate."surfaceText") in lower(segment."text")) > 0) ORDER BY (segment."id" = candidate."segmentId") DESC, segment."ordinal" ASC LIMIT 1) candidate_segment ON TRUE
+      JOIN "cards" candidate_card ON candidate_card."id" = candidate."cardId" AND candidate_card."userId" = anchor."userId" AND candidate_card."status" = ${"completed"} AND candidate_card."deletedAt" IS NULL
+     WHERE anchor."userId" = ${userId} AND anchor."sourceField" = ${"ai_expression"} AND anchor."clozeBlankId" IS NOT NULL
+     GROUP BY anchor."id"
+  )
+  SELECT COUNT(*)::int AS "withHistory",
+         COUNT(*) FILTER (WHERE "maxScore" >= 0.72)::int AS "at072",
+         COUNT(*) FILTER (WHERE "maxScore" >= 0.65)::int AS "at065",
+         COUNT(*) FILTER (WHERE "maxScore" >= 0.60)::int AS "at060",
+         COUNT(*) FILTER (WHERE "maxScore" >= 0.55)::int AS "at055",
+         percentile_cont(0.5) WITHIN GROUP (ORDER BY "maxScore")::double precision AS "medianMaxScore",
+         percentile_cont(0.9) WITHIN GROUP (ORDER BY "maxScore")::double precision AS "p90MaxScore"
+    FROM anchor_scores`;
+console.log(JSON.stringify({ type: "recall_coverage", ...recallCoverage[0] }));
+const recallSamples = await prisma.$queryRaw`
+  WITH scored AS (
+    SELECT anchor."surfaceText" AS "anchorSurface", anchor_segment."text" AS "anchorSentence",
+           candidate."surfaceText" AS "candidateSurface", candidate_segment."text" AS "candidateSentence",
+           (1 - (candidate_embedding."embedding" <=> anchor_embedding."embedding"))::double precision AS "recallScore",
+           ROW_NUMBER() OVER (PARTITION BY anchor."id" ORDER BY (1 - (candidate_embedding."embedding" <=> anchor_embedding."embedding")) DESC, candidate."id" DESC) AS "anchorRank"
+      FROM "phrase_occurrences" anchor
+      JOIN "phrases" anchor_phrase ON anchor_phrase."id" = anchor."phraseId" AND anchor_phrase."userId" = anchor."userId" AND anchor_phrase."status" = ${"normalized"}
+      JOIN "phrase_embeddings" anchor_embedding ON anchor_embedding."phraseId" = anchor."phraseId" AND anchor_embedding."userId" = anchor."userId" AND anchor_embedding."modelVersion" = ${currentModelVersion}
+      JOIN LATERAL (SELECT segment."text" FROM "card_rewrite_segments" segment WHERE segment."entryId" = anchor."cardId" AND (segment."id" = anchor."segmentId" OR position(lower(anchor."surfaceText") in lower(segment."text")) > 0) ORDER BY (segment."id" = anchor."segmentId") DESC, segment."ordinal" ASC LIMIT 1) anchor_segment ON TRUE
+      JOIN "phrase_embeddings" candidate_embedding ON candidate_embedding."userId" = anchor."userId" AND candidate_embedding."modelVersion" = anchor_embedding."modelVersion" AND candidate_embedding."phraseId" <> anchor."phraseId"
+      JOIN "phrases" candidate_phrase ON candidate_phrase."id" = candidate_embedding."phraseId" AND candidate_phrase."userId" = anchor."userId" AND candidate_phrase."languageCode" = anchor_phrase."languageCode" AND candidate_phrase."status" = ${"normalized"}
+      JOIN "phrase_occurrences" candidate ON candidate."phraseId" = candidate_phrase."id" AND candidate."userId" = anchor."userId" AND candidate."sourceField" = ${"ai_expression"} AND candidate."cardId" <> anchor."cardId"
+      JOIN LATERAL (SELECT segment."text" FROM "card_rewrite_segments" segment WHERE segment."entryId" = candidate."cardId" AND (segment."id" = candidate."segmentId" OR position(lower(candidate."surfaceText") in lower(segment."text")) > 0) ORDER BY (segment."id" = candidate."segmentId") DESC, segment."ordinal" ASC LIMIT 1) candidate_segment ON TRUE
+      JOIN "cards" candidate_card ON candidate_card."id" = candidate."cardId" AND candidate_card."userId" = anchor."userId" AND candidate_card."status" = ${"completed"} AND candidate_card."deletedAt" IS NULL
+     WHERE anchor."userId" = ${userId} AND anchor."sourceField" = ${"ai_expression"} AND anchor."clozeBlankId" IS NOT NULL
+       AND (1 - (candidate_embedding."embedding" <=> anchor_embedding."embedding")) >= 0.72
+  )
+  SELECT "anchorSurface", "anchorSentence", "candidateSurface", "candidateSentence", "recallScore"
+    FROM scored WHERE "anchorRank" = 1
+   ORDER BY "recallScore" DESC
+   LIMIT 30`;
+for (const row of recallSamples) console.log(JSON.stringify({ type: "recall_sample", ...row }));
 const selected = await prisma.$queryRaw`
   SELECT anchor."surfaceText" AS "anchorSurface", anchor_segment."text" AS "anchorSentence",
          candidate."surfaceText" AS "candidateSurface", candidate_segment."text" AS "candidateSentence",
@@ -48,16 +104,13 @@ for (const row of selected) console.log(JSON.stringify({ type: "selected", ...ro
 const rejected = await prisma.$queryRaw`
   SELECT anchor."surfaceText" AS "anchorSurface", anchor_segment."text" AS "anchorSentence",
          candidate."surfaceText" AS "candidateSurface", candidate_segment."text" AS "candidateSentence",
-         ((1 - (candidate_phrase_embedding."embedding" <=> anchor_phrase_embedding."embedding")) * 0.30
-           + (1 - (candidate_context_embedding."embedding" <=> anchor_context_embedding."embedding")) * 0.70)::double precision AS "recallScore"
+         (1 - (candidate_phrase_embedding."embedding" <=> anchor_phrase_embedding."embedding"))::double precision AS "recallScore"
     FROM "phrase_occurrence_relation_decisions" decision
     JOIN "phrase_occurrences" anchor ON anchor."id" = decision."anchorOccurrenceId"
     JOIN LATERAL jsonb_array_elements_text(decision."candidateOccurrenceIds") AS candidate_ids("occurrenceId") ON TRUE
     JOIN "phrase_occurrences" candidate ON candidate."id" = candidate_ids."occurrenceId"
-    JOIN "phrase_occurrence_embeddings" anchor_context_embedding ON anchor_context_embedding."occurrenceId" = anchor."id" AND anchor_context_embedding."representationVersion" = ${"usage_meaning_v2"}
-    JOIN "phrase_occurrence_embeddings" candidate_context_embedding ON candidate_context_embedding."occurrenceId" = candidate."id" AND candidate_context_embedding."modelVersion" = anchor_context_embedding."modelVersion" AND candidate_context_embedding."representationVersion" = anchor_context_embedding."representationVersion"
-    JOIN "phrase_embeddings" anchor_phrase_embedding ON anchor_phrase_embedding."phraseId" = anchor."phraseId" AND anchor_phrase_embedding."modelVersion" = anchor_context_embedding."modelVersion"
-    JOIN "phrase_embeddings" candidate_phrase_embedding ON candidate_phrase_embedding."phraseId" = candidate."phraseId" AND candidate_phrase_embedding."modelVersion" = anchor_context_embedding."modelVersion"
+    JOIN "phrase_embeddings" anchor_phrase_embedding ON anchor_phrase_embedding."phraseId" = anchor."phraseId" AND anchor_phrase_embedding."userId" = anchor."userId"
+    JOIN "phrase_embeddings" candidate_phrase_embedding ON candidate_phrase_embedding."phraseId" = candidate."phraseId" AND candidate_phrase_embedding."userId" = candidate."userId" AND candidate_phrase_embedding."modelVersion" = anchor_phrase_embedding."modelVersion"
     JOIN LATERAL (SELECT segment."text" FROM "card_rewrite_segments" segment WHERE segment."entryId" = anchor."cardId" AND (segment."id" = anchor."segmentId" OR position(lower(anchor."surfaceText") in lower(segment."text")) > 0) ORDER BY (segment."id" = anchor."segmentId") DESC, segment."ordinal" ASC LIMIT 1) anchor_segment ON TRUE
     JOIN LATERAL (SELECT segment."text" FROM "card_rewrite_segments" segment WHERE segment."entryId" = candidate."cardId" AND (segment."id" = candidate."segmentId" OR position(lower(candidate."surfaceText") in lower(segment."text")) > 0) ORDER BY (segment."id" = candidate."segmentId") DESC, segment."ordinal" ASC LIMIT 1) candidate_segment ON TRUE
    WHERE decision."userId" = ${userId} AND decision."promptVersion" = ${promptVersion} AND decision."status" = ${"none"}

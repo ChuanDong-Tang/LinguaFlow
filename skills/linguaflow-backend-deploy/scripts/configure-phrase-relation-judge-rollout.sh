@@ -15,12 +15,27 @@ if [[ "$action" == "--status" ]]; then
 import { PrismaClient } from "@prisma/client";
 const prisma = new PrismaClient();
 const targetUserId = String(process.env.CARD_PHRASE_RELATION_JUDGE_BACKFILL_USER_ID || process.env.RELATED_PHRASE_JUDGE_USER_ID || "").trim() || null;
-const promptVersion = "phrase_relation_judge_v2";
-const [eligible, decisions, jobs, failures] = await Promise.all([
-  prisma.$queryRaw`SELECT COUNT(*)::int AS count FROM "phrase_occurrences" occurrence JOIN "phrase_occurrence_embeddings" embedding ON embedding."occurrenceId" = occurrence."id" AND embedding."representationVersion" = ${"usage_meaning_v2"} WHERE (${targetUserId}::text IS NULL OR occurrence."userId" = ${targetUserId}) AND occurrence."sourceField" = ${"ai_expression"} AND occurrence."clozeBlankId" IS NOT NULL`,
+const promptVersion = "phrase_relation_judge_v3";
+const [eligible, decisions, jobs, failures, outstanding, recentErrors, latestUpstreamError] = await Promise.all([
+  prisma.$queryRaw`SELECT COUNT(*)::int AS count FROM "phrase_occurrences" occurrence JOIN "phrase_embeddings" embedding ON embedding."phraseId" = occurrence."phraseId" AND embedding."userId" = occurrence."userId" WHERE (${targetUserId}::text IS NULL OR occurrence."userId" = ${targetUserId}) AND occurrence."sourceField" = ${"ai_expression"} AND occurrence."clozeBlankId" IS NOT NULL`,
   prisma.phraseOccurrenceRelationDecision.groupBy({ by: ["status"], where: { ...(targetUserId ? { userId: targetUserId } : {}), promptVersion }, _count: { _all: true } }),
   prisma.cardEnrichmentJob.groupBy({ by: ["status"], where: { ...(targetUserId ? { userId: targetUserId } : {}), jobType: "judge_phrase_relation", inputVersion: { startsWith: `${promptVersion}:` } }, _count: { _all: true } }),
   prisma.cardEnrichmentJob.groupBy({ by: ["lastError"], where: { ...(targetUserId ? { userId: targetUserId } : {}), jobType: "judge_phrase_relation", status: "failed", inputVersion: { startsWith: `${promptVersion}:` } }, _count: { _all: true } }),
+  prisma.cardEnrichmentJob.aggregate({
+    where: { ...(targetUserId ? { userId: targetUserId } : {}), jobType: "judge_phrase_relation", status: { in: ["queued", "processing"] }, inputVersion: { startsWith: `${promptVersion}:` } },
+    _min: { availableAt: true, attempts: true, processingAt: true, leaseExpiresAt: true },
+    _max: { availableAt: true, attempts: true, processingAt: true, leaseExpiresAt: true },
+  }),
+  prisma.systemEventLog.groupBy({
+    by: ["event", "errorCode"],
+    where: { module: "card", event: { in: ["phrase.relation_judge.retry", "phrase.relation_judge.failed"] }, createdAt: { gte: new Date(Date.now() - 15 * 60_000) } },
+    _count: { _all: true },
+  }),
+  prisma.systemEventLog.findFirst({
+    where: { module: "card", event: "phrase.relation_judge.retry", errorCode: "UPSTREAM_AI_ERROR" },
+    orderBy: { createdAt: "desc" },
+    select: { createdAt: true, metadata: true },
+  }),
 ]);
 const eligibleCount = Number(eligible[0]?.count || 0);
 const decidedCount = decisions.reduce((sum, row) => sum + row._count._all, 0);
@@ -36,9 +51,23 @@ for (const row of decisions) console.log(`decisions_${row.status}=${row._count._
 console.log(`decisions_total=${decidedCount}`);
 console.log(`missing=${Math.max(0, eligibleCount - decidedCount)}`);
 for (const row of jobs) console.log(`jobs_${row.status}=${row._count._all}`);
+console.log(`outstanding_min_available_at=${outstanding._min.availableAt?.toISOString() ?? "none"}`);
+console.log(`outstanding_max_available_at=${outstanding._max.availableAt?.toISOString() ?? "none"}`);
+console.log(`outstanding_attempts_min=${outstanding._min.attempts ?? 0}`);
+console.log(`outstanding_attempts_max=${outstanding._max.attempts ?? 0}`);
+console.log(`outstanding_min_lease_expires_at=${outstanding._min.leaseExpiresAt?.toISOString() ?? "none"}`);
+console.log(`outstanding_max_lease_expires_at=${outstanding._max.leaseExpiresAt?.toISOString() ?? "none"}`);
 for (const row of failures) {
   const code = String(row.lastError || "UNKNOWN").match(/[A-Z][A-Z0-9_]{3,}/u)?.[0] || "UNKNOWN";
   console.log(`failed_${code}=${row._count._all}`);
+}
+for (const row of recentErrors) console.log(`recent_15m_${row.event}_${row.errorCode ?? "none"}=${row._count._all}`);
+if (latestUpstreamError) {
+  const metadata = latestUpstreamError.metadata && typeof latestUpstreamError.metadata === "object" ? latestUpstreamError.metadata : {};
+  console.log(`latest_upstream_error_at=${latestUpstreamError.createdAt.toISOString()}`);
+  for (const key of ["upstreamStatus", "upstreamCode", "failureKind", "retryAfterMs", "retryableUpstream"]) {
+    if (metadata[key] !== undefined && metadata[key] !== null) console.log(`latest_upstream_${key}=${metadata[key]}`);
+  }
 }
 await prisma.$disconnect();
 NODE
