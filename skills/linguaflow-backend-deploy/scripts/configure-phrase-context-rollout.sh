@@ -2,7 +2,7 @@
 set -euo pipefail
 
 usage() {
-  echo "Usage: $0 --status | --target-sense-backfill <email> --confirm-production | --enable-target-sense-canary <email> --confirm-production | --enable-target-context-v2-canary <email> --confirm-production | --enable-target-sense-relations <email> --confirm-production | --broad-backfill --confirm-production | --enable-all-relations --confirm-production | --stop-backfill --confirm-production | --disable --confirm-production" >&2
+  echo "Usage: $0 --status | --target-sense-backfill <email> --confirm-production | --enable-target-sense-canary <email> --confirm-production | --enable-target-context-v2-canary <email> --confirm-production | --enable-target-sense-relations <email> --confirm-production | --broad-context-v2-backfill --confirm-production | --broad-backfill --confirm-production | --enable-all-relations --confirm-production | --stop-backfill --confirm-production | --disable --confirm-production" >&2
   exit 2
 }
 
@@ -68,7 +68,7 @@ case "$action" in
     target_email="$2"
     mode="${action#--}"
     ;;
-  --broad-backfill|--enable-all-relations|--stop-backfill|--disable)
+  --broad-context-v2-backfill|--broad-backfill|--enable-all-relations|--stop-backfill|--disable)
     [[ $# -eq 2 && "${2:-}" == "--confirm-production" ]] || usage
     target_email=""
     mode="${action#--}"
@@ -166,6 +166,16 @@ if (mode === "target-sense-backfill") {
   updates.set("CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_ENABLED", "true");
   updates.set("CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_USER_ID", targetUserId);
   updates.set("CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_REPRESENTATION_VERSION", "usage_meaning_v2");
+} else if (mode === "broad-context-v2-backfill") {
+  updates.set("RELATED_PHRASE_CONTEXT_ENABLED", "true");
+  updates.set("RELATED_PHRASE_CONTEXT_USER_ID", "");
+  updates.set("RELATED_PHRASE_CONTEXT_REPRESENTATION_VERSION", "usage_meaning_v2");
+  updates.set("CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_ENABLED", "true");
+  updates.set("CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_USER_ID", "");
+  updates.set("CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_REPRESENTATION_VERSION", "usage_meaning_v2");
+  updates.set("CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_BATCH_SIZE", "5");
+  updates.set("CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_MAX_OUTSTANDING", "10");
+  updates.set("CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_SCAN_INTERVAL_MS", "60000");
 } else if (mode === "broad-backfill") {
   updates.set("CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_ENABLED", "true");
   updates.set("CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_USER_ID", "");

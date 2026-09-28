@@ -2,7 +2,7 @@
 set -euo pipefail
 
 usage() {
-  echo "Usage: $0 --status | --enable-target-high <email> --confirm-production | --stop-backfill --confirm-production | --disable --confirm-production" >&2
+  echo "Usage: $0 --status | --enable-target-high <email> --confirm-production | --enable-all-slow --confirm-production | --stop-backfill --confirm-production | --disable --confirm-production" >&2
   exit 2
 }
 
@@ -16,18 +16,18 @@ import { PrismaClient } from "@prisma/client";
 const prisma = new PrismaClient();
 const targetUserId = String(process.env.CARD_PHRASE_RELATION_JUDGE_BACKFILL_USER_ID || process.env.RELATED_PHRASE_JUDGE_USER_ID || "").trim() || null;
 const promptVersion = "phrase_relation_judge_v2";
-const [eligible, decisions, jobs, failures] = targetUserId ? await Promise.all([
-  prisma.$queryRaw`SELECT COUNT(*)::int AS count FROM "phrase_occurrences" occurrence JOIN "phrase_occurrence_embeddings" embedding ON embedding."occurrenceId" = occurrence."id" AND embedding."representationVersion" = ${"usage_meaning_v2"} WHERE occurrence."userId" = ${targetUserId} AND occurrence."sourceField" = ${"ai_expression"} AND occurrence."clozeBlankId" IS NOT NULL`,
-  prisma.phraseOccurrenceRelationDecision.groupBy({ by: ["status"], where: { userId: targetUserId, promptVersion }, _count: { _all: true } }),
-  prisma.cardEnrichmentJob.groupBy({ by: ["status"], where: { userId: targetUserId, jobType: "judge_phrase_relation", inputVersion: { startsWith: `${promptVersion}:` } }, _count: { _all: true } }),
-  prisma.cardEnrichmentJob.groupBy({ by: ["lastError"], where: { userId: targetUserId, jobType: "judge_phrase_relation", status: "failed", inputVersion: { startsWith: `${promptVersion}:` } }, _count: { _all: true } }),
-]) : [[{ count: 0 }], [], [], []];
+const [eligible, decisions, jobs, failures] = await Promise.all([
+  prisma.$queryRaw`SELECT COUNT(*)::int AS count FROM "phrase_occurrences" occurrence JOIN "phrase_occurrence_embeddings" embedding ON embedding."occurrenceId" = occurrence."id" AND embedding."representationVersion" = ${"usage_meaning_v2"} WHERE (${targetUserId}::text IS NULL OR occurrence."userId" = ${targetUserId}) AND occurrence."sourceField" = ${"ai_expression"} AND occurrence."clozeBlankId" IS NOT NULL`,
+  prisma.phraseOccurrenceRelationDecision.groupBy({ by: ["status"], where: { ...(targetUserId ? { userId: targetUserId } : {}), promptVersion }, _count: { _all: true } }),
+  prisma.cardEnrichmentJob.groupBy({ by: ["status"], where: { ...(targetUserId ? { userId: targetUserId } : {}), jobType: "judge_phrase_relation", inputVersion: { startsWith: `${promptVersion}:` } }, _count: { _all: true } }),
+  prisma.cardEnrichmentJob.groupBy({ by: ["lastError"], where: { ...(targetUserId ? { userId: targetUserId } : {}), jobType: "judge_phrase_relation", status: "failed", inputVersion: { startsWith: `${promptVersion}:` } }, _count: { _all: true } }),
+]);
 const eligibleCount = Number(eligible[0]?.count || 0);
 const decidedCount = decisions.reduce((sum, row) => sum + row._count._all, 0);
 console.log(`judge_api_enabled=${String(process.env.RELATED_PHRASE_JUDGE_ENABLED || "false").toLowerCase() === "true"}`);
-console.log(`judge_scope=${String(process.env.RELATED_PHRASE_JUDGE_USER_ID || "").trim() ? "target_user" : "none"}`);
+console.log(`judge_scope=${String(process.env.RELATED_PHRASE_JUDGE_ENABLED || "false").toLowerCase() !== "true" ? "disabled" : String(process.env.RELATED_PHRASE_JUDGE_USER_ID || "").trim() ? "target_user" : "all_users"}`);
 console.log(`judge_backfill_enabled=${String(process.env.CARD_PHRASE_RELATION_JUDGE_BACKFILL_ENABLED || "false").toLowerCase() === "true"}`);
-console.log(`judge_backfill_scope=${targetUserId ? "target_user" : "none"}`);
+console.log(`judge_backfill_scope=${targetUserId ? "target_user" : "all_users"}`);
 console.log(`judge_batch=${process.env.CARD_PHRASE_RELATION_JUDGE_BACKFILL_BATCH_SIZE || "5"}`);
 console.log(`judge_max_outstanding=${process.env.CARD_PHRASE_RELATION_JUDGE_BACKFILL_MAX_OUTSTANDING || "10"}`);
 console.log(`eligible=${eligibleCount}`);
@@ -52,7 +52,7 @@ case "$action" in
     mode="enable-target-high"
     target_email="$2"
     ;;
-  --stop-backfill|--disable)
+  --enable-all-slow|--stop-backfill|--disable)
     [[ $# -eq 2 && "${2:-}" == "--confirm-production" ]] || usage
     mode="${action#--}"
     target_email=""
@@ -94,6 +94,15 @@ if (mode === "enable-target-high") {
   updates.set("CARD_PHRASE_RELATION_JUDGE_BACKFILL_BATCH_SIZE", "20");
   updates.set("CARD_PHRASE_RELATION_JUDGE_BACKFILL_MAX_OUTSTANDING", "40");
   updates.set("CARD_PHRASE_RELATION_JUDGE_BACKFILL_SCAN_INTERVAL_MS", "15000");
+} else if (mode === "enable-all-slow") {
+  updates.set("RELATED_PHRASE_JUDGE_ENABLED", "true");
+  updates.set("RELATED_PHRASE_JUDGE_USER_ID", "");
+  updates.set("RELATED_PHRASE_CONTEXT_REPRESENTATION_VERSION", "usage_meaning_v2");
+  updates.set("CARD_PHRASE_RELATION_JUDGE_BACKFILL_ENABLED", "true");
+  updates.set("CARD_PHRASE_RELATION_JUDGE_BACKFILL_USER_ID", "");
+  updates.set("CARD_PHRASE_RELATION_JUDGE_BACKFILL_BATCH_SIZE", "5");
+  updates.set("CARD_PHRASE_RELATION_JUDGE_BACKFILL_MAX_OUTSTANDING", "10");
+  updates.set("CARD_PHRASE_RELATION_JUDGE_BACKFILL_SCAN_INTERVAL_MS", "60000");
 } else if (mode === "stop-backfill") {
   updates.set("CARD_PHRASE_RELATION_JUDGE_BACKFILL_ENABLED", "false");
 } else if (mode === "disable") {
