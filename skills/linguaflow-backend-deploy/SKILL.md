@@ -56,6 +56,15 @@ job. Upstream 429 responses open a Redis-backed 30/60/120 minute circuit. Do
 not bypass that gate, repeatedly probe during the cooldown, or convert this
 command back into a scanner.
 
+Pause or resume only the already-queued V3 canary jobs with the bounded
+management script. `--resume` changes `availableAt` on matching queued jobs;
+it does not enqueue new work:
+
+```bash
+bash skills/linguaflow-backend-deploy/scripts/manage-phrase-relation-judge-canary.sh \
+  --resume tangchuandong1@gmail.com --confirm-production
+```
+
 Preview an exact rollout:
 
 ```bash

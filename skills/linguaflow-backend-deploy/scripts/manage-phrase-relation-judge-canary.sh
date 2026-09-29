@@ -2,7 +2,7 @@
 set -euo pipefail
 
 usage() {
-  echo "Usage: $0 --status <email> | --pause <email> --minutes <1-1440> --confirm-production | --probe-one <email> --confirm-production" >&2
+  echo "Usage: $0 --status <email> | --pause <email> --minutes <1-1440> --confirm-production | --resume <email> --confirm-production | --probe-one <email> --confirm-production" >&2
   exit 2
 }
 
@@ -20,6 +20,11 @@ case "$action" in
     [[ $# -eq 5 && "${3:-}" == "--minutes" && "${5:-}" == "--confirm-production" ]] || usage
     minutes="${4:-}"
     [[ "$minutes" =~ ^[0-9]+$ && "$minutes" -ge 1 && "$minutes" -le 1440 ]] || usage
+    confirm="true"
+    ;;
+  --resume)
+    [[ $# -eq 3 && "${3:-}" == "--confirm-production" ]] || usage
+    minutes="0"
     confirm="true"
     ;;
   --probe-one)
@@ -59,6 +64,9 @@ try {
     if (process.env.CONFIRM_PRODUCTION !== "true") throw new Error("CONFIRM_PRODUCTION_REQUIRED");
     const availableAt = new Date(Date.now() + Number(process.env.PAUSE_MINUTES) * 60_000);
     changed = (await prisma.cardEnrichmentJob.updateMany({ where, data: { availableAt } })).count;
+  } else if (process.env.ACTION === "--resume") {
+    if (process.env.CONFIRM_PRODUCTION !== "true") throw new Error("CONFIRM_PRODUCTION_REQUIRED");
+    changed = (await prisma.cardEnrichmentJob.updateMany({ where, data: { availableAt: new Date() } })).count;
   } else if (process.env.ACTION === "--probe-one") {
     if (process.env.CONFIRM_PRODUCTION !== "true") throw new Error("CONFIRM_PRODUCTION_REQUIRED");
     const jobs = await prisma.cardEnrichmentJob.findMany({ where, orderBy: [{ availableAt: "asc" }, { createdAt: "asc" }], select: { id: true } });
