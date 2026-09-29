@@ -43,6 +43,7 @@ export interface AIProviderConfig{
     apiKey: string;
     baseUrl: string;
     model: string;
+    reasoningEffort?: "none" | "low" | "medium" | "high" | "xhigh";
     timeoutMs?: number;
     allowClientModel?: boolean;
     allowedModels?: string[];

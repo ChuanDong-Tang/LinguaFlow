@@ -16,6 +16,7 @@ export class GrokAIProvider implements AIProvider {
   private readonly apiKey: string;
   private readonly baseUrl: string;
   private readonly model: string;
+  private readonly reasoningEffort: AIProviderConfig["reasoningEffort"];
   private readonly timeoutMs: number;
   private readonly allowClientModel: boolean;
   private readonly allowedModels: Set<string>;
@@ -24,6 +25,7 @@ export class GrokAIProvider implements AIProvider {
     this.apiKey = config.apiKey;
     this.baseUrl = config.baseUrl.replace(/\/+$/, "");
     this.model = config.model;
+    this.reasoningEffort = config.reasoningEffort;
     this.timeoutMs = config.timeoutMs ?? 20_000;
     this.allowClientModel = config.allowClientModel ?? false;
     this.allowedModels = new Set(config.allowedModels ?? []);
@@ -100,6 +102,7 @@ export class GrokAIProvider implements AIProvider {
         },
         body: JSON.stringify({
           model,
+          ...(this.reasoningEffort ? { reasoning_effort: this.reasoningEffort } : {}),
           ...(input.maxOutputTokens ? { max_tokens: input.maxOutputTokens } : {}),
           temperature: input.temperature ?? 1,
           top_p: 1,

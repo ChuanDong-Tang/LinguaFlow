@@ -8,6 +8,7 @@ import {
 
 export type RuntimeMode = "development" | "production" | "test";
 export type AiProviderName = "deepseek" | "openai" | "grok";
+export type AiReasoningEffort = "none" | "low" | "medium" | "high" | "xhigh";
 export type MembershipFeatureTier = "free" | "plus" | "pro";
 
 export interface PaymentRuntimeConfig {
@@ -190,6 +191,7 @@ export interface RuntimeConfig {
   grokApiKey: string;
   grokBaseUrl: string;
   grokModel: string;
+  grokReasoningEffort: AiReasoningEffort | null;
   grokAllowedModels: string[];
   grokTimeoutMs: number;
   quotaTimeZone: string;
@@ -405,10 +407,11 @@ export function getRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeC
       env.OPENAI_BASE_URL?.trim() ||
       env.ChatGPT_BASE_URL?.trim() ||
       "https://api.openai.com/v1",
-    grokModel: env.GROK_DEFAULT_MODEL?.trim() || "grok-4-1-fast-non-reasoning",
+    grokModel: env.GROK_DEFAULT_MODEL?.trim() || "grok-4.3",
+    grokReasoningEffort: readAiReasoningEffort(env.GROK_REASONING_EFFORT, "none"),
     grokAllowedModels: readCsv(
       env.GROK_ALLOWED_MODELS,
-      [env.GROK_DEFAULT_MODEL?.trim() || "grok-4-1-fast-non-reasoning"]
+      [env.GROK_DEFAULT_MODEL?.trim() || "grok-4.3"]
     ),
     grokTimeoutMs: readPositiveInt(env.GROK_TIMEOUT_MS ?? env.OPENAI_TIMEOUT_MS ?? env.ChatGPT_TIMEOUT_MS, 20_000),
     quotaTimeZone: env.LF_QUOTA_TIME_ZONE?.trim() || "Asia/Shanghai",
@@ -655,6 +658,23 @@ function readBoolean(value: string | undefined, fallback: boolean): boolean {
   const normalized = value?.trim().toLowerCase();
   if (normalized === "true") return true;
   if (normalized === "false") return false;
+  return fallback;
+}
+
+function readAiReasoningEffort(
+  value: string | undefined,
+  fallback: AiReasoningEffort | null,
+): AiReasoningEffort | null {
+  const normalized = value?.trim().toLowerCase();
+  if (
+    normalized === "none"
+    || normalized === "low"
+    || normalized === "medium"
+    || normalized === "high"
+    || normalized === "xhigh"
+  ) {
+    return normalized;
+  }
   return fallback;
 }
 

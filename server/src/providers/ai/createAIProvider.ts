@@ -26,6 +26,7 @@ export function createAIProvider(config: RuntimeConfig): AIProvider {
     apiKey: config.grokApiKey,
     baseUrl: config.grokBaseUrl,
     model: config.grokModel,
+    reasoningEffort: config.grokReasoningEffort ?? undefined,
     timeoutMs: config.grokTimeoutMs,
     allowClientModel: config.aiAllowClientModel,
     allowedModels: config.grokAllowedModels,
