@@ -11,7 +11,7 @@ import type { SystemEventLogRepository } from "@lf/core/ports/repository/SystemE
 import type { ResourceGovernor } from "../resource/ResourceGovernor.js";
 import { ResourceLimitedError } from "../resource/ResourceGovernor.js";
 import { resolveEnrichmentRetry, safeEnrichmentErrorMessage, safeEnrichmentErrorMetadata } from "./EnrichmentJobRetry.js";
-import type { HistoricalAiBackfillGate } from "./HistoricalAiBackfillGate.js";
+import { HISTORICAL_AI_RESOURCE_IDENTITY, type HistoricalAiBackfillGate } from "./HistoricalAiBackfillGate.js";
 
 export class PhraseRelationJudgeWorkerService {
   constructor(
@@ -58,7 +58,12 @@ export class PhraseRelationJudgeWorkerService {
           temperature: 0,
         }, (event) => { if (event.type === "delta") output += event.text; });
         if (this.resourceGovernor) {
-          await this.resourceGovernor.execute("llm", source.userId, generate);
+          await this.resourceGovernor.execute(
+            "llm",
+            historical ? HISTORICAL_AI_RESOURCE_IDENTITY : source.userId,
+            generate,
+            { operation: historical ? "historical_phrase_relation_judge" : "phrase_relation_judge" },
+          );
         }
         else await generate();
         selectedOccurrenceId = parsePhraseRelationJudgeOutput(output, source.candidates).selectedOccurrenceId;
@@ -72,7 +77,7 @@ export class PhraseRelationJudgeWorkerService {
       if (historical) await this.historicalGate?.recordHistoricalSuccess();
     } catch (error) {
       if (historical && error instanceof ResourceLimitedError) this.historicalGate?.deferForLocalLimit(error);
-      const circuitOpened = historical ? await this.historicalGate?.openForUpstreamRateLimit(error) : false;
+      const circuitOpened = historical ? await this.historicalGate?.recordHistoricalFailure(error) : false;
       const retry = resolveEnrichmentRetry(error, job.attempts, this.options.maxAttempts ?? 3);
       await this.repository.rescheduleOrFail(job, safeEnrichmentErrorMessage(error), retry.retryAt, { preserveAttempt: retry.preserveAttempt });
       if (!(historical && error instanceof ResourceLimitedError)) await this.logs?.create({

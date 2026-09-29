@@ -71,6 +71,7 @@ test("persists none without calling AI when retrieval found no candidates", asyn
 test("meters historical judge jobs through the dedicated backfill budget", async () => {
   const job = { ...jobFor(source), priority: -100 };
   const resources: string[] = [];
+  const identities: string[] = [];
   const repository = {
     claimNextPhraseRelationJudgeJob: async (_workerId: string, _lease: Date, lane?: string) => lane === "historical" ? job : null,
     loadPhraseRelationJudgeSource: async () => source,
@@ -83,7 +84,11 @@ test("meters historical judge jobs through the dedicated backfill budget", async
     },
   } as unknown as AIProvider;
   const governor = {
-    async execute(resource: string, _userId: string, task: () => Promise<unknown>) { resources.push(resource); return task(); },
+    async execute(resource: string, userId: string, task: () => Promise<unknown>) {
+      resources.push(resource);
+      identities.push(userId);
+      return task();
+    },
   } as unknown as ResourceGovernor;
   const gate = {
     async tryAcquire() { resources.push("llm_backfill"); return true; },
@@ -92,6 +97,7 @@ test("meters historical judge jobs through the dedicated backfill budget", async
 
   await new PhraseRelationJudgeWorkerService(repository, ai, undefined, {}, governor, gate).claimAndProcess("worker-1");
   assert.deepEqual(resources, ["llm_backfill", "llm"]);
+  assert.deepEqual(identities, ["historical-card-ai"]);
 });
 
 test("records safe upstream metadata when relation judge retries", async () => {

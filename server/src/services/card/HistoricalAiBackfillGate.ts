@@ -1,4 +1,5 @@
-import type { ResourceGovernor } from "../resource/ResourceGovernor.js";
+import { isRetryableUpstreamAIError } from "./EnrichmentJobRetry.js";
+import type { ResourceGovernor, ResourceSnapshot } from "../resource/ResourceGovernor.js";
 import { ResourceLimitedError } from "../resource/ResourceGovernor.js";
 
 type RedisLike = {
@@ -7,10 +8,25 @@ type RedisLike = {
   del(key: string): Promise<unknown>;
 };
 
-type CircuitState = { failures: number; pausedUntilMs: number };
+type CircuitReason = "foreground_unhealthy" | "upstream_failure_streak" | "upstream_rate_limit";
+type CircuitState = {
+  failures: number;
+  consecutiveFailures: number;
+  pausedUntilMs: number;
+  reason?: CircuitReason;
+};
 
 const CIRCUIT_KEY = "linguaflow:card-ai:historical-backfill-circuit:v1";
 const BACKOFF_MS = [30 * 60_000, 60 * 60_000, 120 * 60_000] as const;
+const FAILURE_STREAK_TTL_MS = 10 * 60_000;
+const FOREGROUND_PAUSE_MS = 10 * 60_000;
+const FOREGROUND_WINDOW_MINUTES = 5;
+const FOREGROUND_MIN_COMPLETIONS = 5;
+const FOREGROUND_MAX_FAILURE_RATE = 0.2;
+const FOREGROUND_MAX_AVERAGE_DURATION_MS = 15_000;
+const FOREGROUND_MAX_CONCURRENCY_RATIO = 0.8;
+
+export const HISTORICAL_AI_RESOURCE_IDENTITY = "historical-card-ai";
 
 export class HistoricalAiBackfillGate {
   private nextPermitAtMs = 0;
@@ -25,8 +41,14 @@ export class HistoricalAiBackfillGate {
   async tryAcquire(): Promise<boolean> {
     const now = this.now();
     if (now < this.nextPermitAtMs || await this.isCircuitOpen(now)) return false;
+    const snapshot = (await this.governor.snapshots(FOREGROUND_WINDOW_MINUTES))
+      .find((item) => item.resource === "llm");
+    if (snapshot && !isForegroundLlmHealthy(snapshot)) {
+      await this.pauseForForegroundHealth();
+      return false;
+    }
     try {
-      await this.governor.consumeRequest("llm_backfill", "historical-card-ai", {
+      await this.governor.consumeRequest("llm_backfill", HISTORICAL_AI_RESOURCE_IDENTITY, {
         operation: "historical_card_ai_preclaim",
       });
       return true;
@@ -41,16 +63,27 @@ export class HistoricalAiBackfillGate {
     this.nextPermitAtMs = Math.max(this.nextPermitAtMs, this.now() + Math.max(1_000, error.retryAfterMs));
   }
 
-  async openForUpstreamRateLimit(error: unknown): Promise<boolean> {
-    if (!isUpstreamRateLimit(error)) return false;
+  async recordHistoricalFailure(error: unknown): Promise<boolean> {
+    const rateLimited = isUpstreamRateLimit(error);
+    if (!rateLimited && !isRetryableUpstreamAIError(error)) return false;
     const previous = await this.readCircuit();
-    const failures = Math.min(BACKOFF_MS.length, (previous?.failures ?? 0) + 1);
-    const pausedUntilMs = this.now() + BACKOFF_MS[failures - 1]!;
-    const state = { failures, pausedUntilMs };
-    this.memoryCircuit = state;
-    if (this.redis) {
-      await this.redis.set(CIRCUIT_KEY, JSON.stringify(state), "PX", BACKOFF_MS[failures - 1]!).catch(() => undefined);
+    const consecutiveFailures = (previous?.consecutiveFailures ?? 0) + 1;
+    if (!rateLimited && consecutiveFailures < 2) {
+      await this.writeCircuit({
+        failures: previous?.failures ?? 0,
+        consecutiveFailures,
+        pausedUntilMs: 0,
+      }, FAILURE_STREAK_TTL_MS);
+      return false;
     }
+    const failures = Math.min(BACKOFF_MS.length, (previous?.failures ?? 0) + 1);
+    const pauseMs = BACKOFF_MS[failures - 1]!;
+    await this.writeCircuit({
+      failures,
+      consecutiveFailures,
+      pausedUntilMs: this.now() + pauseMs,
+      reason: rateLimited ? "upstream_rate_limit" : "upstream_failure_streak",
+    }, pauseMs);
     return true;
   }
 
@@ -59,9 +92,26 @@ export class HistoricalAiBackfillGate {
     if (this.redis) await this.redis.del(CIRCUIT_KEY).catch(() => undefined);
   }
 
+  private async pauseForForegroundHealth(): Promise<void> {
+    const previous = await this.readCircuit();
+    await this.writeCircuit({
+      failures: previous?.failures ?? 0,
+      consecutiveFailures: previous?.consecutiveFailures ?? 0,
+      pausedUntilMs: this.now() + FOREGROUND_PAUSE_MS,
+      reason: "foreground_unhealthy",
+    }, FOREGROUND_PAUSE_MS);
+  }
+
   private async isCircuitOpen(now: number): Promise<boolean> {
     const state = await this.readCircuit();
     return Boolean(state && state.pausedUntilMs > now);
+  }
+
+  private async writeCircuit(state: CircuitState, ttlMs: number): Promise<void> {
+    this.memoryCircuit = state;
+    if (this.redis) {
+      await this.redis.set(CIRCUIT_KEY, JSON.stringify(state), "PX", ttlMs).catch(() => undefined);
+    }
   }
 
   private async readCircuit(): Promise<CircuitState | null> {
@@ -71,12 +121,32 @@ export class HistoricalAiBackfillGate {
       if (!raw) return this.memoryCircuit;
       const parsed = JSON.parse(raw) as Partial<CircuitState>;
       if (!Number.isFinite(parsed.failures) || !Number.isFinite(parsed.pausedUntilMs)) return this.memoryCircuit;
-      return { failures: Number(parsed.failures), pausedUntilMs: Number(parsed.pausedUntilMs) };
+      return {
+        failures: Number(parsed.failures),
+        consecutiveFailures: Number.isFinite(parsed.consecutiveFailures) ? Number(parsed.consecutiveFailures) : 0,
+        pausedUntilMs: Number(parsed.pausedUntilMs),
+        reason: parsed.reason,
+      };
     } catch {
       // Production requires Redis. Fail closed for maintenance work when its shared state is unavailable.
-      return { failures: BACKOFF_MS.length, pausedUntilMs: this.now() + 60_000 };
+      return {
+        failures: BACKOFF_MS.length,
+        consecutiveFailures: 2,
+        pausedUntilMs: this.now() + 60_000,
+        reason: "foreground_unhealthy",
+      };
     }
   }
+}
+
+export function isForegroundLlmHealthy(snapshot: ResourceSnapshot): boolean {
+  if (snapshot.limitedLastMinute > 0) return false;
+  if (snapshot.concurrencyLimit > 0
+    && snapshot.currentConcurrency / snapshot.concurrencyLimit >= FOREGROUND_MAX_CONCURRENCY_RATIO) return false;
+  if (snapshot.completedLastMinute < FOREGROUND_MIN_COMPLETIONS) return true;
+  if (snapshot.failedLastMinute / snapshot.completedLastMinute >= FOREGROUND_MAX_FAILURE_RATE) return false;
+  return snapshot.averageDurationMs === null
+    || snapshot.averageDurationMs < FOREGROUND_MAX_AVERAGE_DURATION_MS;
 }
 
 export function isUpstreamRateLimit(error: unknown): boolean {
