@@ -554,6 +554,7 @@ export function createApp() {
       userPreferenceRepository,
       cacheRepository: dictionaryLookupCacheRepository,
       usageV2Service,
+      resourceGovernor,
       rateLimiter: chatGenerationRateLimiter,
       userRepository,
       systemEventLogRepository,

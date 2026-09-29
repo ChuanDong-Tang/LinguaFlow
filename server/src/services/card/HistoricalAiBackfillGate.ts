@@ -21,9 +21,8 @@ const BACKOFF_MS = [30 * 60_000, 60 * 60_000, 120 * 60_000] as const;
 const FAILURE_STREAK_TTL_MS = 10 * 60_000;
 const FOREGROUND_PAUSE_MS = 10 * 60_000;
 const FOREGROUND_WINDOW_MINUTES = 5;
-const FOREGROUND_MIN_COMPLETIONS = 5;
 const FOREGROUND_MAX_FAILURE_RATE = 0.2;
-const FOREGROUND_MAX_AVERAGE_DURATION_MS = 15_000;
+const FOREGROUND_MAX_AVERAGE_DURATION_MS = 12_000;
 const FOREGROUND_MAX_CONCURRENCY_RATIO = 0.8;
 
 export const HISTORICAL_AI_RESOURCE_IDENTITY = "historical-card-ai";
@@ -143,7 +142,8 @@ export function isForegroundLlmHealthy(snapshot: ResourceSnapshot): boolean {
   if (snapshot.limitedLastMinute > 0) return false;
   if (snapshot.concurrencyLimit > 0
     && snapshot.currentConcurrency / snapshot.concurrencyLimit >= FOREGROUND_MAX_CONCURRENCY_RATIO) return false;
-  if (snapshot.completedLastMinute < FOREGROUND_MIN_COMPLETIONS) return true;
+  if (snapshot.failedLastMinute > 0 && snapshot.completedLastMinute <= 1) return false;
+  if (snapshot.completedLastMinute === 0) return true;
   if (snapshot.failedLastMinute / snapshot.completedLastMinute >= FOREGROUND_MAX_FAILURE_RATE) return false;
   return snapshot.averageDurationMs === null
     || snapshot.averageDurationMs < FOREGROUND_MAX_AVERAGE_DURATION_MS;

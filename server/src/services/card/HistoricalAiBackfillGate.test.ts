@@ -83,13 +83,14 @@ test("healthy foreground traffic is required before a historical permit is consu
   assert.equal(calls, 0);
 });
 
-test("foreground health ignores sparse samples but rejects sustained latency", () => {
+test("foreground health fails closed for sparse errors and slow samples", () => {
   const base = {
     resource: "llm" as const, windowMinutes: 5, requestsLastMinute: 5, requestLimit: 1200,
     currentConcurrency: 1, concurrencyLimit: 80, peakConcurrencyLastMinute: 2,
-    completedLastMinute: 4, succeededLastMinute: 4, failedLastMinute: 0,
+    completedLastMinute: 1, succeededLastMinute: 1, failedLastMinute: 0,
     limitedLastMinute: 0, averageDurationMs: 30_000,
   };
-  assert.equal(isForegroundLlmHealthy(base), true);
-  assert.equal(isForegroundLlmHealthy({ ...base, completedLastMinute: 5, succeededLastMinute: 5 }), false);
+  assert.equal(isForegroundLlmHealthy(base), false);
+  assert.equal(isForegroundLlmHealthy({ ...base, averageDurationMs: 3_000 }), true);
+  assert.equal(isForegroundLlmHealthy({ ...base, succeededLastMinute: 0, failedLastMinute: 1, averageDurationMs: 3_000 }), false);
 });

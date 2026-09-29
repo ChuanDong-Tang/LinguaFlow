@@ -17,6 +17,7 @@ import { writeSystemEventLog } from "../lib/systemEventLog.js";
 import { getRuntimeConfig } from "@lf/server/config/runtimeConfig.js";
 import type { ChatTextGenerationStreamEvent } from "@lf/core/ports/ai/AIProvider.js";
 import { TokenQuotaExceededError, TokenRequestAlreadyExistsError, type UsageV2Service } from "@lf/server/services/usage/UsageV2Service.js";
+import type { ResourceGovernor } from "@lf/server/services/resource/ResourceGovernor.js";
 
 const FAILED_MODEL_OUTPUT_LOG_MAX_CHARS = 2_000;
 const DATAMUSE_TIMEOUT_MS = 4_000;
@@ -28,6 +29,7 @@ export interface DictionaryRouteDeps {
   userPreferenceRepository: UserPreferenceRepository;
   cacheRepository: PrismaDictionaryLookupCacheRepository;
   usageV2Service: UsageV2Service;
+  resourceGovernor?: ResourceGovernor;
   rateLimiter?: ChatGenerationRateLimiter;
   userRepository: {
     findById: (userId: string) => Promise<{
@@ -197,6 +199,12 @@ export function registerDictionaryRoutes(app: FastifyInstance, deps: DictionaryR
             attemptTimeoutMs: runtimeConfig.dictionaryLookupAiAttemptTimeoutMs,
             maxAttempts: runtimeConfig.dictionaryLookupAiMaxAttempts,
             retryBaseDelayMs: runtimeConfig.dictionaryLookupAiRetryBaseDelayMs,
+            executeAttempt: deps.resourceGovernor
+              ? (attempt) => deps.resourceGovernor!.execute("llm", userContext.userId, attempt, {
+                  requestId,
+                  operation: "dictionary_lookup",
+                })
+              : undefined,
           });
           aiAttempts = generated.attempts;
           aiRetryReasons = generated.retryReasons;
@@ -351,20 +359,22 @@ type DictionaryAiGenerationResult = {
   retryReasons: string[];
 };
 
-async function generateDictionaryLookupWithRetry(
+export async function generateDictionaryLookupWithRetry(
   aiProvider: AIProvider,
   input: DictionaryAiInput,
   options: {
     attemptTimeoutMs: number;
     maxAttempts: number;
     retryBaseDelayMs: number;
+    executeAttempt?: <T>(attempt: () => Promise<T>) => Promise<T>;
   },
 ): Promise<DictionaryAiGenerationResult> {
   const retryReasons: string[] = [];
   const maxAttempts = Math.max(1, Math.min(2, options.maxAttempts));
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
-      const generated = await generateDictionaryLookupAttempt(aiProvider, input, options.attemptTimeoutMs);
+      const runAttempt = () => generateDictionaryLookupAttempt(aiProvider, input, options.attemptTimeoutMs);
+      const generated = options.executeAttempt ? await options.executeAttempt(runAttempt) : await runAttempt();
       const data = parseDictionaryResult(parseModelJson(generated.text), input.fallbackTerm);
       if (data || attempt >= maxAttempts) {
         return { ...generated, data, attempts: attempt, retryReasons };

@@ -14,6 +14,27 @@ Read-only status:
 bash skills/linguaflow-backend-deploy/scripts/backend-status.sh
 ```
 
+Functional API audit keeps liveness separate from user-visible AI behavior.
+It reports rolling production dictionary P50/P95/error rate and the latest
+synthetic result without reading user text:
+
+```bash
+bash skills/linguaflow-backend-deploy/scripts/api-functional-audit.sh --status
+```
+
+When continuous monitoring is authorized, use the bounded probe mode. It runs
+one fixed, non-user dictionary probe only when no real lookup has occurred for
+10 minutes, records only timing/provider/status metadata, and uses the
+maintenance resource identity:
+
+```bash
+bash skills/linguaflow-backend-deploy/scripts/api-functional-audit.sh \
+  --probe-if-idle --confirm-production
+```
+
+Do not treat `/health` alone as proof that lookup, rewrite, or another provider
+workflow is healthy.
+
 The production Worker must not contain persistent historical Card AI scanners.
 New cards and changed cloze phrases enqueue their own event-driven enrichment
 jobs. If historical repair is needed, use or add a bounded one-shot script with
