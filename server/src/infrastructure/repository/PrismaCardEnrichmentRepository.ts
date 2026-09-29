@@ -38,6 +38,7 @@ import {
   phraseRelationJudgeInputVersion,
 } from "@lf/core/Prompts/phraseRelationJudgePrompt.js";
 import {
+  enqueuePhraseRelationJudgeForOccurrence,
   loadPhraseRelationJudgeSourceData,
   phraseRelationRetrievalConfigFromPayload,
 } from "./PhraseRelationJudgeJobs.js";
@@ -699,12 +700,12 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
     return this.claimNextJob("generate_phrase_embedding", workerId, leaseExpiresAt);
   }
 
-  async claimNextPhraseOccurrenceEmbeddingJob(workerId: string, leaseExpiresAt: Date): Promise<CardEnrichmentJobEntity | null> {
-    return this.claimNextJob("generate_phrase_occurrence_embedding", workerId, leaseExpiresAt);
+  async claimNextPhraseOccurrenceEmbeddingJob(workerId: string, leaseExpiresAt: Date, lane: "any" | "realtime" | "historical" = "any"): Promise<CardEnrichmentJobEntity | null> {
+    return this.claimNextJob("generate_phrase_occurrence_embedding", workerId, leaseExpiresAt, undefined, lane);
   }
 
-  async claimNextPhraseRelationJudgeJob(workerId: string, leaseExpiresAt: Date): Promise<CardEnrichmentJobEntity | null> {
-    return this.claimNextJob(PHRASE_RELATION_JUDGE_JOB_TYPE, workerId, leaseExpiresAt);
+  async claimNextPhraseRelationJudgeJob(workerId: string, leaseExpiresAt: Date, lane: "any" | "realtime" | "historical" = "any"): Promise<CardEnrichmentJobEntity | null> {
+    return this.claimNextJob(PHRASE_RELATION_JUDGE_JOB_TYPE, workerId, leaseExpiresAt, undefined, lane);
   }
 
   async claimNextPhraseNormalizationJob(workerId: string, leaseExpiresAt: Date): Promise<CardEnrichmentJobEntity | null> {
@@ -724,9 +725,11 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
     workerId: string,
     leaseExpiresAt: Date,
     inputVersion?: string,
+    lane: "any" | "realtime" | "historical" = "any",
   ): Promise<CardEnrichmentJobEntity | null> {
     return this.prisma.$transaction(async (tx) => {
       const inputVersionClause = inputVersion ? `AND "inputVersion" = $2` : "";
+      const priorityClause = lane === "realtime" ? `AND "priority" >= 0` : lane === "historical" ? `AND "priority" < 0` : "";
       const nowParameter = inputVersion ? "$3" : "$2";
       const utcNowExpression = `(${nowParameter}::timestamptz AT TIME ZONE 'UTC')`;
       const now = new Date();
@@ -735,6 +738,7 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
            FROM "card_enrichment_jobs"
           WHERE "jobType" = $1
             ${inputVersionClause}
+            ${priorityClause}
             AND (
               ("status" = 'queued' AND "availableAt" <= ${utcNowExpression})
               OR ("status" = 'processing' AND "leaseExpiresAt" < ${utcNowExpression})
@@ -1576,63 +1580,6 @@ async function enqueueEmbeddingGeneration(
       failedAt: null,
     },
   });
-}
-
-async function enqueuePhraseRelationJudgeForOccurrence(
-  tx: Prisma.TransactionClient,
-  input: {
-    userId: string;
-    occurrenceId: string;
-    promptVersion: string;
-    modelVersion: string;
-    representationVersion: string;
-    minPhraseSimilarity: number;
-    minRepresentationSimilarity: number;
-    representationWeight: number;
-    priority?: number;
-  },
-): Promise<boolean> {
-  const config = {
-    modelVersion: input.modelVersion,
-    representationVersion: input.representationVersion,
-    minPhraseSimilarity: input.minPhraseSimilarity,
-    minRepresentationSimilarity: input.minRepresentationSimilarity,
-    representationWeight: input.representationWeight,
-  };
-  const source = await loadPhraseRelationJudgeSourceData(tx, input.occurrenceId, input.userId, config);
-  if (!source) return false;
-  const inputHash = createHash("sha256").update(phraseRelationJudgeHashInput(source)).digest("hex");
-  const decision = await tx.phraseOccurrenceRelationDecision.findUnique({
-    where: {
-      anchorOccurrenceId_promptVersion: {
-        anchorOccurrenceId: input.occurrenceId,
-        promptVersion: input.promptVersion,
-      },
-    },
-    select: { inputHash: true },
-  });
-  if (decision?.inputHash === inputHash) return false;
-  const key = {
-    userId: input.userId,
-    sourceKind: PHRASE_RELATION_JUDGE_SOURCE_KIND,
-    sourceId: input.occurrenceId,
-    jobType: PHRASE_RELATION_JUDGE_JOB_TYPE,
-    inputVersion: phraseRelationJudgeInputVersion(inputHash),
-  };
-  const existing = await tx.cardEnrichmentJob.findUnique({
-    where: { userId_sourceKind_sourceId_jobType_inputVersion: key },
-    select: { id: true },
-  });
-  if (existing) return false;
-  await tx.cardEnrichmentJob.create({
-    data: {
-      ...key,
-      inputHash,
-      priority: input.priority ?? 0,
-      payload: { schemaVersion: 1, promptVersion: input.promptVersion, ...config },
-    },
-  });
-  return true;
 }
 
 function toJob(row: {

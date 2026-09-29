@@ -47,23 +47,13 @@ import { SerialCardJobWorker } from "./src/workers/card/SerialCardJobWorker.ts";
 import { RedisCardWorkerConcurrencyGuard } from "./src/workers/card/CardWorkerConcurrencyGuard.ts";
 import { CardEnrichmentWorkerService } from "./src/services/card/CardEnrichmentWorkerService.ts";
 import { PhraseEmbeddingWorkerService } from "./src/services/card/PhraseEmbeddingWorkerService.ts";
-import { PhraseEmbeddingBackfillScanner } from "./src/workers/card/PhraseEmbeddingBackfillScanner.ts";
 import { PhraseOccurrenceEmbeddingWorkerService } from "./src/services/card/PhraseOccurrenceEmbeddingWorkerService.ts";
-import { PhraseOccurrenceEmbeddingBackfillScanner } from "./src/workers/card/PhraseOccurrenceEmbeddingBackfillScanner.ts";
 import { PhraseRelationJudgeWorkerService } from "./src/services/card/PhraseRelationJudgeWorkerService.ts";
-import { PhraseRelationJudgeBackfillScanner } from "./src/workers/card/PhraseRelationJudgeBackfillScanner.ts";
+import { HistoricalAiBackfillGate } from "./src/services/card/HistoricalAiBackfillGate.ts";
 import { PHRASE_RELATION_JUDGE_PROMPT_VERSION } from "@lf/core/Prompts/phraseRelationJudgePrompt.js";
-import {
-  PHRASE_OCCURRENCE_CONTEXT_MEANING_PROMPT_VERSION,
-  PHRASE_OCCURRENCE_CONTEXT_MEANING_REPRESENTATION_VERSION,
-  PHRASE_OCCURRENCE_SENSE_PROMPT_VERSION,
-  PHRASE_OCCURRENCE_SENSE_REPRESENTATION_VERSION,
-} from "@lf/core/Prompts/phraseOccurrenceSensePrompt.js";
 import { CardTopicWorkerService } from "./src/services/card/CardTopicWorkerService.ts";
 import { CardRewriteAlignmentWorkerService } from "./src/services/card/CardRewriteAlignmentWorkerService.ts";
-import { CardRewriteAlignmentScanner } from "./src/workers/card/CardRewriteAlignmentScanner.ts";
 import { CardImageDescriptionWorkerService } from "./src/services/card/CardImageDescriptionWorkerService.ts";
-import { CardImageDescriptionBackfillScanner } from "./src/workers/card/CardImageDescriptionBackfillScanner.ts";
 import { CardImageService } from "./src/services/card/CardImageService.ts";
 import { CardService } from "./src/services/card/CardService.ts";
 import { AzureEmbeddingProvider } from "./src/providers/ai/AzureEmbeddingProvider.ts";
@@ -224,6 +214,7 @@ prisma.$on("error", () => {
   void databaseQueryMetrics.observeError().catch(() => undefined);
 });
 const resourceGovernor = new ResourceGovernor(runtime.resourcePolicies, workerRedisClient);
+const historicalAiBackfillGate = new HistoricalAiBackfillGate(resourceGovernor, workerRedisClient);
 const ttsStreamingEnabled = process.env.TTS_STREAMING_ENABLED?.trim().toLowerCase() === "true";
 if (ttsStreamingEnabled && !workerRedisClient) throw new Error("TTS_STREAMING_REDIS_REQUIRED");
 const ttsStreamingCoordinator = ttsStreamingEnabled
@@ -333,17 +324,6 @@ const cardTopicWorker = new SerialCardJobWorker(
     concurrencyLimit: runtime.cardTopicGlobalConcurrency,
   },
 );
-const cardRewriteAlignmentScanner = runtime.cardRewriteAlignmentEnabled && runtime.cardRewriteAlignmentBackfillEnabled
-  ? new CardRewriteAlignmentScanner(
-      cardEnrichmentRepository,
-      systemEventLogRepository,
-      {
-        intervalMs: runtime.cardRewriteAlignmentScanIntervalMs,
-        batchSize: runtime.cardRewriteAlignmentBatchSize,
-        minimumAgeMs: runtime.cardRewriteAlignmentMinimumAgeMs,
-      },
-    )
-  : null;
 const cardRewriteAlignmentWorker = runtime.cardRewriteAlignmentEnabled
   ? new SerialCardJobWorker(
       new CardRewriteAlignmentWorkerService(
@@ -365,31 +345,22 @@ const cardRewriteAlignmentWorker = runtime.cardRewriteAlignmentEnabled
       },
     )
   : null;
-const cardImageDescriptionBackfillScanner = runtime.cardImageDescriptionWorkerEnabled && runtime.cardImageDescriptionBackfillEnabled
-  ? new CardImageDescriptionBackfillScanner(cardEnrichmentRepository, systemEventLogRepository, {
-      intervalMs: runtime.cardImageDescriptionBackfillScanIntervalMs,
-      batchSize: runtime.cardImageDescriptionBackfillBatchSize,
-      maxOutstanding: runtime.cardImageDescriptionBackfillMaxOutstanding,
-      minimumAgeMs: runtime.cardImageDescriptionBackfillMinimumAgeMs,
-      refreshOutdated: runtime.cardImageDescriptionBackfillRefreshOutdated,
-    })
-  : null;
-const cardImageDescriptionBackfillWorker = runtime.cardImageDescriptionWorkerEnabled
+const cardImageDescriptionWorker = runtime.cardImageDescriptionWorkerEnabled
   ? new SerialCardJobWorker(
       new CardImageDescriptionWorkerService(
         cardEnrichmentRepository,
         workerCardService,
         systemEventLogRepository,
         resourceGovernor,
-        { maxAttempts: runtime.cardImageDescriptionBackfillMaxAttempts },
+        { maxAttempts: runtime.cardImageDescriptionMaxAttempts },
       ),
       {
-        workerIdPrefix: "card-image-description-backfill",
-        errorLabel: "card-image-description-backfill-worker",
-        intervalMs: runtime.cardImageDescriptionBackfillJobIntervalMs,
+        workerIdPrefix: "card-image-description",
+        errorLabel: "card-image-description-worker",
+        intervalMs: runtime.cardImageDescriptionJobIntervalMs,
         maxJobsPerRun: 1,
         concurrencyGuard: cardWorkerConcurrencyGuard,
-        concurrencyScope: "image-description-backfill",
+        concurrencyScope: "image-description",
         concurrencyLimit: 1,
       },
     )
@@ -494,18 +465,6 @@ const phraseEmbeddingWorker = embeddingProvider
       },
     )
   : null;
-const phraseEmbeddingBackfillScanner = embeddingProvider && runtime.cardPhraseEmbeddingBackfillEnabled
-  ? new PhraseEmbeddingBackfillScanner(
-      cardEnrichmentRepository,
-      embeddingProvider.modelVersion,
-      systemEventLogRepository,
-      {
-        intervalMs: runtime.cardPhraseEmbeddingBackfillScanIntervalMs,
-        batchSize: runtime.cardPhraseEmbeddingBackfillBatchSize,
-        maxOutstanding: runtime.cardPhraseEmbeddingBackfillMaxOutstanding,
-      },
-    )
-  : null;
 const phraseOccurrenceEmbeddingWorker = embeddingProvider
   ? new SerialCardJobWorker(
       new PhraseOccurrenceEmbeddingWorkerService(
@@ -535,55 +494,15 @@ const phraseOccurrenceEmbeddingWorker = embeddingProvider
       },
     )
   : null;
-const phraseOccurrenceEmbeddingBackfillScanner = embeddingProvider && runtime.cardPhraseOccurrenceEmbeddingBackfillEnabled
-  ? new PhraseOccurrenceEmbeddingBackfillScanner(
-      cardEnrichmentRepository,
-      embeddingProvider.modelVersion,
-      runtime.cardPhraseOccurrenceEmbeddingBackfillRepresentationVersion,
-      runtime.cardPhraseOccurrenceEmbeddingBackfillRepresentationVersion === PHRASE_OCCURRENCE_CONTEXT_MEANING_REPRESENTATION_VERSION
-        ? PHRASE_OCCURRENCE_CONTEXT_MEANING_PROMPT_VERSION
-        : runtime.cardPhraseOccurrenceEmbeddingBackfillRepresentationVersion === PHRASE_OCCURRENCE_SENSE_REPRESENTATION_VERSION
-        ? PHRASE_OCCURRENCE_SENSE_PROMPT_VERSION
-        : undefined,
-      systemEventLogRepository,
-      {
-        intervalMs: runtime.cardPhraseOccurrenceEmbeddingBackfillScanIntervalMs,
-        batchSize: runtime.cardPhraseOccurrenceEmbeddingBackfillBatchSize,
-        maxOutstanding: runtime.cardPhraseOccurrenceEmbeddingBackfillMaxOutstanding,
-        ...(runtime.cardPhraseOccurrenceEmbeddingBackfillUserId
-          ? { userId: runtime.cardPhraseOccurrenceEmbeddingBackfillUserId }
-          : {}),
-      },
-    )
-  : null;
-const phraseRelationJudgeWorker = runtime.relatedPhraseJudgeEnabled || runtime.cardPhraseRelationJudgeBackfillEnabled
+const phraseRelationJudgeWorker = runtime.relatedPhraseJudgeEnabled
   ? new SerialCardJobWorker(
-      new PhraseRelationJudgeWorkerService(cardEnrichmentRepository, cardAiProvider, systemEventLogRepository, {}, resourceGovernor),
+      new PhraseRelationJudgeWorkerService(cardEnrichmentRepository, cardAiProvider, systemEventLogRepository, {}, resourceGovernor, historicalAiBackfillGate),
       {
         workerIdPrefix: "phrase-relation-judge",
         errorLabel: "phrase-relation-judge-worker",
         concurrencyGuard: undefined,
         concurrencyScope: "llm",
         concurrencyLimit: runtime.cardRewriteGlobalConcurrency,
-      },
-    )
-  : null;
-const phraseRelationJudgeBackfillScanner = embeddingProvider && runtime.cardPhraseRelationJudgeBackfillEnabled
-  ? new PhraseRelationJudgeBackfillScanner(
-      cardEnrichmentRepository,
-      {
-        modelVersion: embeddingProvider.modelVersion,
-        representationVersion: runtime.relatedPhraseContextRepresentationVersion,
-        minPhraseSimilarity: runtime.relatedPhraseMinSimilarity,
-        minRepresentationSimilarity: runtime.relatedPhraseSenseMinSimilarity,
-        representationWeight: runtime.relatedPhraseSenseWeight,
-      },
-      systemEventLogRepository,
-      {
-        intervalMs: runtime.cardPhraseRelationJudgeBackfillScanIntervalMs,
-        batchSize: runtime.cardPhraseRelationJudgeBackfillBatchSize,
-        maxOutstanding: runtime.cardPhraseRelationJudgeBackfillMaxOutstanding,
-        ...(runtime.cardPhraseRelationJudgeBackfillUserId ? { userId: runtime.cardPhraseRelationJudgeBackfillUserId } : {}),
       },
     )
   : null;
@@ -620,16 +539,11 @@ const workerGroups = {
   card: [
     cardRewriteWorker,
     cardTopicWorker,
-    cardRewriteAlignmentScanner,
     cardRewriteAlignmentWorker,
-    cardImageDescriptionBackfillScanner,
-    cardImageDescriptionBackfillWorker,
+    cardImageDescriptionWorker,
     cardEnrichmentWorker,
-    phraseEmbeddingBackfillScanner,
     phraseEmbeddingWorker,
-    phraseOccurrenceEmbeddingBackfillScanner,
     phraseOccurrenceEmbeddingWorker,
-    phraseRelationJudgeBackfillScanner,
     phraseRelationJudgeWorker,
     phraseNormalizationWorker,
     phraseHistoryIndexWorker,

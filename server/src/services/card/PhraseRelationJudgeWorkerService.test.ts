@@ -72,7 +72,7 @@ test("meters historical judge jobs through the dedicated backfill budget", async
   const job = { ...jobFor(source), priority: -100 };
   const resources: string[] = [];
   const repository = {
-    claimNextPhraseRelationJudgeJob: async () => job,
+    claimNextPhraseRelationJudgeJob: async (_workerId: string, _lease: Date, lane?: string) => lane === "historical" ? job : null,
     loadPhraseRelationJudgeSource: async () => source,
     completePhraseRelationJudgeJob: async () => true,
   } as unknown as CardEnrichmentRepository;
@@ -83,11 +83,14 @@ test("meters historical judge jobs through the dedicated backfill budget", async
     },
   } as unknown as AIProvider;
   const governor = {
-    async consumeRequest(resource: string) { resources.push(resource); },
     async execute(resource: string, _userId: string, task: () => Promise<unknown>) { resources.push(resource); return task(); },
   } as unknown as ResourceGovernor;
+  const gate = {
+    async tryAcquire() { resources.push("llm_backfill"); return true; },
+    async recordHistoricalSuccess() {},
+  } as never;
 
-  await new PhraseRelationJudgeWorkerService(repository, ai, undefined, {}, governor).claimAndProcess("worker-1");
+  await new PhraseRelationJudgeWorkerService(repository, ai, undefined, {}, governor, gate).claimAndProcess("worker-1");
   assert.deepEqual(resources, ["llm_backfill", "llm"]);
 });
 

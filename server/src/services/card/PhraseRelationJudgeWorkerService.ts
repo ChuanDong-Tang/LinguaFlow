@@ -9,7 +9,9 @@ import type { AIProvider } from "@lf/core/ports/ai/AIProvider.js";
 import type { CardEnrichmentRepository } from "@lf/core/ports/repository/CardEnrichmentRepository.js";
 import type { SystemEventLogRepository } from "@lf/core/ports/repository/SystemEventLogRepository.js";
 import type { ResourceGovernor } from "../resource/ResourceGovernor.js";
+import { ResourceLimitedError } from "../resource/ResourceGovernor.js";
 import { resolveEnrichmentRetry, safeEnrichmentErrorMessage, safeEnrichmentErrorMetadata } from "./EnrichmentJobRetry.js";
+import type { HistoricalAiBackfillGate } from "./HistoricalAiBackfillGate.js";
 
 export class PhraseRelationJudgeWorkerService {
   constructor(
@@ -18,14 +20,19 @@ export class PhraseRelationJudgeWorkerService {
     private readonly logs?: SystemEventLogRepository,
     private readonly options: { leaseMs?: number; maxAttempts?: number } = {},
     private readonly resourceGovernor?: ResourceGovernor,
+    private readonly historicalGate?: HistoricalAiBackfillGate,
   ) {}
 
   async claimAndProcess(workerId: string): Promise<boolean> {
-    const job = await this.repository.claimNextPhraseRelationJudgeJob(
-      workerId,
-      new Date(Date.now() + (this.options.leaseMs ?? 60_000)),
+    const leaseExpiresAt = new Date(Date.now() + (this.options.leaseMs ?? 60_000));
+    let job = await this.repository.claimNextPhraseRelationJudgeJob(
+      workerId, leaseExpiresAt, this.historicalGate ? "realtime" : "any",
     );
+    if (!job && this.historicalGate && await this.historicalGate.tryAcquire()) {
+      job = await this.repository.claimNextPhraseRelationJudgeJob(workerId, leaseExpiresAt, "historical");
+    }
     if (!job) return false;
+    const historical = job.priority < 0;
     const startedAt = Date.now();
     try {
       const source = await this.repository.loadPhraseRelationJudgeSource(job);
@@ -51,7 +58,6 @@ export class PhraseRelationJudgeWorkerService {
           temperature: 0,
         }, (event) => { if (event.type === "delta") output += event.text; });
         if (this.resourceGovernor) {
-          if (job.priority < 0) await this.resourceGovernor.consumeRequest("llm_backfill", source.userId);
           await this.resourceGovernor.execute("llm", source.userId, generate);
         }
         else await generate();
@@ -63,10 +69,13 @@ export class PhraseRelationJudgeWorkerService {
         provider: this.aiProvider.providerName,
         model: this.aiProvider.modelName,
       });
+      if (historical) await this.historicalGate?.recordHistoricalSuccess();
     } catch (error) {
+      if (historical && error instanceof ResourceLimitedError) this.historicalGate?.deferForLocalLimit(error);
+      const circuitOpened = historical ? await this.historicalGate?.openForUpstreamRateLimit(error) : false;
       const retry = resolveEnrichmentRetry(error, job.attempts, this.options.maxAttempts ?? 3);
       await this.repository.rescheduleOrFail(job, safeEnrichmentErrorMessage(error), retry.retryAt, { preserveAttempt: retry.preserveAttempt });
-      await this.logs?.create({
+      if (!(historical && error instanceof ResourceLimitedError)) await this.logs?.create({
         requestId: `phrase_relation_judge_${job.id}`,
         userId: job.userId,
         module: "card",
@@ -81,11 +90,13 @@ export class PhraseRelationJudgeWorkerService {
           attempts: job.attempts,
           durationMs: Date.now() - startedAt,
           nextAttemptAt: retry.retryAt?.toISOString() ?? null,
+          ...(historical ? { historicalCircuitOpened: Boolean(circuitOpened) } : {}),
           ...safeEnrichmentErrorMetadata(error),
         },
       }).catch((logError) => {
         console.error("[phrase-relation-judge-worker] system event log write failed", safeEnrichmentErrorMetadata(logError));
       });
+      if (historical && (error instanceof ResourceLimitedError || circuitOpened)) return false;
     }
     return true;
   }

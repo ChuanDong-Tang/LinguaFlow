@@ -2425,7 +2425,7 @@ export function registerAdminRoutes(app: FastifyInstance, deps: AdminRouteDeps):
           oldestReadyWaitAlertSeconds: 30,
         },
         config: {
-          pollIntervalMs: runtime.cardImageDescriptionBackfillJobIntervalMs,
+          pollIntervalMs: runtime.cardImageDescriptionJobIntervalMs,
           workerConcurrency: 1,
         },
       },

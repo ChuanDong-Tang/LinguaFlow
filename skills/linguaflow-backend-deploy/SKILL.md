@@ -14,20 +14,26 @@ Read-only status:
 bash skills/linguaflow-backend-deploy/scripts/backend-status.sh
 ```
 
-Read or change the two bounded Card backfill scanners with the dedicated
-script; do not edit the production `.env` ad hoc:
+The production Worker must not contain persistent historical Card AI scanners.
+New cards and changed cloze phrases enqueue their own event-driven enrichment
+jobs. If historical repair is needed, use or add a bounded one-shot script with
+an explicit job type, user scope, and maximum count. Never add or enable a
+continuous history-scanning daemon as part of routine deployment.
+
+Phrase relations use the V3 semantic-judge path. Do not enqueue new V2
+occurrence-meaning jobs. For the production canary, keep
+`RELATED_PHRASE_JUDGE_USER_ID` scoped to the internal id resolved from
+`tangchuandong1@gmail.com`, then enqueue at most 20 historical jobs explicitly:
 
 ```bash
-bash skills/linguaflow-backend-deploy/scripts/configure-card-backfills.sh --status
-bash skills/linguaflow-backend-deploy/scripts/configure-card-backfills.sh --enable both --confirm-production
-bash skills/linguaflow-backend-deploy/scripts/configure-card-backfills.sh --disable both --confirm-production
+bash skills/linguaflow-backend-deploy/scripts/enqueue-phrase-relation-v3-canary.sh \
+  --email tangchuandong1@gmail.com --count 20 --confirm-production
 ```
 
-Targets are `phrase`, `alignment`, or `both`. Enabling uses conservative
-defaults: phrase batches of 20 with at most 40 outstanding jobs, and alignment
-batches of 20. The script atomically updates only the allowlisted keys, creates
-a timestamped server-side backup, restarts only the Worker, and prints no
-secrets.
+The V3 historical Worker acquires its maintenance budget before claiming a
+job. Upstream 429 responses open a Redis-backed 30/60/120 minute circuit. Do
+not bypass that gate, repeatedly probe during the cooldown, or convert this
+command back into a scanner.
 
 Preview an exact rollout:
 
@@ -47,7 +53,7 @@ bash skills/linguaflow-backend-deploy/scripts/deploy-backend.sh \
 
 - API routes, request validation, foreground services, API-loaded constants:
   restart `api`.
-- background jobs, scanners, reconciliation, Worker-loaded constants: restart
+- background jobs, reconciliation, Worker-loaded constants: restart
   `worker`.
 - shared Core rules, prompts, repositories, or job-version constants used by
   both enqueue and claim paths: restart `both`.

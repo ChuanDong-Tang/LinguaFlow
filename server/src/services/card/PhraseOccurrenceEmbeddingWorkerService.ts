@@ -46,10 +46,8 @@ export class PhraseOccurrenceEmbeddingWorkerService {
   ) {}
 
   async claimAndProcess(workerId: string): Promise<boolean> {
-    const job = await this.repository.claimNextPhraseOccurrenceEmbeddingJob(
-      workerId,
-      new Date(Date.now() + (this.options.leaseMs ?? 60_000)),
-    );
+    const leaseExpiresAt = new Date(Date.now() + (this.options.leaseMs ?? 60_000));
+    const job = await this.repository.claimNextPhraseOccurrenceEmbeddingJob(workerId, leaseExpiresAt, "realtime");
     if (!job) return false;
     const startedAt = Date.now();
     try {
@@ -94,7 +92,6 @@ export class PhraseOccurrenceEmbeddingWorkerService {
           temperature: 0,
         }, (event) => { if (event.type === "delta") rawOutput += event.text; });
         if (this.resourceGovernor) {
-          if (isHistoricalBackfill(job)) await this.resourceGovernor.consumeRequest("llm_backfill", source.userId);
           await this.resourceGovernor.execute("llm", source.userId, generate);
         }
         else await generate();

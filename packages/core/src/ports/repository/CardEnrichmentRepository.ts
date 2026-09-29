@@ -103,42 +103,9 @@ export interface CardPhraseIndexOccurrence extends PhraseIndexOccurrence {
 }
 
 export interface CardEnrichmentRepository {
-  enqueueMissingImageDescriptionJobs(input: {
-    limit: number;
-    maxOutstanding: number;
-    createdBefore: Date;
-    promptVersion: string;
-    resultVersion: string;
-    refreshOutdated: boolean;
-  }): Promise<number>;
   cancelObsoleteImageDescriptionJobs(currentInputVersionPrefix: string, reason: string): Promise<number>;
   claimNextImageDescriptionJob(workerId: string, leaseExpiresAt: Date): Promise<CardEnrichmentJobEntity | null>;
   loadImageDescriptionSource(job: CardEnrichmentJobEntity): Promise<{ cardId: string; imageId: string; forceRegenerate: boolean } | null>;
-  enqueueMissingRewriteAlignmentJobs(limit: number, createdBefore: Date): Promise<number>;
-  enqueueMissingPhraseEmbeddingJobs(input: {
-    modelVersion: string;
-    limit: number;
-    maxOutstanding: number;
-  }): Promise<number>;
-  enqueueMissingPhraseOccurrenceEmbeddingJobs(input: {
-    modelVersion: string;
-    representationVersion: string;
-    promptVersion?: string;
-    limit: number;
-    maxOutstanding: number;
-    userId?: string;
-  }): Promise<number>;
-  enqueueMissingPhraseRelationJudgeJobs(input: {
-    modelVersion: string;
-    representationVersion: string;
-    promptVersion: string;
-    minPhraseSimilarity: number;
-    minRepresentationSimilarity: number;
-    representationWeight: number;
-    limit: number;
-    maxOutstanding: number;
-    userId?: string;
-  }): Promise<number>;
   claimNextRewriteAlignmentJob(workerId: string, leaseExpiresAt: Date): Promise<CardEnrichmentJobEntity | null>;
   loadRewriteAlignmentSource(job: CardEnrichmentJobEntity): Promise<CardRewriteAlignmentSource | null>;
   completeRewriteAlignmentJob(
@@ -162,7 +129,7 @@ export interface CardEnrichmentRepository {
     representationWeight: number;
     priority?: number;
   }): Promise<boolean>;
-  claimNextPhraseOccurrenceEmbeddingJob(workerId: string, leaseExpiresAt: Date): Promise<CardEnrichmentJobEntity | null>;
+  claimNextPhraseOccurrenceEmbeddingJob(workerId: string, leaseExpiresAt: Date, lane?: "any" | "realtime" | "historical"): Promise<CardEnrichmentJobEntity | null>;
   loadPhraseOccurrenceEmbeddingSource(job: CardEnrichmentJobEntity): Promise<PhraseOccurrenceEmbeddingSource | null>;
   completePhraseOccurrenceEmbeddingJob(job: CardEnrichmentJobEntity, result: EmbeddingResult, representation?: {
     representationVersion: string;
@@ -180,7 +147,7 @@ export interface CardEnrichmentRepository {
     representationWeight: number;
     priority?: number;
   }): Promise<boolean>;
-  claimNextPhraseRelationJudgeJob(workerId: string, leaseExpiresAt: Date): Promise<CardEnrichmentJobEntity | null>;
+  claimNextPhraseRelationJudgeJob(workerId: string, leaseExpiresAt: Date, lane?: "any" | "realtime" | "historical"): Promise<CardEnrichmentJobEntity | null>;
   loadPhraseRelationJudgeSource(job: CardEnrichmentJobEntity): Promise<PhraseRelationJudgeSource | null>;
   completePhraseRelationJudgeJob(job: CardEnrichmentJobEntity, result: {
     selectedOccurrenceId: string | null;

@@ -142,7 +142,7 @@ test("generates a concise usage meaning before embedding a sense representation"
   ).claimAndProcess("worker-1");
 
   assert.equal(embeddedInput, "usage meaning: laugh uncontrollably");
-  assert.deepEqual(consumedResources, ["llm_backfill", "llm"]);
+  assert.deepEqual(consumedResources, ["llm"]);
   assert.deepEqual(completedRepresentation, {
     representationVersion: PHRASE_OCCURRENCE_SENSE_REPRESENTATION_VERSION,
     promptVersion: PHRASE_OCCURRENCE_SENSE_PROMPT_VERSION,

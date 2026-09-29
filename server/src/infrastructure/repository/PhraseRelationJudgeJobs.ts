@@ -5,6 +5,14 @@ import type {
   PhraseRelationJudgeSource,
 } from "@lf/core/Prompts/phraseRelationJudgePrompt.js";
 import { PHRASE_RELATION_JUDGE_MAX_CANDIDATES } from "@lf/core/Prompts/phraseRelationJudgePrompt.js";
+import {
+  PHRASE_RELATION_JUDGE_JOB_TYPE,
+  PHRASE_RELATION_JUDGE_PROMPT_VERSION,
+  PHRASE_RELATION_JUDGE_SOURCE_KIND,
+  phraseRelationJudgeHashInput,
+  phraseRelationJudgeInputVersion,
+} from "@lf/core/Prompts/phraseRelationJudgePrompt.js";
+import { createHash } from "node:crypto";
 
 type DbClient = PrismaClient | Prisma.TransactionClient;
 
@@ -14,6 +22,80 @@ export interface PhraseRelationRetrievalConfig {
   minPhraseSimilarity: number;
   minRepresentationSimilarity: number;
   representationWeight: number;
+}
+
+export interface PhraseRelationJudgeEnqueueConfig extends PhraseRelationRetrievalConfig {
+  promptVersion: string;
+  priority?: number;
+}
+
+export function phraseRelationJudgeEnqueueConfigFromEnv(env: NodeJS.ProcessEnv = process.env): PhraseRelationJudgeEnqueueConfig | null {
+  const deployment = env.AZURE_EMBEDDING_DEPLOYMENT?.trim();
+  if (!deployment) return null;
+  const model = env.AZURE_EMBEDDING_MODEL?.trim() || "text-embedding-3-small";
+  const apiVersion = env.AZURE_EMBEDDING_API_VERSION?.trim() || "2024-10-21";
+  const dimensions = positiveInt(env.AZURE_EMBEDDING_DIMENSIONS, 1536);
+  return {
+    promptVersion: PHRASE_RELATION_JUDGE_PROMPT_VERSION,
+    modelVersion: `${model}:${deployment}:${apiVersion}:${dimensions}`,
+    representationVersion: env.RELATED_PHRASE_CONTEXT_REPRESENTATION_VERSION?.trim() || "usage_meaning_v2",
+    minPhraseSimilarity: unitFloat(env.RELATED_PHRASE_MIN_SIMILARITY, 0.72),
+    minRepresentationSimilarity: unitFloat(env.RELATED_PHRASE_SENSE_MIN_SIMILARITY, 0.45),
+    representationWeight: unitFloat(env.RELATED_PHRASE_SENSE_WEIGHT, 0.70),
+  };
+}
+
+export async function enqueuePhraseRelationJudgeForOccurrence(
+  tx: DbClient,
+  input: { userId: string; occurrenceId: string } & PhraseRelationJudgeEnqueueConfig,
+): Promise<boolean> {
+  const ready = await tx.$queryRaw<Array<{ ready: number }>>`
+    SELECT 1 AS "ready"
+      FROM "phrase_occurrences" AS occurrence
+      JOIN "phrase_embeddings" AS embedding
+        ON embedding."phraseId" = occurrence."phraseId"
+       AND embedding."userId" = occurrence."userId"
+       AND embedding."modelVersion" = ${input.modelVersion}
+     WHERE occurrence."id" = ${input.occurrenceId}
+       AND occurrence."userId" = ${input.userId}
+     LIMIT 1
+  `;
+  if (!ready[0]) return false;
+  const config = {
+    modelVersion: input.modelVersion,
+    representationVersion: input.representationVersion,
+    minPhraseSimilarity: input.minPhraseSimilarity,
+    minRepresentationSimilarity: input.minRepresentationSimilarity,
+    representationWeight: input.representationWeight,
+  };
+  const source = await loadPhraseRelationJudgeSourceData(tx, input.occurrenceId, input.userId, config);
+  if (!source) return false;
+  const inputHash = createHash("sha256").update(phraseRelationJudgeHashInput(source)).digest("hex");
+  const decision = await tx.phraseOccurrenceRelationDecision.findUnique({
+    where: { anchorOccurrenceId_promptVersion: { anchorOccurrenceId: input.occurrenceId, promptVersion: input.promptVersion } },
+    select: { inputHash: true },
+  });
+  if (decision?.inputHash === inputHash) return false;
+  const key = {
+    userId: input.userId,
+    sourceKind: PHRASE_RELATION_JUDGE_SOURCE_KIND,
+    sourceId: input.occurrenceId,
+    jobType: PHRASE_RELATION_JUDGE_JOB_TYPE,
+    inputVersion: phraseRelationJudgeInputVersion(inputHash),
+  };
+  if (await tx.cardEnrichmentJob.findUnique({
+    where: { userId_sourceKind_sourceId_jobType_inputVersion: key },
+    select: { id: true },
+  })) return false;
+  await tx.cardEnrichmentJob.create({
+    data: {
+      ...key,
+      inputHash,
+      priority: input.priority ?? 0,
+      payload: { schemaVersion: 1, promptVersion: input.promptVersion, ...config },
+    },
+  });
+  return true;
 }
 
 export async function loadPhraseRelationJudgeSourceData(
@@ -125,4 +207,14 @@ export function phraseRelationRetrievalConfigFromPayload(payload: unknown): Phra
   const representationWeight = Number(value.representationWeight);
   if (![minPhraseSimilarity, minRepresentationSimilarity, representationWeight].every(Number.isFinite)) return null;
   return { modelVersion: value.modelVersion, representationVersion: value.representationVersion, minPhraseSimilarity, minRepresentationSimilarity, representationWeight };
+}
+
+function positiveInt(value: string | undefined, fallback: number): number {
+  const parsed = Number.parseInt(value ?? "", 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function unitFloat(value: string | undefined, fallback: number): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 && parsed <= 1 ? parsed : fallback;
 }

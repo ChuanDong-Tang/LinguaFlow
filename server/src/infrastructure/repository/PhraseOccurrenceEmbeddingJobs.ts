@@ -11,6 +11,10 @@ import {
   type PhraseOccurrenceRepresentationVersion,
 } from "@lf/core/Prompts/phraseOccurrenceSensePrompt.js";
 import type { PhraseOccurrenceEmbeddingSource } from "@lf/core/ports/repository/CardEnrichmentRepository.js";
+import {
+  enqueuePhraseRelationJudgeForOccurrence,
+  phraseRelationJudgeEnqueueConfigFromEnv,
+} from "./PhraseRelationJudgeJobs.js";
 
 export async function loadPhraseOccurrenceEmbeddingSourceData(
   tx: any,
@@ -76,32 +80,19 @@ export async function loadPhraseOccurrenceEmbeddingSourceData(
 export async function enqueuePhraseOccurrenceEmbeddingForOccurrence(
   tx: any,
   occurrenceId: string,
-  options: { refreshExisting?: boolean } = {},
+  _options: { refreshExisting?: boolean } = {},
 ): Promise<void> {
   const occurrence = await loadPhraseOccurrenceEmbeddingSourceData(tx, occurrenceId);
   if (!occurrence) return;
   const judgeEnabled = process.env.RELATED_PHRASE_JUDGE_ENABLED?.trim().toLowerCase() === "true";
   const judgeUserId = process.env.RELATED_PHRASE_JUDGE_USER_ID?.trim();
-  if (judgeEnabled && (!judgeUserId || judgeUserId === occurrence.userId)) return;
-  const relationEnabled = process.env.RELATED_PHRASE_CONTEXT_ENABLED?.trim().toLowerCase() === "true";
-  const backfillEnabled = process.env.CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_ENABLED?.trim().toLowerCase() === "true";
-  const configuredRepresentation = backfillEnabled
-    ? process.env.CARD_PHRASE_OCCURRENCE_EMBEDDING_BACKFILL_REPRESENTATION_VERSION?.trim()
-    : relationEnabled
-      ? process.env.RELATED_PHRASE_CONTEXT_REPRESENTATION_VERSION?.trim()
-      : undefined;
-  const representationVersion = parsePhraseOccurrenceRepresentationVersion(configuredRepresentation);
-  const input = phraseOccurrenceRepresentationHashInput(occurrence, representationVersion);
-  if (!input) return;
-  const inputHash = createHash("sha256").update(input).digest("hex");
-  await enqueuePhraseOccurrenceEmbeddingGeneration(tx, {
+  if (!judgeEnabled || (judgeUserId && judgeUserId !== occurrence.userId)) return;
+  const config = phraseRelationJudgeEnqueueConfigFromEnv();
+  if (!config) return;
+  await enqueuePhraseRelationJudgeForOccurrence(tx, {
     userId: occurrence.userId,
     occurrenceId: occurrence.occurrenceId,
-    inputHash,
-    inputVersion: `phrase_occurrence_embedding_input_v2:${representationVersion}:${inputHash}`,
-    representationVersion,
-    promptVersion: phraseOccurrencePromptVersion(representationVersion),
-    refreshExisting: options.refreshExisting,
+    ...config,
   });
 }
 
