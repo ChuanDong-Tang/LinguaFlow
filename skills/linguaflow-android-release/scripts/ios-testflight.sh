@@ -337,9 +337,13 @@ log "Building production IPA locally with EAS"
   if [[ "${LF_EAS_BUILD_INTERACTIVE:-false}" != "true" ]]; then
     eas_build_args+=(--non-interactive)
   fi
-  # 24.8.0 can return success after credential resolution without invoking
-  # the local-build plugin. Keep native releases on the last verified CLI.
-  npx --yes eas-cli@24.7.0 "${eas_build_args[@]}"
+  if [[ -n "${LF_EAS_CLI_BIN:-}" ]]; then
+    "$LF_EAS_CLI_BIN" "${eas_build_args[@]}"
+  else
+    # 24.8.0 can return success after credential resolution without invoking
+    # the local-build plugin. Keep native releases on the last verified CLI.
+    npx --yes eas-cli@24.7.0 "${eas_build_args[@]}"
+  fi
 )
 
 [[ -s "$raw_ipa" ]] || fail "EAS build did not produce an IPA."
