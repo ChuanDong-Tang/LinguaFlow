@@ -334,7 +334,7 @@ log "Building production IPA locally with EAS"
     --verbose-logs
     --output "$raw_ipa"
   )
-  if [[ "${EAS_BUILD_INTERACTIVE:-false}" != "true" ]]; then
+  if [[ "${LF_EAS_BUILD_INTERACTIVE:-false}" != "true" ]]; then
     eas_build_args+=(--non-interactive)
   fi
   npx --yes eas-cli "${eas_build_args[@]}"
