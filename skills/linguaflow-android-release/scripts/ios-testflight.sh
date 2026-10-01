@@ -177,8 +177,24 @@ process.stdout.write(config.build?.[profileName]?.credentialsSource || 'remote')
 NODE
 )"
   if [[ "$credentials_source" == "local" ]]; then
-    security find-identity -v -p codesigning | grep -F "$EXPECTED_TEAM_ID" >/dev/null || \
-      fail "No valid Apple signing identity found for team $EXPECTED_TEAM_ID."
+    node - "$MOBILE_DIR/credentials.json" "$MOBILE_DIR" <<'NODE'
+const fs = require('fs');
+const path = require('path');
+const [file, mobileDir] = process.argv.slice(2);
+if (!fs.existsSync(file)) throw new Error(`Missing local EAS credentials file: ${file}`);
+const credentials = JSON.parse(fs.readFileSync(file, 'utf8'));
+const certificatePath = credentials.ios?.distributionCertificate?.path;
+const certificatePassword = credentials.ios?.distributionCertificate?.password;
+const profilePath = credentials.ios?.provisioningProfilePath;
+if (!certificatePath || !certificatePassword || !profilePath) {
+  throw new Error('Local iOS credentials are incomplete');
+}
+for (const relativePath of [certificatePath, profilePath]) {
+  const resolvedPath = path.resolve(mobileDir, relativePath);
+  if (!fs.existsSync(resolvedPath)) throw new Error(`Missing local iOS credential: ${resolvedPath}`);
+}
+NODE
+    log "Using downloaded local iOS signing credentials"
   else
     log "Using EAS remote iOS signing credentials"
   fi

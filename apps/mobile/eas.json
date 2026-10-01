@@ -29,6 +29,10 @@
         "image": "macos-tahoe-26.5-xcode-26.6"
       }
     },
+    "testflight-local": {
+      "extends": "testflight",
+      "credentialsSource": "local"
+    },
     "production": {
       "environment": "production",
       "autoIncrement": true,

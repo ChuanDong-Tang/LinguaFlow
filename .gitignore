@@ -42,4 +42,6 @@ agent.md
 /apps/mobile/*.apk
 /apps/mobile/*.aab
 /apps/mobile/*.ipa
+/apps/mobile/credentials.json
+/apps/mobile/credentials/
 /apps/website/downloads/*.apk
