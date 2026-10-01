@@ -104,6 +104,17 @@ Use the platform-specific backend settings
 
 ## Platform-scoped startup gate
 
+For an ordinary request to start a development simulator, use the user's
+existing shell entrypoints `lfios` or `lfandroid` (equivalent to Expo
+`run:ios`/`run:android`). Keep that terminal session available while the user
+tests. Do not use the release smoke gate as a development launcher: the gate
+intentionally rebuilds and reinstalls its selected app, which can clear local
+authentication state. It must also never register a launchd keepalive for an
+emulator; closing a simulator is an explicit user stop action.
+
+Use the gate below only for release candidate or explicitly requested native
+smoke validation.
+
 Every native release candidate must pass the same-source startup gate for the
 distribution being uploaded:
 

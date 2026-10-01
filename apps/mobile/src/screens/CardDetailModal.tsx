@@ -123,6 +123,7 @@ type ClozeOnboardingTarget = { x: number; y: number; width: number; height: numb
 type CardRelationItem = { recordId: string; topic: string | null; card: CardRelationPreview | null; reasons: CardRelationReason[] };
 type PhraseRelationReason = Extract<CardRelationReason, { type: "phrase" }>;
 type LanguageRelation = { relation: CardRelationItem; reason: PhraseRelationReason };
+type RelationSheetSource = { title: string; targetText: string; originalText: string };
 
 function shuffleRecommendationOptions(values: string[]): string[] {
   const shuffled = [...new Set(values.map((value) => value.trim()).filter(Boolean))];
@@ -133,7 +134,7 @@ function shuffleRecommendationOptions(values: string[]): string[] {
   return shuffled;
 }
 
-export function CardDetailModal({ detail, loading, imageAdding = false, transitionOrigin, draft, draftSafeArea, draftLimits, draftCollections = [], initialTab = "review", initialEditing = false, closeAfterEditing = false, onClose, returnLabel, onReplaceImage, onRemoveImage, onCoverPositionChange, onDraftChange, onDraftFieldChange, onDraftEnabledLayersChange, onDraftImageDescriptionChange, onDraftCollectionChange, onDraftCreateCollection, onDraftRenameCollection, onDraftDeleteCollection, onDraftSave, onDraftChooseImage, onDraftTakePhoto, onDraftSelectImage, onDraftRemoveImage, onDraftCoverPositionChange, canGoBack = false, canGoForward = false, onBack, onForward, onOpenRelated, relationFocusSentence = null, hideRelations = false, hidePhraseRecommendation = false, onUpdateContent, onUpdateMetadata, onEditCard, pendingGenerationTargets = [], failedGenerationTargets = [], retryingGenerationTarget = null, onRetryGeneration, onGeneratePhraseRecommendation, onActivateLearningContent, recallPosition, recallPreviousDetail, recallNextDetail, onRecallPrevious, onRecallNext, onRecallFinish, onClozeAttempt, onClozeStateChange }: {
+export function CardDetailModal({ detail, loading, imageAdding = false, transitionOrigin, draft, draftSafeArea, draftLimits, draftCollections = [], initialTab = "review", initialEditing = false, closeAfterEditing = false, onClose, returnLabel, onReplaceImage, onRemoveImage, onCoverPositionChange, onDraftChange, onDraftFieldChange, onDraftEnabledLayersChange, onDraftImageDescriptionChange, onDraftCollectionChange, onDraftCreateCollection, onDraftRenameCollection, onDraftDeleteCollection, onDraftSave, onDraftChooseImage, onDraftTakePhoto, onDraftSelectImage, onDraftRemoveImage, onDraftCoverPositionChange, canGoBack = false, canGoForward = false, onBack, onForward, onOpenRelated, relationFocusSentence = null, hideRelations = false, hidePhraseRecommendation = false, onUpdateContent, onUpdateMetadata, onEditCard, pendingGenerationTargets = [], failedGenerationTargets = [], retryingGenerationTarget = null, onRetryGeneration, onGeneratePhraseRecommendation, onActivateLearningContent, recallPosition, recallContextLabel, recallPreviousContextLabel, recallNextContextLabel, recallPreviousDetail, recallNextDetail, onRecallPrevious, onRecallNext, onRecallFinish, onClozeAttempt, onClozeStateChange }: {
   detail: CardRecordDetail | null;
   loading: boolean;
   imageAdding?: boolean;
@@ -186,6 +187,9 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
   onGeneratePhraseRecommendation?: (contentType?: CardLearningContentType) => Promise<CardRecordDetail>;
   onActivateLearningContent?: (contentType: CardLearningContentType) => Promise<CardRecordDetail>;
   recallPosition?: { index: number; total: number };
+  recallContextLabel?: string;
+  recallPreviousContextLabel?: string;
+  recallNextContextLabel?: string;
   recallPreviousDetail?: CardRecordDetail | null;
   recallNextDetail?: CardRecordDetail | null;
   onRecallPrevious?: () => void;
@@ -281,6 +285,7 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
     direction: "next" | "previous";
     detail: CardRecordDetail;
     position: { index: number; total: number };
+    contextLabel?: string;
   } | null>(null);
   const recallPanResponder = useMemo(() => PanResponder.create({
     onMoveShouldSetPanResponderCapture: (_, gesture) => Boolean(
@@ -310,6 +315,7 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
           index: recallPosition.index + (direction === "next" ? 1 : -1),
           total: recallPosition.total,
         },
+        contextLabel: direction === "next" ? recallNextContextLabel : recallPreviousContextLabel,
       });
       Animated.timing(recallTranslateX, {
         toValue: direction === "next" ? -windowWidth : windowWidth,
@@ -329,7 +335,7 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
     onPanResponderTerminate: () => {
       Animated.spring(recallTranslateX, { toValue: 0, useNativeDriver: true }).start();
     },
-  }), [onRecallNext, onRecallPrevious, recallInteractionLocked, recallNextDetail, recallPosition, recallPreviousDetail, recallTranslateX, windowWidth]);
+  }), [onRecallNext, onRecallPrevious, recallInteractionLocked, recallNextContextLabel, recallNextDetail, recallPosition, recallPreviousContextLabel, recallPreviousDetail, recallTranslateX, windowWidth]);
   const detailBackSwipeResponder = useMemo(() => PanResponder.create({
     onMoveShouldSetPanResponderCapture: (_, gesture) => Boolean(
       !recallPosition
@@ -596,7 +602,7 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
       },
     ]}>
       <Animated.View style={[styles.recallDetailPage, recallPosition && { transform: [{ translateX: recallTranslateX }] }]} {...(recallPosition ? recallPanResponder.panHandlers : detailBackSwipeResponder.panHandlers)}>
-      {recallPosition && (recallHandoff?.direction === "previous" ? recallHandoff.detail : recallPreviousDetail) ? <View pointerEvents="none" style={[styles.recallAdjacentPage, { left: -windowWidth }]}><RecallAdjacentCard detail={(recallHandoff?.direction === "previous" ? recallHandoff.detail : recallPreviousDetail)!} position={recallHandoff?.direction === "previous" ? recallHandoff.position : { index: recallPosition.index - 1, total: recallPosition.total }} canUseDictation={!detail?.isSample && hasProAccess === true} /></View> : null}
+      {recallPosition && (recallHandoff?.direction === "previous" ? recallHandoff.detail : recallPreviousDetail) ? <View pointerEvents="none" style={[styles.recallAdjacentPage, { left: -windowWidth }]}><RecallAdjacentCard detail={(recallHandoff?.direction === "previous" ? recallHandoff.detail : recallPreviousDetail)!} position={recallHandoff?.direction === "previous" ? recallHandoff.position : { index: recallPosition.index - 1, total: recallPosition.total }} contextLabel={recallHandoff?.direction === "previous" ? recallHandoff.contextLabel : recallPreviousContextLabel} canUseDictation={!detail?.isSample && hasProAccess === true} /></View> : null}
       <SafeAreaView style={styles.page}>
         <View style={styles.header}>
           <View style={styles.historyButtons}>
@@ -616,12 +622,13 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
             {tab === "review" && (onUpdateContent || onEditCard) ? <Pressable accessibilityLabel="卡片操作" style={styles.iconHeaderButton} onPress={() => setDetailActionMenuVisible(true)}><Ionicons name="ellipsis-horizontal" size={23} color={theme.colors.text} /></Pressable> : null}
           </View>
         </View>
+        {recallPosition ? <Text numberOfLines={1} style={[styles.recallContextLabel, !recallContextLabel && styles.recallContextLabelHidden]}>{recallContextLabel ?? " "}</Text> : null}
         {detailActionMenuVisible ? <View style={styles.detailActionLayer}><Pressable style={StyleSheet.absoluteFill} onPress={() => setDetailActionMenuVisible(false)} /><View style={styles.detailActionMenu}><Pressable style={styles.detailActionItem} onPress={() => { setDetailActionMenuVisible(false); (onEditCard ?? (() => setEditing(true)))(); }}><Ionicons name="create-outline" size={17} color={theme.colors.textSecondary} /><Text style={styles.detailActionText}>编辑</Text></Pressable><View style={styles.detailActionDivider} /><Pressable style={styles.detailActionItem} onPress={() => { setDetailActionMenuVisible(false); Alert.alert("移入回收站？", "卡片将在回收站保留 30 天，期间可以随时恢复。", [{ text: t("common.cancel"), style: "cancel" }, { text: "移入回收站", style: "destructive", onPress: () => { if (detail) void deleteCardRecord(detail.id).then(onClose); } }]); }}><Ionicons name="trash-outline" size={17} color={theme.colors.danger} /><Text style={[styles.detailActionText, { color: theme.colors.danger }]}>删除</Text></Pressable></View></View> : null}
         {loading && !detail ? <ActivityIndicator color={theme.colors.accentStrong} style={styles.loader} /> : null}
         {practiceDetail && contentBinding && tab === "review" ? <Review onLanguageControlChange={updateLanguageControl} hidePhraseRecommendation={hidePhraseRecommendation} key={practiceDetail.id} detail={practiceDetail} imageAdding={imageAdding} contentBinding={contentBinding} playbackMode={playbackMode} practiceEnabled={canPracticeActiveBlock} canUseDictation={!detail?.isSample && hasProAccess === true} autoStartClozePractice={clozeEntryModeRef.current.autoStart} clozeState={resolvedClozeState} clozeVersion={resolvedClozeVersion} onClozeChange={updateCloze} onLearningContentClozeChange={updateLearningContentCloze} onSelectLearningContent={setSelectedLearningContentType} onActivateLearningContent={onActivateLearningContent} onSaveOriginal={onUpdateContent ? async (originalText) => { const accepted = await onUpdateContent({ title: practiceDetail.title ?? null, originalText, collectionId: practiceDetail.collectionId ?? null, selectedTargets: practiceDetail.mode === "corpus" ? [] : practiceDetail.replyText ? ["expression", "reply"] : ["expression"] }); if (accepted === false) throw new Error(t("card_detail.error.try_again")); } : undefined} onUpdateMetadata={onUpdateMetadata} onRemoveImage={onRemoveImage} onCoverPositionChange={onCoverPositionChange} relations={relations} onOpenRelated={onOpenRelated} relationFocusSentence={relationFocusSentence} onOpenDictation={() => setTab("dictation")} pendingGenerationTargets={pendingGenerationTargets} failedGenerationTargets={failedGenerationTargets} retryingGenerationTarget={retryingGenerationTarget} onRetryGeneration={onRetryGeneration} onGeneratePhraseRecommendation={onGeneratePhraseRecommendation} onRecallFinish={onRecallFinish} onClozeAttempt={onClozeAttempt} onPendingClozeCheckHandlerChange={registerPendingClozeCheck} onInteractionLockChange={(locked) => { setDetailInteractionLocked(locked); if (recallPosition) setRecallInteractionLocked(locked); }} onImageSwipeContextChange={(active, index) => { imageSwipeContextRef.current = { active, index }; }} focusLearningContent={clozeTipEligible && clozeGuideStep === 1} onLearningTargetReady={handleClozeLearningTargetReady} focusActionBar={clozeTipEligible && clozeGuideStep === 2} onActionBarTargetReady={handleClozeActionBarTargetReady} /> : null}
         {practiceDetail && contentBinding && tab === "dictation" && hasProAccess === true ? <Dictation detail={practiceDetail} contentBinding={contentBinding} /> : null}
       </SafeAreaView>
-      {recallPosition && (recallHandoff?.direction === "next" ? recallHandoff.detail : recallNextDetail) ? <View pointerEvents="none" style={[styles.recallAdjacentPage, { left: windowWidth }]}><RecallAdjacentCard detail={(recallHandoff?.direction === "next" ? recallHandoff.detail : recallNextDetail)!} position={recallHandoff?.direction === "next" ? recallHandoff.position : { index: recallPosition.index + 1, total: recallPosition.total }} canUseDictation={!detail?.isSample && hasProAccess === true} /></View> : null}
+      {recallPosition && (recallHandoff?.direction === "next" ? recallHandoff.detail : recallNextDetail) ? <View pointerEvents="none" style={[styles.recallAdjacentPage, { left: windowWidth }]}><RecallAdjacentCard detail={(recallHandoff?.direction === "next" ? recallHandoff.detail : recallNextDetail)!} position={recallHandoff?.direction === "next" ? recallHandoff.position : { index: recallPosition.index + 1, total: recallPosition.total }} contextLabel={recallHandoff?.direction === "next" ? recallHandoff.contextLabel : recallNextContextLabel} canUseDictation={!detail?.isSample && hasProAccess === true} /></View> : null}
       </Animated.View>
       {clozeTipVisible && clozeTipTarget ? <ClozeOnboardingOverlay
         step={clozeGuideStep}
@@ -742,7 +749,7 @@ function ClozeActionGuide() {
   </View>;
 }
 
-function RecallAdjacentCard({ detail, position, canUseDictation }: { detail: CardRecordDetail; position: { index: number; total: number }; canUseDictation: boolean }) {
+function RecallAdjacentCard({ detail, position, contextLabel, canUseDictation }: { detail: CardRecordDetail; position: { index: number; total: number }; contextLabel?: string; canUseDictation: boolean }) {
   const blocks = learningContentBlocks(detail);
   const learningBlock = blocks.find((block) => block.contentType === "rewrite")
     ?? blocks.find((block) => block.contentType === "original")
@@ -754,6 +761,7 @@ function RecallAdjacentCard({ detail, position, canUseDictation }: { detail: Car
   const practiceEnabled = learningBlock.contentType !== "original" || canUseDictation;
   return <SafeAreaView style={styles.recallAdjacentSafeArea}>
     <View style={styles.header}><View style={styles.historyButtons}><View style={styles.historyButton} /></View><Text style={styles.title}>{position.index + 1} / {position.total}</Text><View style={styles.headerEnd}><View style={styles.iconHeaderButton}><Ionicons name="close" size={23} color={theme.colors.text} /></View></View></View>
+    <Text numberOfLines={1} style={[styles.recallContextLabel, !contextLabel && styles.recallContextLabelHidden]}>{contextLabel ?? " "}</Text>
     <Review
       key={`${detail.id}:${contentBinding.contentType}:${contentBinding.contentVersion}`}
       detail={previewDetail}
@@ -2102,7 +2110,12 @@ function Review({ onLanguageControlChange, hidePhraseRecommendation = true, deta
     return () => { active = false; };
   }, []);
   const [answersVisible, setAnswersVisible] = useState(false);
-  const defaultDisplayMode = detail.mode === "rewrite" && detail.originalText.trim() ? "bilingual" as const : "target" as const;
+  const activeDisplayBlock = wholeCardPracticeBlocks.find((block) => (
+    block.contentType === contentBinding.contentType && block.contentVersion === contentBinding.contentVersion
+  ));
+  const defaultDisplayMode = activeDisplayBlock && cardSecondarySegments(activeDisplayBlock).length
+    ? "bilingual" as const
+    : "target" as const;
   const [displayMode, setDisplayMode] = useState<ContentDisplayMode>(defaultDisplayMode);
   useEffect(() => { setDisplayMode(defaultDisplayMode); }, [detail.id]);
   const [auxiliaryLoading, setAuxiliaryLoading] = useState(false);
@@ -3584,6 +3597,11 @@ function Review({ onLanguageControlChange, hidePhraseRecommendation = true, deta
     <RelationSheet
       visible={relationsVisible}
       relations={contentRelations}
+      source={{
+        title: detail.displayTitle,
+        targetText: detail.rewrittenText?.trim() || detail.originalText.trim(),
+        originalText: detail.originalText.trim(),
+      }}
       onClose={() => setRelationsVisible(false)}
       onOpen={(relation) => {
         setRelationsVisible(false);
@@ -3593,6 +3611,11 @@ function Review({ onLanguageControlChange, hidePhraseRecommendation = true, deta
     <RelationSheet
       visible={languageRelationVisible}
       relations={languageRelation ? [languageRelation.relation] : []}
+      source={{
+        title: detail.displayTitle,
+        targetText: detail.rewrittenText?.trim() || detail.originalText.trim(),
+        originalText: detail.originalText.trim(),
+      }}
       onClose={() => setLanguageRelationVisible(false)}
       onOpen={(relation) => {
         setLanguageRelationVisible(false);
@@ -3986,48 +4009,66 @@ function RelationChip({ onPress }: { onPress: () => void }) {
   </Animated.View>;
 }
 
-function RelationSheet({ visible, relations, onClose, onOpen }: { visible: boolean; relations: CardRelationItem[]; onClose: () => void; onOpen: (relation: CardRelationItem) => void }) {
+function RelationSheet({ visible, relations, source, onClose, onOpen }: { visible: boolean; relations: CardRelationItem[]; source: RelationSheetSource; onClose: () => void; onOpen: (relation: CardRelationItem) => void }) {
+  const { width } = useWindowDimensions();
+  const pageWidth = Math.min(524, Math.max(252, width - 68));
+  const [activeIndex, setActiveIndex] = useState(0);
+  useEffect(() => {
+    if (visible) setActiveIndex(0);
+  }, [visible, relations.length]);
   return <Modal visible={visible} transparent animationType="fade" statusBarTranslucent onRequestClose={onClose}>
     <Pressable style={styles.relationModalBackdrop} onPress={onClose}>
       <Pressable style={styles.relationModalSheet} onPress={() => undefined}>
-        <View style={styles.relationModalHeader}><Text style={styles.relationModalTitle}>{t("card_detail.relation.entry")}</Text><Pressable hitSlop={8} onPress={onClose}><Ionicons name="close" size={21} color={theme.colors.textMuted} /></Pressable></View>
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.relationModalList}>
-          {relations.map((relation) => <Pressable key={relation.recordId} style={({ pressed }) => [styles.relationModalRow, pressed && styles.metadataPressed]} onPress={() => onOpen(relation)}>
-            {relation.card?.thumbnail ? <Image source={{ uri: relation.card.thumbnail.url }} resizeMode="cover" style={styles.relationModalThumbnail} /> : <View style={[styles.relationModalThumbnail, styles.relationModalThumbnailFallback]}><Ionicons name="link-outline" size={18} color={theme.colors.textMuted} /></View>}
-            <View style={styles.relationModalCopy}>
-              <Text numberOfLines={1} style={styles.relationModalCardTitle}>{relation.card?.displayTitle || relation.topic || t("card_detail.another_record")}</Text>
-              <RelationSheetExcerpt relation={relation} />
-              {relation.reasons.slice(0, 2).map((reason, index) => <ReasonBadge key={`${reason.type}:${index}`} reason={reason} />)}
-            </View>
-            <Ionicons name="chevron-forward" size={17} color={theme.colors.textMuted} />
-          </Pressable>)}
-        </ScrollView>
+        <Pressable accessibilityRole="button" accessibilityLabel={t("card_detail.recommendation.close")} hitSlop={10} style={styles.relationModalClose} onPress={onClose}><Ionicons name="close" size={21} color={theme.colors.textMuted} /></Pressable>
+        <FlatList
+          horizontal
+          pagingEnabled
+          bounces={false}
+          data={relations}
+          style={styles.relationModalPager}
+          keyExtractor={(relation) => relation.recordId}
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.relationModalList}
+          getItemLayout={(_data, index) => ({ length: pageWidth, offset: pageWidth * index, index })}
+          onMomentumScrollEnd={(event) => setActiveIndex(Math.round(event.nativeEvent.contentOffset.x / pageWidth))}
+          renderItem={({ item }) => <RelationFocusCard relation={item} source={source} width={pageWidth} onOpen={() => onOpen(item)} />}
+        />
+        {relations.length > 1 ? <View style={styles.relationPagination}>{relations.map((relation, index) => <View key={relation.recordId} style={[styles.relationPaginationDot, index === activeIndex && styles.relationPaginationDotActive]} />)}</View> : null}
       </Pressable>
     </Pressable>
   </Modal>;
 }
 
-function RelationSheetExcerpt({ relation }: { relation: CardRelationItem }) {
+function RelationFocusCard({ relation, source, width, onOpen }: { relation: CardRelationItem; source: RelationSheetSource; width: number; onOpen: () => void }) {
   const phrase = relation.reasons.find((reason): reason is Extract<CardRelationReason, { type: "phrase" }> => reason.type === "phrase");
   const text = phrase?.sentence || relation.card?.rewrittenText || relation.card?.originalText || "";
-  if (!text) return null;
-  const match = phrase?.surfaceText ?? "";
-  const index = match ? text.toLocaleLowerCase().indexOf(match.toLocaleLowerCase()) : -1;
   const original = relation.card?.originalText.trim() ?? "";
-  return <View style={styles.relationPreviewCopy}>
-    <Text numberOfLines={3} style={styles.relationModalExcerpt}>{index < 0 ? text : <>{text.slice(0, index)}<Text style={styles.relationMatch}>{text.slice(index, index + match.length)}</Text>{text.slice(index + match.length)}</>}</Text>
-    {original && original !== text.trim() ? <Text numberOfLines={2} style={styles.relationModalOriginal}>{original}</Text> : null}
-    {relation.card ? <Text style={styles.relationDate}>{formatDate(relation.card.dateKey)}</Text> : null}
+  const sourceText = phrase?.currentSentence?.trim() || phrase?.currentSurfaceText?.trim() || source.targetText || source.title;
+  const sourceMatch = phrase?.currentSurfaceText?.trim() || "";
+  const sourceOriginal = source.originalText && source.originalText !== sourceText ? source.originalText : "";
+  const topic = relation.topic || relation.card?.displayTitle || "";
+  return <View style={[styles.relationFocusCard, { width }]}>
+    <Pressable accessibilityRole="button" style={({ pressed }) => [styles.relationFocusTarget, pressed && styles.metadataPressed]} onPress={onOpen}>
+      {topic ? <Text numberOfLines={1} style={styles.relationFocusTopic}>{topic}</Text> : null}
+      <View style={styles.relationFocusHero}>
+        {relation.card?.thumbnail ? <Image source={{ uri: relation.card.thumbnail.url }} resizeMode="cover" style={styles.relationFocusThumbnail} /> : null}
+        <View style={styles.relationFocusCopy}>
+          {text ? <HighlightedRelationText text={text} match={phrase?.surfaceText ?? ""} numberOfLines={5} style={styles.relationFocusExcerpt} /> : <Text numberOfLines={2} style={styles.relationFocusTitle}>{relation.card?.displayTitle || t("card_detail.another_record")}</Text>}
+          {original && original !== text.trim() ? <Text numberOfLines={3} style={styles.relationFocusOriginal}>{original}</Text> : null}
+          {relation.card ? <Text style={styles.relationDate}>{formatDate(relation.card.dateKey)}</Text> : null}
+        </View>
+      </View>
+    </Pressable>
+    {sourceText ? <View style={styles.relationSourceAnchor}>
+      <HighlightedRelationText text={sourceText} match={sourceMatch} numberOfLines={3} style={styles.relationSourceText} />
+      {sourceOriginal ? <Text numberOfLines={2} style={styles.relationSourceOriginal}>{sourceOriginal}</Text> : null}
+    </View> : null}
   </View>;
 }
 
-function ReasonBadge({ reason }: { reason: CardRelationReason }) {
-  const label = reason.type === "topic"
-    ? t("card_detail.relation.content_related")
-    : reason.matchMode === "semantic"
-      ? t("card_detail.relation.similar_meaning")
-      : tf(reason.evidence === "clozed" ? "card_detail.relation.clozed_phrase" : "card_detail.relation.shared_phrase", { phrase: reason.phrase });
-  return <View style={[styles.reasonBadge, reason.type === "phrase" && styles.reasonPhrase]}><Text style={styles.reasonText}>{label}</Text></View>;
+function HighlightedRelationText({ text, match, numberOfLines, style }: { text: string; match: string; numberOfLines: number; style: React.ComponentProps<typeof Text>["style"] }) {
+  const index = match ? text.toLocaleLowerCase().indexOf(match.toLocaleLowerCase()) : -1;
+  return <Text numberOfLines={numberOfLines} style={style}>{index < 0 ? text : <>{text.slice(0, index)}<Text style={styles.relationMatch}>{text.slice(index, index + match.length)}</Text>{text.slice(index + match.length)}</>}</Text>;
 }
 
 function Cloze({ detail, contentBinding, clozeState, clozeVersion, onClozeChange, onAddBlank, onBlankLongPress, embedded = false, fillMode = false, inputMode = "keyboard", answersVisible = false, displayMode = "target", activeSentenceKey = null, sentenceAudioLoadingKey = null, onPlaySentence, choiceOwnerKey, activeChoiceOwnerKey, selectedChoiceBlankId, onSelectChoiceBlank, onChoiceAnswered, onChoiceOwnerChange, onChoiceTrayChange, onChoiceAnswerHandlerChange, onChoiceSentenceFocus, relationFocusSentence = null, onRelationSentenceFocus, alignedOriginalGroups = [], languageRelation = null, onOpenLanguageRelation, activeKeyboardOwnerKey, selectedKeyboardBlankId, onActivateKeyboardOwner, onKeyboardTrayChange, onKeyboardAnswered, onKeyboardAnswerHandlerChange, onPendingClozeCheckHandlerChange, onClozeAttempt, onTextSelectionStart, onTextSelectionEnd }: {
@@ -4500,8 +4541,8 @@ function Cloze({ detail, contentBinding, clozeState, clozeVersion, onClozeChange
                 && blank.startUtf16 < languageEnd
                 && blank.endUtf16 > languageStart)
               : undefined;
-            const rowHasLanguageRelation = segment?.id === languageReason?.currentSegmentId
-              && (!fillMode || !relationBlank || checkedAnswers[relationBlank.blank.id] === "correct" || answersVisible);
+            const rowHasLanguageRelation = Boolean(relationBlank
+              && (!fillMode || checkedAnswers[relationBlank.blank.id] === "correct" || answersVisible));
             const usesAlignedGroups = alignedOriginalGroups.length > 0;
             if (displayMode === "auxiliary" && !(alignedGroup?.text || auxiliaryText)) return null;
             const keyboardEditing = fillMode && inputMode === "keyboard"
@@ -4536,6 +4577,7 @@ function Cloze({ detail, contentBinding, clozeState, clozeVersion, onClozeChange
                   activeChoiceBlankIndex={effectiveActiveChoiceBlankIndex}
                   activeKeyboardBlankIndex={effectiveActiveKeyboardBlankIndex}
                   onPlay={onPlaySentence ? () => onPlaySentence(row) : undefined}
+                  languageRelationBlankId={rowHasLanguageRelation ? relationBlank?.blank.id : undefined}
                   onOpenLanguageRelation={rowHasLanguageRelation ? onOpenLanguageRelation : undefined}
                   onLookup={(term, start, end, anchor) => lookupInSentence(row, term, start, end, anchor)}
                   onAddBlank={segment && !saving && onAddBlank ? (payload) => onAddBlank(segment, payload) : undefined}
@@ -4588,7 +4630,7 @@ function Cloze({ detail, contentBinding, clozeState, clozeVersion, onClozeChange
   return <View style={styles.reviewPage}><KeyboardAwareScrollView bottomOffset={16} extraKeyboardSpace={12} keyboardShouldPersistTaps="handled" keyboardDismissMode="interactive" contentContainerStyle={styles.practiceContent} alwaysBounceVertical={false}>{practice}</KeyboardAwareScrollView>{dictionaryPopover}</View>;
 }
 
-function StableCardSentence({ row, contentType, answers, checkedAnswers, revealed, saving, active, loading, fillMode, showTarget = true, inputMode, activeChoiceBlankIndex, activeKeyboardBlankIndex, onLookup, onAddBlank, onBlankLongPress, onPlay, onOpenLanguageRelation, onActivateChoiceBlank, onActivateKeyboardBlank, onChangeKeyboardAnswer, onCheckKeyboardAnswer, onTextSelectionStart, onTextSelectionEnd }: {
+function StableCardSentence({ row, contentType, answers, checkedAnswers, revealed, saving, active, loading, fillMode, showTarget = true, inputMode, activeChoiceBlankIndex, activeKeyboardBlankIndex, onLookup, onAddBlank, onBlankLongPress, onPlay, languageRelationBlankId, onOpenLanguageRelation, onActivateChoiceBlank, onActivateKeyboardBlank, onChangeKeyboardAnswer, onCheckKeyboardAnswer, onTextSelectionStart, onTextSelectionEnd }: {
   row: CardClozeSentenceRow;
   contentType: CardLearningContentType;
   answers: Record<string, string>;
@@ -4606,6 +4648,7 @@ function StableCardSentence({ row, contentType, answers, checkedAnswers, reveale
   onAddBlank?: (payload: NativeTextSelectionPayload) => void;
   onBlankLongPress?: (blank: CardClozeState["blanks"][number], anchor?: CardBlankActionAnchor) => void;
   onPlay?: () => void;
+  languageRelationBlankId?: string;
   onOpenLanguageRelation?: () => void;
   onActivateChoiceBlank: (blankIndex: number) => void;
   onActivateKeyboardBlank: (blankIndex: number, anchor?: CardBlankActionAnchor) => void;
@@ -4636,6 +4679,8 @@ function StableCardSentence({ row, contentType, answers, checkedAnswers, reveale
           onActivateKeyboardBlank={onActivateKeyboardBlank}
           onChangeKeyboardAnswer={onChangeKeyboardAnswer}
           onCheckKeyboardAnswer={onCheckKeyboardAnswer}
+          languageRelationBlankId={languageRelationBlankId}
+          onOpenLanguageRelation={onOpenLanguageRelation}
         />
       </View>
       {onPlay ? <Pressable
@@ -4647,13 +4692,6 @@ function StableCardSentence({ row, contentType, answers, checkedAnswers, reveale
         {loading
           ? <ActivityIndicator size="small" color={theme.colors.textSecondary} />
           : <Ionicons name={active ? "stop" : "play"} size={14} color={theme.colors.textSecondary} />}
-      </Pressable> : null}
-      {onOpenLanguageRelation ? <Pressable
-        accessibilityLabel={t("card_detail.relation.entry")}
-        style={({ pressed }) => [styles.inlineLanguageRelation, pressed && styles.inlineLanguageRelationPressed]}
-        onPress={onOpenLanguageRelation}
-      >
-        <Ionicons name="link-outline" size={13} color={theme.colors.accentStrong} />
       </Pressable> : null}
     </> : null}
   </View>;
@@ -4687,7 +4725,7 @@ function buildCardClozeSentenceRows(detail: CardRecordDetail, clozeState: CardCl
   });
 }
 
-function CardBlankSentenceFlow({ row, answers, checkedAnswers, revealed, saving, fillMode, inputMode, activeChoiceBlankIndex, activeKeyboardBlankIndex, onLookup, onAddBlank, onBlankLongPress, onActivateChoiceBlank, onActivateKeyboardBlank, onChangeKeyboardAnswer, onCheckKeyboardAnswer, onTextSelectionStart, onTextSelectionEnd }: {
+function CardBlankSentenceFlow({ row, answers, checkedAnswers, revealed, saving, fillMode, inputMode, activeChoiceBlankIndex, activeKeyboardBlankIndex, onLookup, onAddBlank, onBlankLongPress, onActivateChoiceBlank, onActivateKeyboardBlank, onChangeKeyboardAnswer, onCheckKeyboardAnswer, languageRelationBlankId, onOpenLanguageRelation, onTextSelectionStart, onTextSelectionEnd }: {
   row: CardClozeSentenceRow;
   answers: Record<string, string>;
   checkedAnswers: Record<string, "correct" | "incorrect">;
@@ -4704,6 +4742,8 @@ function CardBlankSentenceFlow({ row, answers, checkedAnswers, revealed, saving,
   onActivateKeyboardBlank: (blankIndex: number, anchor?: CardBlankActionAnchor) => void;
   onChangeKeyboardAnswer: (blankIndex: number, value: string) => void;
   onCheckKeyboardAnswer: (blankIndex: number) => void;
+  languageRelationBlankId?: string;
+  onOpenLanguageRelation?: () => void;
   onTextSelectionStart?: () => void;
   onTextSelectionEnd?: () => void;
 }) {
@@ -4744,13 +4784,11 @@ function CardBlankSentenceFlow({ row, answers, checkedAnswers, revealed, saving,
   const highlightRanges = phraseRanges;
   const blankIsCorrect = ({ blank }: typeof row.blanks[number]) => isCardClozeBlankCorrect(blank, checkedAnswers);
   const hiddenRanges = row.blanks
-      // Persisted mastery keeps the green background, but reopening a card
-      // starts a fresh exercise and masks the answer again.
-      .filter(({ blank }) => shouldMaskCardClozeBlank(blank, checkedAnswers, revealed))
-      .map(({ blank }) => ({
-        start: blank.startUtf16 - row.textStart,
-        end: blank.endUtf16 - row.textStart,
-      }));
+    .filter(({ blank }) => shouldMaskCardClozeBlank(blank, checkedAnswers, revealed))
+    .map(({ blank }) => ({
+      start: blank.startUtf16 - row.textStart,
+      end: blank.endUtf16 - row.textStart,
+    }));
   const correctRanges = row.blanks
     .filter(blankIsCorrect)
     .map(({ blank }) => ({
@@ -4766,6 +4804,11 @@ function CardBlankSentenceFlow({ row, answers, checkedAnswers, revealed, saving,
   const keyboardWordTargets = keyboardItem
     ? rangeTargets.filter((target) => target.blank.id === keyboardItem.blank.id)
     : [];
+  const languageRelationWordTargets = languageRelationBlankId
+    ? rangeTargets.filter((target) => target.blank.id === languageRelationBlankId)
+    : [];
+  const measurementTargets = [...keyboardWordTargets, ...languageRelationWordTargets]
+    .filter((target, index, targets) => targets.findIndex((candidate) => candidate.groupIndex === target.groupIndex) === index);
   const keyboardAnswer = keyboardItem ? answers[keyboardItem.blank.id] ?? "" : "";
   const activeRange = activeItem && inputMode === "choice"
     ? { start: activeItem.blank.startUtf16 - row.textStart, end: activeItem.blank.endUtf16 - row.textStart }
@@ -4810,6 +4853,12 @@ function CardBlankSentenceFlow({ row, answers, checkedAnswers, revealed, saving,
     && measuredWordFrames.length === keyboardWordTargets.length;
   const firstMeasuredWordFrame = measuredWordFrames[0] ?? null;
   const lastMeasuredWordFrame = measuredWordFrames[measuredWordFrames.length - 1] ?? null;
+  const languageRelationFrames = languageRelationWordTargets
+    .map(measuredFrameFor)
+    .filter((frame): frame is NonNullable<typeof frame> => Boolean(frame));
+  const languageRelationAnchorFrame = languageRelationFrames.length === languageRelationWordTargets.length
+    ? languageRelationFrames[languageRelationFrames.length - 1] ?? null
+    : null;
   const measuredPhraseFrame = firstMeasuredWordFrame && lastMeasuredWordFrame
     && Math.abs(firstMeasuredWordFrame.top - lastMeasuredWordFrame.top) < 2
     ? {
@@ -4915,7 +4964,7 @@ function CardBlankSentenceFlow({ row, answers, checkedAnswers, revealed, saving,
       }}
       onClozeRangePress={activateBlank}
     />
-    {keyboardItem ? keyboardWordTargets.flatMap((target) => [
+    {measurementTargets.flatMap((target) => [
       <Text
         key={`${target.groupIndex}:prefix`}
         pointerEvents="none"
@@ -4930,7 +4979,22 @@ function CardBlankSentenceFlow({ row, answers, checkedAnswers, revealed, saving,
         style={[styles.clozeSentence, styles.clozeRangeMeasure]}
         onTextLayout={(event) => recordRangeLayout(target.groupIndex, "through", event.nativeEvent.lines)}
       >{sentenceText.slice(0, target.end)}</Text>,
-    ]) : null}
+    ])}
+    {onOpenLanguageRelation && languageRelationAnchorFrame ? <Pressable
+      accessibilityLabel={t("card_detail.relation.entry")}
+      hitSlop={7}
+      style={({ pressed }) => [
+        styles.blankLanguageRelation,
+        {
+          left: languageRelationAnchorFrame.left + languageRelationAnchorFrame.width - 11,
+          top: languageRelationAnchorFrame.top - 7,
+        },
+        pressed && styles.blankLanguageRelationPressed,
+      ]}
+      onPress={onOpenLanguageRelation}
+    >
+      <Ionicons name="link-outline" size={10} color={theme.colors.accentStrong} />
+    </Pressable> : null}
     {keyboardItem && activeKeyboardFrame && displayInputFrame && displayCheckFrame ? <>
       <TextInput
         key={`${keyboardItem.blank.id}:${activeKeyboardFrame.focusRequest}`}
@@ -4985,11 +5049,9 @@ function buildCardClozeAnswerRanges(
 ): NativeClozeAnswerRange[] {
   if (revealed) return [];
   return row.blanks.flatMap(({ blank }) => {
-    // Always paint the canonical answer for a blank completed in this session. Android can
-    // briefly receive the mastered/correct range before its old blank mask is
-    // removed, so relying on the underlying sentence glyphs leaves a green
-    // but visually empty blank. Durable `mastered` progress intentionally does
-    // not count here: reopening a card starts a fresh practice session.
+    // Only restore the canonical answer after a correct attempt in this session.
+    // Persisted mastery stays green after reopening, but its answer is masked
+    // again so the user still gets a recall opportunity.
     const correct = isCardClozeBlankAnsweredThisSession(blank, checkedAnswers);
     const answer = correct ? blank.answer : answers[blank.id] ?? "";
     if (!answer) return [];
@@ -5082,6 +5144,8 @@ const styles = StyleSheet.create({
   page: { flex: 1, backgroundColor: theme.colors.canvas },
   header: { height: 60, paddingHorizontal: 8, flexDirection: "row", alignItems: "center" },
   headerButton: { width: 64, minHeight: 44, justifyContent: "center" }, close: { color: theme.colors.textSecondary, fontSize: 15 }, title: { flex: 1, textAlign: "center", color: theme.colors.text, fontSize: 16, fontWeight: "500" },
+  recallContextLabel: { marginTop: -5, marginBottom: 5, paddingHorizontal: 20, textAlign: "center", color: theme.colors.textMuted, fontSize: 12, lineHeight: 18 },
+  recallContextLabelHidden: { opacity: 0 },
   cardModeSwitch: { flex: 1, height: 44, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 16 },
   cardModeOption: { minWidth: 42, height: 44, alignItems: "center", justifyContent: "center" },
   cardLanguageIcon: { width: 25, height: 25, position: "relative" },
@@ -5273,8 +5337,8 @@ const styles = StyleSheet.create({
   stableSentence: { alignSelf: "stretch", overflow: "visible", flexDirection: "row", alignItems: "flex-end" },
   stableSentenceContent: { flex: 1, minWidth: 0, zIndex: 10, overflow: "visible" },
   inlineSentencePlayTrailing: { width: 24, height: 24, marginLeft: 5, marginBottom: 2, borderRadius: 12, backgroundColor: theme.colors.surfaceMuted, alignItems: "center", justifyContent: "center", flexShrink: 0 },
-  inlineLanguageRelation: { width: 24, height: 24, marginLeft: 4, marginBottom: 2, borderRadius: 12, borderWidth: StyleSheet.hairlineWidth, borderColor: "rgba(82,121,108,0.30)", backgroundColor: theme.colors.accentSoft, alignItems: "center", justifyContent: "center", flexShrink: 0 },
-  inlineLanguageRelationPressed: { opacity: 0.68, transform: [{ scale: 0.94 }] },
+  blankLanguageRelation: { position: "absolute", zIndex: 70, width: 18, height: 18, borderRadius: 9, borderWidth: StyleSheet.hairlineWidth, borderColor: "rgba(82,121,108,0.34)", backgroundColor: theme.colors.accentSoft, alignItems: "center", justifyContent: "center" },
+  blankLanguageRelationPressed: { opacity: 0.68, transform: [{ scale: 0.94 }] },
   stableSentenceActive: { borderRadius: 7, backgroundColor: theme.colors.surfaceMuted },
   inlineSentenceActions: { minHeight: 34, marginTop: 4, flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 8 },
   inlineSentenceActionSpacer: { flex: 1 },
@@ -5339,19 +5403,26 @@ const styles = StyleSheet.create({
   relationChipWrap: { alignSelf: "flex-end", marginTop: 8, marginBottom: 2 },
   relationChip: { minHeight: 28, paddingLeft: 12, paddingRight: 8, borderRadius: 14, borderWidth: StyleSheet.hairlineWidth, borderColor: "rgba(82,121,108,0.26)", backgroundColor: theme.colors.accentSoft, flexDirection: "row", alignItems: "center", gap: 2 },
   relationChipText: { color: theme.colors.accentStrong, fontSize: 12, fontWeight: "700", letterSpacing: 1 },
-  relationModalBackdrop: { flex: 1, paddingHorizontal: 18, paddingBottom: 28, backgroundColor: "rgba(25, 29, 27, 0.35)", justifyContent: "flex-end" },
-  relationModalSheet: { maxHeight: "64%", padding: 18, borderRadius: 22, backgroundColor: theme.colors.surface },
-  relationModalHeader: { minHeight: 32, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  relationModalTitle: { color: theme.colors.text, fontSize: 16, fontWeight: "700" },
-  relationModalList: { paddingTop: 8, paddingBottom: 4 },
-  relationModalRow: { minHeight: 76, paddingVertical: 10, flexDirection: "row", alignItems: "center", gap: 11, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.border },
-  relationModalThumbnail: { width: 64, height: 48, borderRadius: 9, backgroundColor: theme.colors.surfaceMuted },
-  relationModalThumbnailFallback: { alignItems: "center", justifyContent: "center" },
-  relationModalCopy: { flex: 1, minWidth: 0, alignItems: "flex-start", gap: 4 },
-  relationModalCardTitle: { color: theme.colors.text, fontSize: 14, fontWeight: "600" },
-  relationPreviewCopy: { alignSelf: "stretch", gap: 4 },
-  relationModalExcerpt: { color: theme.colors.textSecondary, fontSize: 13, lineHeight: 18 },
-  relationModalOriginal: { color: theme.colors.textMuted, fontSize: 12, lineHeight: 17 },
+  relationModalBackdrop: { flex: 1, paddingHorizontal: 16, paddingVertical: 24, backgroundColor: "rgba(25, 29, 27, 0.35)", justifyContent: "center" },
+  relationModalSheet: { width: "100%", maxWidth: 560, height: "82%", alignSelf: "center", paddingHorizontal: 18, paddingTop: 28, paddingBottom: 14, borderRadius: 24, backgroundColor: theme.colors.surface, overflow: "hidden" },
+  relationModalClose: { position: "absolute", zIndex: 2, top: 12, right: 12, width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center" },
+  relationModalPager: { flex: 1 },
+  relationModalList: { paddingTop: 8 },
+  relationPagination: { minHeight: 20, paddingTop: 8, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 },
+  relationPaginationDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: theme.colors.border },
+  relationPaginationDotActive: { width: 14, backgroundColor: theme.colors.accentStrong },
+  relationFocusCard: { height: "100%", paddingHorizontal: 4, paddingVertical: 8, justifyContent: "space-between" },
+  relationFocusTarget: { flex: 1, minHeight: 250, paddingHorizontal: 10, paddingTop: 22, paddingBottom: 18, alignItems: "stretch", justifyContent: "center", gap: 20 },
+  relationFocusTopic: { maxWidth: "78%", alignSelf: "center", color: theme.colors.textMuted, fontSize: 12, lineHeight: 17, textAlign: "center" },
+  relationFocusHero: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 18 },
+  relationFocusThumbnail: { width: 132, aspectRatio: 4 / 3, flexShrink: 0, borderRadius: 13, backgroundColor: theme.colors.surfaceMuted },
+  relationFocusCopy: { flex: 1, minWidth: 0, maxWidth: 300, alignItems: "flex-start", gap: 8 },
+  relationFocusTitle: { color: theme.colors.text, fontSize: 15, lineHeight: 21, fontWeight: "700" },
+  relationFocusExcerpt: { alignSelf: "stretch", color: theme.colors.text, fontSize: 16, lineHeight: 23 },
+  relationFocusOriginal: { alignSelf: "stretch", color: theme.colors.textSecondary, fontSize: 13, lineHeight: 19 },
+  relationSourceAnchor: { width: "82%", minHeight: 92, maxHeight: 132, marginBottom: 4, paddingTop: 14, paddingHorizontal: 12, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.border, alignSelf: "center", justifyContent: "center", gap: 5 },
+  relationSourceText: { color: theme.colors.textSecondary, fontSize: 13, lineHeight: 19, textAlign: "center" },
+  relationSourceOriginal: { color: theme.colors.textMuted, fontSize: 11, lineHeight: 16, textAlign: "center" },
   relationsSection: { marginTop: 34, paddingTop: 16, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.border },
   relationsHeader: { minHeight: 40, flexDirection: "row", alignItems: "center" },
   relationsSectionTitle: { flex: 1, color: theme.colors.textSecondary, fontSize: 13, fontWeight: "400" },
@@ -5365,11 +5436,8 @@ const styles = StyleSheet.create({
   relationCard: { marginTop: 10, padding: 14, borderRadius: theme.radius.control, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surface },
   relationTitleRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   relationTitle: { flex: 1, color: theme.colors.text, fontSize: 15, fontWeight: "600" },
-  relationMatch: { color: theme.colors.accentStrong, backgroundColor: theme.colors.accentSoft, fontWeight: "700" },
+  relationMatch: { color: "#244C3F", backgroundColor: "#BFE8D8", fontWeight: "700" },
   reasonList: { marginTop: 10, flexDirection: "row", flexWrap: "wrap", gap: 7 },
-  reasonBadge: { paddingHorizontal: 9, paddingVertical: 5, borderRadius: theme.radius.pill, backgroundColor: theme.colors.surfaceMuted },
-  reasonPhrase: { backgroundColor: theme.colors.accentSoft },
-  reasonText: { color: theme.colors.textSecondary, fontSize: 11, fontWeight: "600" },
   draftContent: { paddingHorizontal: 22, paddingTop: 10, paddingBottom: 52 },
   draftContentPage: { flex: 1, paddingHorizontal: 22 },
   draftEditorScroll: { flex: 1 },

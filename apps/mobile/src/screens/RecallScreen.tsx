@@ -1,9 +1,9 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Alert, Animated, AppState, Easing, Modal, PanResponder, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import { ActivityIndicator, Alert, Animated, AppState, Easing, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { t, tf } from "../i18n";
+import { getLanguage, t, tf } from "../i18n";
 import { logEvent } from "../services/logger";
 import {
   createRecallSessionFromRecords,
@@ -28,10 +28,16 @@ import { CardDetailModal } from "./CardDetailModal";
 import { generateMissingCardContent, hasGeneratedContent, type CardGenerationTarget } from "../services/card/cardContentGeneration";
 import { getCardGenerationState, subscribeCardGenerationState } from "../services/card/cardGenerationState";
 import { recallResumeIndex, readRecallBookmark } from "../services/card/recallProgress";
+import {
+  isTimeCapsuleQuery,
+  mergeTimeCapsuleRecords,
+  recallTimeCapsuleAnchors,
+  restoreTimeCapsuleRecordOrder,
+  timeCapsuleQuery,
+  type RecallTimeCapsuleAnchor,
+} from "../services/card/recallTimeCapsule";
 
 type Stage = "home" | "deck" | "summary";
-type BlindPeriod = "week" | "month" | "quarter" | "year" | "all";
-const BLIND_BOX_SETTINGS_KEY = "linguaflow.recall.blind_box.settings.v1";
 const recallPositionKey = (sessionId: string): string => `linguaflow.recall.position.v1:${sessionId}`;
 
 export function RecallScreen({ isActive, onOpenLibrary, onEditCard, onCardChanged, onOpenMemoryRound, memoryRoundResumeAvailable, refreshRevision = 0, launchRequest = null }: { isActive: boolean; onOpenLibrary: () => void; onEditCard: (recordId: string) => void; onCardChanged: () => void; onOpenMemoryRound: () => void; memoryRoundResumeAvailable: boolean; refreshRevision?: number; launchRequest?: { key: number; mode: "today" | "yesterday" | "recent" | "blind" } | null }) {
@@ -41,7 +47,6 @@ export function RecallScreen({ isActive, onOpenLibrary, onEditCard, onCardChange
   const [yesterdayCards, setYesterdayCards] = useState<CardRecordSummary[]>([]);
   const [dateKeys, setDateKeys] = useState<string[]>([]);
   const [activeSession, setActiveSession] = useState<RecallSession | null>(null);
-  const [blindSession, setBlindSession] = useState<RecallSession | null>(null);
   const [session, setSession] = useState<RecallSession | null>(null);
   const [cards, setCards] = useState<Record<string, CardRecordDetail>>({});
   const [pendingGenerationTargets, setPendingGenerationTargets] = useState<CardGenerationTarget[]>([]);
@@ -50,15 +55,13 @@ export function RecallScreen({ isActive, onOpenLibrary, onEditCard, onCardChange
   const [currentIndex, setCurrentIndex] = useState(0);
   const [attempts, setAttempts] = useState<Record<string, boolean>>({});
   const [summary, setSummary] = useState({ cards: 0, attempted: 0, correct: 0 });
-  const [completedBlindBox, setCompletedBlindBox] = useState(false);
+  const [completedTimeCapsule, setCompletedTimeCapsule] = useState(false);
+  const [timeCapsuleAnchorByRecordId, setTimeCapsuleAnchorByRecordId] = useState<Record<string, RecallTimeCapsuleAnchor>>({});
   const [finishing, setFinishing] = useState(false);
   const [datePickerVisible, setDatePickerVisible] = useState(false);
   const [topicVisible, setTopicVisible] = useState(false);
   const [topic, setTopic] = useState("");
   const [topicSearchState, setTopicSearchState] = useState<"idle" | "searching" | "empty">("idle");
-  const [blindVisible, setBlindVisible] = useState(false);
-  const [blindPeriod, setBlindPeriod] = useState<BlindPeriod>("quarter");
-  const [blindCount, setBlindCount] = useState(5);
   const [directLaunchPending, setDirectLaunchPending] = useState(Boolean(launchRequest));
   const handledLaunchRef = useRef<number | null>(null);
   const progressQueueRef = useRef<Promise<unknown>>(Promise.resolve());
@@ -86,17 +89,6 @@ export function RecallScreen({ isActive, onOpenLibrary, onEditCard, onCardChange
   }), [stage, session?.id, currentIndex]);
 
   useEffect(() => {
-    void AsyncStorage.getItem(BLIND_BOX_SETTINGS_KEY).then((raw) => {
-      if (!raw) return;
-      try {
-        const saved = JSON.parse(raw) as { period?: BlindPeriod; count?: number };
-        if (["week", "month", "quarter", "year", "all"].includes(saved.period ?? "")) setBlindPeriod(saved.period!);
-        if (Number.isInteger(saved.count) && saved.count! >= 1 && saved.count! <= 10) setBlindCount(saved.count!);
-      } catch { /* Keep defaults when local settings are malformed. */ }
-    }).catch(() => undefined);
-  }, []);
-
-  useEffect(() => {
     if (!launchRequest || handledLaunchRef.current === launchRequest.key) return;
     setDirectLaunchPending(true);
   }, [launchRequest?.key]);
@@ -107,17 +99,15 @@ export function RecallScreen({ isActive, onOpenLibrary, onEditCard, onCardChange
       const today = localDateKey(new Date());
       const yesterday = localDateKey(new Date(Date.now() - 86_400_000));
       await progressQueueRef.current.catch(() => undefined);
-      const resumeMode = launchRequest?.mode === "blind" || launchRequest?.mode === "recent" ? launchRequest.mode : undefined;
-      const [todayRows, yesterdayRows, keys, active, blind] = await Promise.all([
+      const [todayRows, yesterdayRows, keys, active] = await Promise.all([
         getCardRecords({ dateKey: today, limit: 50 }),
         getCardRecords({ dateKey: yesterday, limit: 50 }),
         getCardDateKeys("2000-01-01", today),
-        getActiveRecallSession(resumeMode),
-        getActiveRecallSession("blind"),
+        getActiveRecallSession(),
       ]);
       const completedTodayRows = completedCards(todayRows);
       const completedYesterdayRows = completedCards(yesterdayRows);
-      const resumableActive = active?.nodes.length && await canResumeRecallSession(active, yesterday)
+      const resumableActive = active?.nodes.length && !isRecentRecallSession(active) && !isBlindRecallSession(active) && !isTimeCapsuleRecallSession(active)
         ? active
         : null;
       const validKeys = [...keys].sort();
@@ -125,22 +115,13 @@ export function RecallScreen({ isActive, onOpenLibrary, onEditCard, onCardChange
       setYesterdayCards(completedYesterdayRows);
       setDateKeys(validKeys);
       setActiveSession(resumableActive);
-      setBlindSession(blind?.nodes.length && isBlindRecallSession(blind) ? blind : null);
       if (launchRequest && handledLaunchRef.current !== launchRequest.key) {
         handledLaunchRef.current = launchRequest.key;
-        if (resumeMode === "recent" && resumableActive && isRecentRecallSession(resumableActive)) {
-          try {
-            await openSession(resumableActive, true);
-            setDirectLaunchPending(false);
-            return;
-          } catch (error) {
-            if (!(error instanceof CardApiError) || error.code !== "RECALL_NO_AVAILABLE_CARDS") throw error;
-            // All previous cards were removed: allow a fresh selection, not an endless retry.
-          }
-        }
         if (launchRequest.mode === "blind") {
-          setBlindVisible(true);
+          const started = await beginTimeCapsule();
           setDirectLaunchPending(false);
+          if (!started) onOpenLibrary();
+          return;
         }
         else {
           const rows = launchRequest.mode === "today"
@@ -196,7 +177,7 @@ export function RecallScreen({ isActive, onOpenLibrary, onEditCard, onCardChange
     if (resume && value.status === "paused") await resumeRecallSession(value.id);
     await AsyncStorage.setItem(recallPositionKey(value.id), JSON.stringify({ nodeId: node.id, savedAt: Date.now() }));
     setCards(hydratedCards);
-    setCompletedBlindBox(isBlindRecallSession(value));
+    setCompletedTimeCapsule(isTimeCapsuleRecallSession(value));
     setSession(availableSession);
     setAttempts({});
     setCurrentIndex(initialIndex);
@@ -204,7 +185,7 @@ export function RecallScreen({ isActive, onOpenLibrary, onEditCard, onCardChange
     queueProgress(value.id, node.id);
   }
 
-  async function beginRecords(recordIds: string[], query?: string): Promise<boolean> {
+  async function beginRecords(recordIds: string[], query?: string, timeCapsuleAnchors?: Record<string, RecallTimeCapsuleAnchor>): Promise<boolean> {
     const uniqueIds = [...new Set(recordIds)].slice(0, 50);
     if (!uniqueIds.length) {
       Alert.alert(t("recall.error.empty"));
@@ -213,13 +194,18 @@ export function RecallScreen({ isActive, onOpenLibrary, onEditCard, onCardChange
     setLoading(true);
     try {
       const created = await createRecallSessionFromRecords(uniqueIds, query);
-      setCompletedBlindBox(query?.startsWith("blind:") === true);
-      await openSession(created);
+      const orderedSession = isTimeCapsuleQuery(query)
+        ? { ...created, nodes: restoreTimeCapsuleRecordOrder(created.nodes, uniqueIds) }
+        : created;
+      setCompletedTimeCapsule(isTimeCapsuleQuery(query));
+      setTimeCapsuleAnchorByRecordId(timeCapsuleAnchors ?? {});
+      await openSession(orderedSession);
       return true;
     } catch (error) {
+      setTimeCapsuleAnchorByRecordId({});
       void logEvent("recall_session_start_failed", "error", error instanceof Error ? error.message : String(error), {
         cardCount: uniqueIds.length,
-        source: query?.startsWith("blind:") ? "blind_box" : "records",
+        source: isTimeCapsuleQuery(query) ? "time_capsule" : "records",
       }).catch(() => undefined);
       Alert.alert(t("recall.error.start_title"), t("recall.error.retry"));
       return false;
@@ -232,13 +218,13 @@ export function RecallScreen({ isActive, onOpenLibrary, onEditCard, onCardChange
     if (!value || loading) return;
     setLoading(true);
     try {
-      setCompletedBlindBox(isBlindRecallSession(value));
+      setCompletedTimeCapsule(false);
+      setTimeCapsuleAnchorByRecordId({});
       await openSession(value, true);
-      setBlindVisible(false);
     }
     catch (error) {
       if (error instanceof CardApiError && error.code === "RECALL_NO_AVAILABLE_CARDS") {
-        setBlindSession(null);
+        setActiveSession(null);
         Alert.alert(t("recall.error.empty"));
       } else Alert.alert(t("recall.error.load"));
     }
@@ -278,47 +264,30 @@ export function RecallScreen({ isActive, onOpenLibrary, onEditCard, onCardChange
     }
   }
 
-  async function beginBlindBox(): Promise<void> {
-    const { from, to } = resolveBlindPeriodRange(blindPeriod, dateKeys);
-    const eligibleKeys = shuffle(dateKeys.filter((key) => key >= from && key <= to));
-    if (!eligibleKeys.length) {
-      Alert.alert(t("recall.error.empty"));
-      return;
-    }
+  async function beginTimeCapsule(): Promise<boolean> {
+    const now = new Date();
+    const anchors = recallTimeCapsuleAnchors(now);
     setLoading(true);
     try {
-      const candidates: string[] = [];
-      for (const key of eligibleKeys) {
-        const rows = completedCards(await getCardRecords({ dateKey: key, limit: 200 }));
-        candidates.push(...shuffle(rows.map((row) => row.id)));
-        if (candidates.length >= blindCount * 2) break;
-      }
-      const selected = shuffle([...new Set(candidates)]).slice(0, blindCount);
-      if (!selected.length) {
+      const groups = await Promise.all(anchors.map(async (anchor) => ({
+        anchor,
+        records: completedCards(await getCardRecords({ dateKey: anchor.dateKey, limit: 200 })),
+      })));
+      const merged = mergeTimeCapsuleRecords(groups, 50);
+      if (!merged.records.length) {
         Alert.alert(t("recall.error.empty"));
-        return;
+        return false;
       }
-      const started = await beginRecords(selected, `blind:${blindPeriod}:${from}:${to}`);
-      if (started) setBlindVisible(false);
+      return await beginRecords(merged.records.map((record) => record.id), timeCapsuleQuery(now), merged.anchorByRecordId);
     } catch (error) {
       void logEvent("recall_blind_box_start_failed", "error", error instanceof Error ? error.message : String(error), {
-        period: blindPeriod,
-        count: blindCount,
+        anchorCount: anchors.length,
       }).catch(() => undefined);
       Alert.alert(t("recall.error.start_title"), t("recall.error.retry"));
+      return false;
     } finally {
       setLoading(false);
     }
-  }
-
-  function updateBlindPeriod(period: BlindPeriod): void {
-    setBlindPeriod(period);
-    void saveBlindSettings(period, blindCount);
-  }
-
-  function updateBlindCount(count: number): void {
-    setBlindCount(count);
-    void saveBlindSettings(blindPeriod, count);
   }
 
   function navigateDeck(nextIndex: number): void {
@@ -372,6 +341,7 @@ export function RecallScreen({ isActive, onOpenLibrary, onEditCard, onCardChange
   function finishSummary(): void {
     setSession(null);
     setCards({});
+    setTimeCapsuleAnchorByRecordId({});
     if (launchRequest) {
       onOpenLibrary();
       return;
@@ -401,6 +371,13 @@ export function RecallScreen({ isActive, onOpenLibrary, onEditCard, onCardChange
 
   const currentNode = session?.nodes[currentIndex];
   const currentDetail = currentNode ? cards[currentNode.recordId] ?? null : null;
+  const currentTimeCapsuleAnchor = currentNode ? timeCapsuleAnchorByRecordId[currentNode.recordId] : undefined;
+  const previousTimeCapsuleAnchor = currentIndex > 0
+    ? timeCapsuleAnchorByRecordId[session?.nodes[currentIndex - 1]?.recordId ?? ""]
+    : undefined;
+  const nextTimeCapsuleAnchor = session && currentIndex < session.nodes.length - 1
+    ? timeCapsuleAnchorByRecordId[session.nodes[currentIndex + 1]?.recordId ?? ""]
+    : undefined;
   function confirmRemoveCurrentImage(imageId?: string): void {
     if (!currentDetail) return;
     const images = currentDetail.images ?? [];
@@ -427,7 +404,7 @@ export function RecallScreen({ isActive, onOpenLibrary, onEditCard, onCardChange
       loading={!currentDetail}
       initialTab={hasRecallCloze(currentDetail) ? "cloze" : "review"}
       hideRelations
-      hidePhraseRecommendation={isBlindRecallSession(session) || session.launchContext?.query?.startsWith("recent:") === true}
+      hidePhraseRecommendation={isTimeCapsuleRecallSession(session) || session.launchContext?.query?.startsWith("recent:") === true}
       onEditCard={() => onEditCard(currentNode.recordId)}
       onUpdateMetadata={async (input) => {
         if (!currentDetail) return false;
@@ -469,6 +446,9 @@ export function RecallScreen({ isActive, onOpenLibrary, onEditCard, onCardChange
       onRemoveImage={currentDetail && ((currentDetail.images?.length ?? 0) > 0 || currentDetail.image) ? confirmRemoveCurrentImage : undefined}
       onClose={leaveDeck}
       recallPosition={{ index: currentIndex, total: session.nodes.length }}
+      recallContextLabel={currentTimeCapsuleAnchor ? timeCapsuleLabel(currentTimeCapsuleAnchor) : undefined}
+      recallPreviousContextLabel={previousTimeCapsuleAnchor ? timeCapsuleLabel(previousTimeCapsuleAnchor) : undefined}
+      recallNextContextLabel={nextTimeCapsuleAnchor ? timeCapsuleLabel(nextTimeCapsuleAnchor) : undefined}
       recallPreviousDetail={currentIndex > 0 ? cards[session.nodes[currentIndex - 1]!.recordId] ?? null : null}
       recallNextDetail={currentIndex < session.nodes.length - 1 ? cards[session.nodes[currentIndex + 1]!.recordId] ?? null : null}
       onRecallPrevious={currentIndex > 0 ? () => navigateDeck(currentIndex - 1) : undefined}
@@ -498,33 +478,27 @@ export function RecallScreen({ isActive, onOpenLibrary, onEditCard, onCardChange
     {finishing ? <View style={styles.busyOverlay}><ActivityIndicator size="large" color={theme.colors.text} /></View> : null}
   </View>;
 
-  if (stage === "summary") return <RecallSummary summary={summary} onDone={finishSummary} onAgain={completedBlindBox ? () => void beginBlindBox() : undefined} loading={loading} />;
+  if (stage === "summary") return <RecallSummary summary={summary} onDone={finishSummary} onAgain={completedTimeCapsule ? () => void beginTimeCapsule() : undefined} loading={loading} />;
 
   if (directLaunchPending) return <SafeAreaView style={styles.directLaunchPage}><ActivityIndicator size="large" color={theme.colors.text} /></SafeAreaView>;
 
-  if (launchRequest?.mode === "blind") return <SafeAreaView style={styles.directLaunchPage}>
-    <BlindBoxModal visible period={blindPeriod} count={blindCount} loading={loading} onClose={onOpenLibrary} onPeriodChange={updateBlindPeriod} onCountChange={updateBlindCount} onResume={blindSession ? () => void resume(blindSession) : undefined} onStart={() => void beginBlindBox()} />
-  </SafeAreaView>;
-
-  const activeBlindBoxSession = isBlindRecallSession(activeSession);
   return <SafeAreaView style={styles.page}>
     <View style={styles.header}><Pressable accessibilityLabel={t("recall.a11y.back")} style={styles.headerSide} onPress={onOpenLibrary}><Ionicons name="chevron-back" size={25} color={theme.colors.text} /></Pressable><Text style={styles.headerTitle}>{t("recall.title")}</Text><View style={styles.headerSide} /></View>
     <ScrollView contentContainerStyle={styles.home} showsVerticalScrollIndicator={false}>
       <MemoryRoundHero active={isActive} resume={memoryRoundResumeAvailable} onPress={onOpenMemoryRound} />
-      {activeSession && !activeBlindBoxSession ? <Pressable style={styles.resume} onPress={() => void resume()}><Text style={styles.resumeText}>{t("recall.resume")}</Text><Ionicons name="arrow-forward" size={18} color={theme.colors.text} /></Pressable> : null}
+      {activeSession ? <Pressable style={styles.resume} onPress={() => void resume()}><Text style={styles.resumeText}>{t("recall.resume")}</Text><Ionicons name="arrow-forward" size={18} color={theme.colors.text} /></Pressable> : null}
       <View style={styles.dayRow}>
         <DayCard title={t("recall.today")} count={todayCards.length} onPress={() => void beginRecords(todayCards.map((row) => row.id), localDateKey(new Date()))} />
         <DayCard title={t("recall.yesterday")} count={yesterdayCards.length} onPress={() => void beginRecords(yesterdayCards.map((row) => row.id), localDateKey(new Date(Date.now() - 86_400_000)))} />
       </View>
       <RecallChoice icon="calendar-outline" title={t("recall.select_date")} disabled={!dateKeys.length} onPress={() => setDatePickerVisible(true)} />
       <RecallChoice icon="search-outline" title={t("recall.explore")} disabled={!dateKeys.length} onPress={() => setTopicVisible(true)} />
-      <RecallChoice icon="cube-outline" title={t("recall.blind_box")} subtitle={blindSession ? t("recall.resume") : undefined} disabled={loading || (!blindSession && !dateKeys.length)} onPress={() => setBlindVisible(true)} />
+      <RecallChoice icon="cube-outline" title={t("recall.blind_box")} disabled={loading || !dateKeys.length} onPress={() => void beginTimeCapsule()} />
       {!loading && !dateKeys.length ? <Pressable style={styles.createHint} onPress={onOpenLibrary}><Text style={styles.createHintText}>{t("recall.create_more")}</Text><Ionicons name="add" size={18} color={theme.colors.text} /></Pressable> : null}
       {loading ? <ActivityIndicator style={styles.loader} color={theme.colors.text} /> : null}
     </ScrollView>
     <CardCalendarScreen visible={datePickerVisible} onClose={() => setDatePickerVisible(false)} onSelectDate={(value) => void beginSelectedDate(dateFromKey(value))} />
     <TopicModal visible={topicVisible} value={topic} searchState={topicSearchState} onChange={(value) => { setTopic(value); setTopicSearchState("idle"); }} onClose={() => { if (topicSearchState !== "searching") { setTopicVisible(false); setTopicSearchState("idle"); } }} onSubmit={() => void beginTopic()} />
-    <BlindBoxModal visible={blindVisible} period={blindPeriod} count={blindCount} loading={loading} onClose={() => !loading && setBlindVisible(false)} onPeriodChange={updateBlindPeriod} onCountChange={updateBlindCount} onResume={blindSession ? () => void resume(blindSession) : undefined} onStart={() => void beginBlindBox()} />
   </SafeAreaView>;
 }
 
@@ -573,87 +547,14 @@ function isRecentRecallSession(session: RecallSession | null): boolean {
   return typeof session?.launchContext?.query === "string" && session.launchContext.query.startsWith("recent:");
 }
 
-async function canResumeRecallSession(session: RecallSession, oldestDateKey: string): Promise<boolean> {
-  if (!isRecentRecallSession(session)) return true;
-  const saved = await AsyncStorage.getItem(recallPositionKey(session.id)).catch(() => null);
-  const savedNodeId = readRecallBookmark(saved, session.lastOpenedAt);
-  const resumeNode = session.nodes[recallResumeIndex(session.nodes, savedNodeId)];
-  if (!resumeNode) return false;
-  try {
-    const card = await getCardRecord(resumeNode.recordId);
-    const cardDate = new Date(card.recordedAt ?? card.createdAt);
-    return !Number.isNaN(cardDate.getTime()) && localDateKey(cardDate) >= oldestDateKey;
-  } catch {
-    return false;
-  }
+function isTimeCapsuleRecallSession(session: RecallSession | null): boolean {
+  return isTimeCapsuleQuery(session?.launchContext?.query);
 }
 
 function TopicModal({ visible, value, searchState, onChange, onClose, onSubmit }: { visible: boolean; value: string; searchState: "idle" | "searching" | "empty"; onChange: (value: string) => void; onClose: () => void; onSubmit: () => void }) {
   const searching = searchState === "searching";
   const enabled = Boolean(value.trim()) && !searching;
   return <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}><Pressable style={styles.scrim} onPress={onClose}><Pressable style={styles.panel} onPress={() => undefined}><Text style={styles.panelTitle}>{t("recall.explore")}</Text><View style={styles.topicInputRow}><TextInput autoFocus editable={!searching} value={value} onChangeText={onChange} placeholder={t("recall.topic_placeholder")} placeholderTextColor={theme.colors.textMuted} style={styles.topicInput} returnKeyType="go" onSubmitEditing={() => enabled && onSubmit()} /><Pressable disabled={!enabled} style={[styles.topicGo, !enabled && styles.topicGoDisabled]} onPress={onSubmit}>{searching ? <ActivityIndicator size="small" color={theme.colors.textMuted} /> : <Ionicons name="arrow-forward" size={18} color={enabled ? "#fff" : theme.colors.textMuted} />}</Pressable></View>{searching ? <View style={styles.topicStatus}><ActivityIndicator size="small" color={theme.colors.textMuted} /><Text style={styles.topicStatusText}>{t("recall.searching")}</Text></View> : searchState === "empty" ? <Text style={styles.topicEmpty}>{t("recall.error.empty")}</Text> : null}</Pressable></Pressable></Modal>;
-}
-
-function BlindBoxModal({ visible, period, count, loading, onClose, onPeriodChange, onCountChange, onStart, onResume }: { visible: boolean; period: BlindPeriod; count: number; loading: boolean; onClose: () => void; onPeriodChange: (period: BlindPeriod) => void; onCountChange: (count: number) => void; onStart: () => void; onResume?: () => void }) {
-  const periods: Array<{ value: BlindPeriod; label: string }> = [
-    { value: "week", label: t("recall.period.week") },
-    { value: "month", label: t("recall.period.month") },
-    { value: "quarter", label: t("recall.period.quarter") },
-    { value: "year", label: t("recall.period.year") },
-    { value: "all", label: t("recall.period.all") },
-  ];
-  return <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-    <Pressable style={styles.scrim} onPress={onClose}>
-      <Pressable style={styles.panel} onPress={() => undefined}>
-        <View style={styles.panelHeader}>
-          <Text style={styles.panelTitle}>{t("recall.blind_settings")}</Text>
-          <Pressable onPress={onClose}><Ionicons name="close" size={22} color={theme.colors.text} /></Pressable>
-        </View>
-        {onResume ? <Pressable disabled={loading} style={[styles.resume, loading && styles.disabled]} onPress={onResume}>
-          <Text style={styles.resumeText}>{t("recall.resume")}</Text>
-          <Ionicons name="arrow-forward" size={18} color={theme.colors.text} />
-        </Pressable> : null}
-        <Text style={styles.blindOptionLabel}>{t("recall.period.title")}</Text>
-        <View style={styles.periodSegments}>
-          {periods.map((item) => <Pressable key={item.value} style={[styles.periodSegment, period === item.value && styles.periodSegmentActive]} onPress={() => onPeriodChange(item.value)}><Text numberOfLines={1} style={[styles.periodSegmentText, period === item.value && styles.periodSegmentTextActive]}>{item.label}</Text></Pressable>)}
-        </View>
-        <View style={styles.blindCountHeader}><Text style={styles.blindOptionLabel}>{t("recall.card_amount")}</Text><Text style={styles.blindCountValue}>{count}</Text></View>
-        <BlindCountSlider value={count} onChange={onCountChange} />
-        <View style={styles.countEndpoints}><Text style={styles.countEndpoint}>1</Text><Text style={styles.countEndpoint}>10</Text></View>
-        <Pressable disabled={loading} style={[styles.startButton, loading && styles.disabled]} onPress={onStart}>{loading ? <ActivityIndicator color={theme.colors.surface} /> : <Text style={styles.startButtonText}>{t(onResume ? "recall.blind_restart" : "recall.start")}</Text>}</Pressable>
-      </Pressable>
-    </Pressable>
-  </Modal>;
-}
-
-function BlindCountSlider({ value, onChange }: { value: number; onChange: (value: number) => void }) {
-  const widthRef = useRef(0);
-  const onChangeRef = useRef(onChange);
-  onChangeRef.current = onChange;
-  const updateFromPosition = (x: number) => {
-    if (widthRef.current <= 0) return;
-    const next = Math.max(1, Math.min(10, Math.round((x / widthRef.current) * 9) + 1));
-    onChangeRef.current(next);
-  };
-  const responder = useMemo(() => PanResponder.create({
-    onStartShouldSetPanResponder: () => true,
-    onMoveShouldSetPanResponder: (_, gesture) => Math.abs(gesture.dx) > 2,
-    onPanResponderGrant: (event) => updateFromPosition(event.nativeEvent.locationX),
-    onPanResponderMove: (event) => updateFromPosition(event.nativeEvent.locationX),
-  }), []);
-  const progress = (value - 1) / 9;
-  return <View
-    accessibilityRole="adjustable"
-    accessibilityValue={{ min: 1, max: 10, now: value }}
-    style={styles.countSlider}
-    onLayout={(event) => { widthRef.current = event.nativeEvent.layout.width; }}
-    {...responder.panHandlers}
-  >
-    <View style={styles.countSliderTrack} />
-    <View pointerEvents="none" style={[styles.countSliderProgress, { width: `${progress * 100}%` }]} />
-    {Array.from({ length: 10 }, (_, index) => <View pointerEvents="none" key={index} style={[styles.countSliderTick, { left: `${(index / 9) * 100}%` }]} />)}
-    <View pointerEvents="none" style={[styles.countSliderThumb, { left: `${progress * 100}%` }]} />
-  </View>;
 }
 
 function RecallSummary({ summary, onDone, onAgain, loading }: { summary: { cards: number; attempted: number; correct: number }; onDone: () => void; onAgain?: () => void; loading: boolean }) {
@@ -673,25 +574,12 @@ function filterAvailableRecallSession(value: RecallSession, availableRecordIds: 
 }
 function localDateKey(date: Date): string { const year = date.getFullYear(); const month = String(date.getMonth() + 1).padStart(2, "0"); const day = String(date.getDate()).padStart(2, "0"); return `${year}-${month}-${day}`; }
 function dateFromKey(value: string): Date { return new Date(Number(value.slice(0, 4)), Number(value.slice(5, 7)) - 1, Number(value.slice(8, 10))); }
-function resolveBlindPeriodRange(period: BlindPeriod, dateKeys: string[]): { from: string; to: string } {
-  const now = new Date();
-  const to = localDateKey(now);
-  if (period === "all") return { from: dateKeys[0] ?? to, to };
-  const from = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  if (period === "week") {
-    const weekday = from.getDay() || 7;
-    from.setDate(from.getDate() - weekday + 1);
-  } else if (period === "month") {
-    from.setDate(1);
-  } else if (period === "quarter") {
-    from.setMonth(Math.floor(from.getMonth() / 3) * 3, 1);
-  } else {
-    from.setMonth(0, 1);
-  }
-  return { from: localDateKey(from), to };
-}
-async function saveBlindSettings(period: BlindPeriod, count: number): Promise<void> {
-  await AsyncStorage.setItem(BLIND_BOX_SETTINGS_KEY, JSON.stringify({ period, count })).catch(() => undefined);
+function timeCapsuleLabel(anchor: RecallTimeCapsuleAnchor): string {
+  const date = new Intl.DateTimeFormat(getLanguage(), { year: "numeric", month: "short", day: "numeric" }).format(dateFromKey(anchor.dateKey));
+  if (anchor.kind === "year") return tf("recall.time_capsule.year", { date });
+  if (anchor.kind === "quarter") return tf("recall.time_capsule.quarter", { date });
+  if (anchor.kind === "month") return tf("recall.time_capsule.month", { date });
+  return tf("recall.time_capsule.week", { date });
 }
 function completedCards(rows: CardRecordSummary[]): CardRecordSummary[] {
   return rows.filter((row) => row.status === "completed" && !row.isSample);
@@ -721,7 +609,7 @@ const styles = StyleSheet.create({
   home: { paddingHorizontal: 20, paddingTop: 18, paddingBottom: 100 }, memoryHero: { minHeight: 128, marginBottom: 16, padding: 20, borderRadius: 24, backgroundColor: "#EAF6F1", borderWidth: 1, borderColor: "#CFE8DE" }, memoryHeroTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" }, memoryHeroTitleRow: { flexDirection: "row", alignItems: "center", gap: 8 }, memoryHeroTitle: { color: "#294D42", fontSize: 22, fontWeight: "600" }, memoryResumeBadge: { overflow: "hidden", paddingHorizontal: 8, paddingVertical: 3, borderRadius: 9, backgroundColor: "rgba(255,255,255,.8)", color: "#49675D", fontSize: 10, fontWeight: "600" }, memoryHeroArrow: { width: 38, height: 38, borderRadius: 19, backgroundColor: "rgba(255,255,255,.72)", alignItems: "center", justifyContent: "center" }, memoryPath: { marginTop: 25, flexDirection: "row", alignItems: "center" }, memoryNode: { width: 18, height: 18, borderRadius: 9 }, memoryConnector: { flex: 1, height: 3, borderRadius: 2 }, dayRow: { flexDirection: "row", gap: 12 }, dayCard: { flex: 1, minHeight: 145, padding: 17, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.border, borderRadius: 16, backgroundColor: theme.colors.surface, alignItems: "flex-start" }, disabled: { opacity: .42 }, dayTitle: { color: theme.colors.text, fontSize: 20, fontWeight: "600" }, dayCount: { flex: 1, marginTop: 8, color: theme.colors.textMuted, fontSize: 12 },
   choice: { minHeight: 58, marginTop: 11, paddingHorizontal: 14, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.border, borderRadius: 14, backgroundColor: theme.colors.surface, flexDirection: "row", alignItems: "center", gap: 11 }, choiceIcon: { width: 34, height: 34, borderRadius: 10, backgroundColor: theme.colors.surfaceMuted, alignItems: "center", justifyContent: "center" }, choiceBody: { flex: 1, paddingVertical: 10 }, choiceText: { color: theme.colors.text, fontSize: 15, fontWeight: "500" }, choiceSubtitle: { marginTop: 2, color: theme.colors.textMuted, fontSize: 12 }, resume: { minHeight: 52, marginBottom: 14, paddingHorizontal: 16, borderRadius: 13, backgroundColor: theme.colors.surfaceMuted, flexDirection: "row", alignItems: "center" }, resumeText: { flex: 1, color: theme.colors.text, fontSize: 14, fontWeight: "500" }, createHint: { marginTop: 20, minHeight: 46, paddingHorizontal: 14, borderWidth: 1, borderColor: theme.colors.border, borderRadius: 12, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7 }, createHintText: { color: theme.colors.text, fontSize: 14 }, loader: { marginTop: 28 },
   scrim: { flex: 1, paddingHorizontal: 24, backgroundColor: "rgba(0,0,0,.28)", justifyContent: "center" }, panel: { paddingHorizontal: 18, paddingTop: 17, paddingBottom: 18, borderRadius: 18, backgroundColor: theme.colors.surface }, panelHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" }, panelTitle: { marginBottom: 10, color: theme.colors.text, fontSize: 18, lineHeight: 24, fontWeight: "600" }, topicInputRow: { height: 48, paddingLeft: 13, paddingRight: 4, borderWidth: 1, borderColor: theme.colors.border, borderRadius: 10, flexDirection: "row", alignItems: "center" }, topicInput: { flex: 1, height: 46, paddingHorizontal: 0, paddingVertical: 0, color: theme.colors.text, fontSize: 15 }, topicGo: { width: 38, height: 38, borderRadius: 9, backgroundColor: theme.colors.text, alignItems: "center", justifyContent: "center" }, topicGoDisabled: { backgroundColor: theme.colors.surfaceMuted }, topicStatus: { minHeight: 34, marginTop: 8, flexDirection: "row", alignItems: "center", gap: 8 }, topicStatusText: { color: theme.colors.textMuted, fontSize: 13 }, topicEmpty: { minHeight: 34, marginTop: 8, color: theme.colors.textSecondary, fontSize: 13 },
-  blindOptionLabel: { marginTop: 16, color: theme.colors.text, fontSize: 14, fontWeight: "500" }, periodSegments: { height: 44, marginTop: 10, padding: 3, borderRadius: 12, backgroundColor: theme.colors.surfaceMuted, flexDirection: "row" }, periodSegment: { flex: 1, borderRadius: 9, alignItems: "center", justifyContent: "center" }, periodSegmentActive: { backgroundColor: theme.colors.surface, shadowColor: "#000", shadowOpacity: .08, shadowRadius: 4, shadowOffset: { width: 0, height: 1 }, elevation: 1 }, periodSegmentText: { color: theme.colors.textMuted, fontSize: 12, fontWeight: "500" }, periodSegmentTextActive: { color: theme.colors.text }, blindCountHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" }, blindCountValue: { marginTop: 16, color: theme.colors.text, fontSize: 16, fontWeight: "600" }, countSlider: { height: 38, marginHorizontal: 10, marginTop: 7, justifyContent: "center" }, countSliderTrack: { position: "absolute", left: 0, right: 0, height: 4, borderRadius: 2, backgroundColor: theme.colors.border }, countSliderProgress: { position: "absolute", left: 0, height: 4, borderRadius: 2, backgroundColor: theme.colors.text }, countSliderTick: { position: "absolute", width: 2, height: 8, marginLeft: -1, borderRadius: 1, backgroundColor: theme.colors.border }, countSliderThumb: { position: "absolute", width: 22, height: 22, marginLeft: -11, borderWidth: 2, borderColor: theme.colors.surface, borderRadius: 11, backgroundColor: theme.colors.text, shadowColor: "#000", shadowOpacity: .18, shadowRadius: 5, shadowOffset: { width: 0, height: 2 }, elevation: 3 }, countEndpoints: { marginTop: -3, paddingHorizontal: 9, flexDirection: "row", justifyContent: "space-between" }, countEndpoint: { color: theme.colors.textMuted, fontSize: 11 }, startButton: { height: 48, marginTop: 18, borderRadius: 14, backgroundColor: theme.colors.text, alignItems: "center", justifyContent: "center" }, startButtonText: { color: theme.colors.surface, fontSize: 15, fontWeight: "600" },
+  startButton: { height: 48, marginTop: 18, borderRadius: 14, backgroundColor: theme.colors.text, alignItems: "center", justifyContent: "center" }, startButtonText: { color: theme.colors.surface, fontSize: 15, fontWeight: "600" },
   busyOverlay: { ...StyleSheet.absoluteFill, backgroundColor: "rgba(255,255,255,.55)", alignItems: "center", justifyContent: "center" }, summaryPage: { flex: 1, paddingHorizontal: 24, backgroundColor: "#F4F7F3", alignItems: "center", justifyContent: "center" }, summaryCard: { width: "100%", maxWidth: 430, padding: 24, borderRadius: 24, backgroundColor: theme.colors.surface, shadowColor: "#315D3F", shadowOpacity: .1, shadowRadius: 24, shadowOffset: { width: 0, height: 10 }, elevation: 4 }, summaryIcon: { width: 58, height: 58, alignSelf: "center", borderRadius: 29, backgroundColor: "#E5F2E8", alignItems: "center", justifyContent: "center" }, summaryTitle: { marginTop: 15, textAlign: "center", color: theme.colors.text, fontSize: 23, fontWeight: "600" }, summaryStats: { marginTop: 25, flexDirection: "row" }, summaryStat: { flex: 1, alignItems: "center" }, summaryValue: { color: theme.colors.text, fontSize: 27, fontWeight: "600" }, summaryLabel: { marginTop: 5, color: theme.colors.textMuted, fontSize: 12 },
   summaryDoneSecondary: { marginTop: 10, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surface }, summaryDoneSecondaryText: { color: theme.colors.text },
 });

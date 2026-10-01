@@ -208,7 +208,7 @@ const receipt = JSON.parse(fs.readFileSync(file, 'utf8'));
 const ageSeconds = (Date.now() - Date.parse(receipt.completedAt)) / 1000;
 const requiredTargets = target === 'ios' ? ['ios26', 'ios27'] : target === 'android' ? ['android'] : ['ios26', 'ios27', 'android'];
 const valid = receipt.status === 'passed'
-  && receipt.schemaVersion === 2
+  && receipt.schemaVersion === 3
   && receipt.sourceFingerprint === fingerprint
   && Number.isFinite(ageSeconds)
   && ageSeconds >= 0
@@ -348,8 +348,8 @@ reopen_kept_target() {
       ;;
     android)
       log "Re-opening only Android for manual inspection"
-      "$EMULATOR_BIN" -avd "$ANDROID_AVD" -no-snapshot-save -no-audio -no-boot-anim \
-        >"$RECEIPT_DIR/android-emulator.log" 2>&1 &
+      nohup "$EMULATOR_BIN" -avd "$ANDROID_AVD" -no-snapshot-save -no-audio -no-boot-anim \
+        </dev/null >"$RECEIPT_DIR/android-emulator.log" 2>&1 &
       wait_for_android || fail "Android AVD $ANDROID_AVD did not finish booting within 180 seconds."
       "$ADB_BIN" -s "$ANDROID_SERIAL" install -r "$ANDROID_APK" >/dev/null
       "$ADB_BIN" -s "$ANDROID_SERIAL" shell monkey -p "$PACKAGE_ID" -c android.intent.category.LAUNCHER 1 >/dev/null
@@ -367,6 +367,16 @@ fingerprint="$(source_fingerprint)"
 if receipt_is_current "$fingerprint" && { [[ "$MODE" == require ]] || ! $FORCE; }; then
   log "Reusing current three-platform smoke receipt"
   printf 'Receipt: %s\nFingerprint: %s\n' "$RECEIPT_FILE" "$fingerprint"
+  if [[ "$MODE" == run && -n "$KEEP_TARGET" ]]; then
+    if [[ "$KEEP_TARGET" == "android" ]]; then
+      ANDROID_APK="$(find "$MOBILE_DIR/android/app/build/outputs/apk/release" -type f -name '*.apk' -print -quit)"
+      [[ -n "$ANDROID_APK" ]] || fail "Android Emulator APK was not produced."
+    else
+      IOS_APP="$(find "$RECEIPT_DIR/ios-derived-data/Build/Products" -type d -path '*Release-iphonesimulator/*.app' -print -quit)"
+      [[ -n "$IOS_APP" ]] || fail "iOS Simulator .app was not produced."
+    fi
+    reopen_kept_target
+  fi
   exit 0
 fi
 if [[ "$MODE" == require ]]; then
@@ -468,7 +478,7 @@ if (target === 'ios' || target === 'all') {
 }
 if (target === 'android' || target === 'all') targets.android = { avd: android, launches: 2 };
 const receipt = {
-  schemaVersion: 2,
+  schemaVersion: 3,
   status: 'passed',
   completedAt,
   commit,

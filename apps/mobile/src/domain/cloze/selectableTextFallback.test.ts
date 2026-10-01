@@ -36,9 +36,25 @@ test("shows answers and mastered-green state in the fallback", () => {
   assert.equal(segment.hidden, false);
   assert.equal(segment.correct, true);
   assert.equal(segment.highlighted, true);
+  assert.equal(segment.blank, true);
 });
 
-test("keeps a mastered range green but masks it again in a new session", () => {
+test("keeps an underline on a correct answer without treating it as hidden", () => {
+  const [segment] = buildSelectableTextFallbackSegments({
+    text: "cracking up",
+    highlights: [{ start: 0, end: 11, groupIndex: 0 }],
+    blanks: [],
+    correct: [{ start: 0, end: 11 }],
+    answers: [{ start: 0, end: 11, text: "cracking up" }],
+    answersVisible: false,
+  });
+  assert.equal(segment.text, "cracking up");
+  assert.equal(segment.hidden, false);
+  assert.equal(segment.correct, true);
+  assert.equal(segment.blank, true);
+});
+
+test("keeps an overlapping mastered range green while honoring an explicit mask", () => {
   const [segment] = buildSelectableTextFallbackSegments({
     text: "awning",
     highlights: [{ start: 0, end: 6, groupIndex: 0 }],

@@ -1,4 +1,6 @@
 const isPreview = process.env.EAS_BUILD_PROFILE === "preview";
+const appVersion = process.env.OIO_APP_VERSION?.trim() || "1.1.7";
+const runtimeVersion = process.env.OIO_RUNTIME_VERSION?.trim() || "1.1.7";
 
 const scheme = isPreview ? "oio-preview" : "oio";
 const updateChannelByBuildProfile = {
@@ -18,7 +20,7 @@ module.exports = {
     name: "OIO",
     slug: "oio",
     scheme,
-    version: "1.1.7",
+    version: appVersion,
     orientation: "portrait",
     platforms: ["ios", "android"],
     icon: "./assets/icon.png",
@@ -110,7 +112,7 @@ module.exports = {
       "./plugins/with-android-release-signing",
     ],
     owner: "reedtang",
-    runtimeVersion: "1.1.7",
+    runtimeVersion,
     updates: {
       url: updatesUrl,
       checkAutomatically: "ON_LOAD",

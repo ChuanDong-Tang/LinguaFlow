@@ -82,7 +82,6 @@ import { payWithAlipay } from "../../modules/oio-alipay-pay";
 
 type ProScreenProps = {
   onBack?: () => void;
-  compact?: boolean;
   initialEntitlement?: CurrentEntitlement | null;
   initialUsage?: UsageV2 | null;
   onEntitlementChanged?: (entitlement: CurrentEntitlement) => void;
@@ -125,7 +124,6 @@ const IOS_DEVELOPMENT_PRICE_LABELS: Record<MobilePaymentProductCode, string> = {
 
 export function ProScreen({
   onBack = () => {},
-  compact = false,
   initialEntitlement = null,
   initialUsage = null,
   onEntitlementChanged,
@@ -180,8 +178,6 @@ export function ProScreen({
     isRenew && activeAutoRenew && autoRenewBelongsToCurrentPlatform && !autoRenew.cancelAtPeriodEnd;
   const restorableAutoRenew =
     isRenew && activeAutoRenew && autoRenewBelongsToCurrentPlatform && autoRenew.cancelAtPeriodEnd;
-  const liveProductPrices = resolveMembershipPriceLabels(appleIap, productQuotes);
-  const productPrices = liveProductPrices;
   const [pointsUsageVisible, setPointsUsageVisible] = useState(false);
   const quotaBenefit = resolveQuotaBenefit(currentEntitlement, usageV2);
   const membershipStatusLabel = resolveMembershipStatusLabel({
@@ -196,13 +192,6 @@ export function ProScreen({
   });
   const canStartOneTimePurchase =
     Platform.OS === "ios" && ENABLE_APPLE_ONE_TIME_PURCHASE;
-  const canStartAutoRenew =
-    !isRenew &&
-    hasLoadedAutoRenew &&
-    ((Platform.OS === "ios" && ENABLE_APPLE_AUTO_RENEW) ||
-      (Platform.OS === "android" && ((IS_CHINA_ANDROID && ENABLE_ALIPAY_AUTO_RENEW) || (!IS_CHINA_ANDROID && ENABLE_GOOGLE_PLAY_AUTO_RENEW))));
-  const shouldShowPurchaseActions = !isRenew || manageableAutoRenew || restorableAutoRenew;
-  const shouldReservePurchaseActionSpace = shouldShowPurchaseActions || (isRenew && !hasLoadedAutoRenew);
 
   function applyEntitlementToState(entitlement: CurrentEntitlement): void {
     setIsRenew(entitlement.isMember ?? entitlement.isPro);
@@ -1796,174 +1785,6 @@ export function ProScreen({
     />
   ) : null;
 
-  if (compact) {
-    const currentTier = currentEntitlement?.tier ?? "free";
-    const visibleTiers: Array<"plus" | "pro"> = ["plus", "pro"];
-    const purchaseBusy = isAutoRenewLoading || isPaying || !hasLoadedAutoRenew;
-    const compactAutoRenewStatus = resolveCompactAutoRenewStatus({ autoRenew, hasLoadedAutoRenew });
-    const compactAutoRenewTone = !hasLoadedAutoRenew || autoRenew?.status === "pending"
-      ? "neutral"
-      : activeAutoRenew && autoRenew.cancelAtPeriodEnd
-        ? "warning"
-        : activeAutoRenew
-          ? "active"
-          : "neutral";
-    return (
-      <View style={styles.compactContainer}>
-        {iapBridge}
-        <PointsUsageSheet visible={pointsUsageVisible} onClose={() => setPointsUsageVisible(false)} />
-        <View style={styles.compactPlanGrid}>
-          <View style={[styles.compactPlanCard, currentTier === "free" && styles.compactPlanCardCurrent]}>
-            <View style={styles.compactPlanTitleRow}>
-              <Text style={styles.compactPlanTitle}>Free</Text>
-              {currentTier === "free" ? <Text style={styles.compactCurrentBadge}>{t("pro.compact.current")}</Text> : null}
-            </View>
-            <View style={styles.compactBenefitList}>
-              {[t("pro.compact.free.basic_ai"), t("pro.compact.free.images")].map((benefit, index) => <View key={benefit} style={styles.compactBenefitRow}>
-                <Ionicons name="checkmark-circle-outline" size={15} color="#444444" style={styles.compactBenefitIcon} />
-                <View style={styles.compactBenefitContent}>
-                  <Text style={[styles.compactBenefitText, styles.compactBenefitLabel]}>{benefit}</Text>
-                  {index === 0 ? <Pressable accessibilityRole="button" accessibilityLabel={t("pro.points.title")} hitSlop={10} style={styles.pointsInfoButton} onPress={() => setPointsUsageVisible(true)}><Ionicons name="information-circle-outline" size={15} color="#999999" /></Pressable> : null}
-                </View>
-              </View>)}
-            </View>
-          </View>
-          {visibleTiers.map((tier) => {
-            const isPlus = tier === "plus";
-            const price = isPlus ? productPrices.plus : productPrices.pro;
-            const productCode: MobilePaymentProductCode = isPlus ? "plus_monthly" : "pro_monthly";
-            const quote = productQuotes[productCode];
-            const benefits = isPlus
-              ? [
-                  resolveTokenBenefit("plus", quote?.monthlyTokenLimit),
-                  resolveImageBenefit("plus", quote?.monthlyImageUploadBytes),
-                  t("pro.compact.assistant"),
-                ]
-              : [
-                  resolveTokenBenefit("pro", quote?.monthlyTokenLimit),
-                  resolveImageBenefit("pro", quote?.monthlyImageUploadBytes),
-                  t("pro.compact.assistant"),
-                  t("pro.compact.dictation"),
-                  t("pro.compact.custom_material"),
-                ];
-            return (
-              <View key={tier} style={[styles.compactPlanCard, currentTier === tier && styles.compactPlanCardCurrent]}>
-                <View style={styles.compactPlanTitleRow}>
-                  <Text style={styles.compactPlanTitle}>{isPlus ? "Plus" : "Pro"}</Text>
-                  {currentTier === tier ? <Text style={styles.compactCurrentBadge}>{t("pro.compact.current")}</Text> : null}
-                </View>
-                <View style={styles.compactBenefitList}>
-                  {benefits.map((benefit, index) => (
-                    <View key={benefit} style={styles.compactBenefitRow}>
-                      <Ionicons name="checkmark-circle-outline" size={15} color="#444444" style={styles.compactBenefitIcon} />
-                      <View style={styles.compactBenefitContent}>
-                  <Text style={[styles.compactBenefitText, styles.compactBenefitLabel]}>{benefit}</Text>
-                  {index === 0 ? <Pressable accessibilityRole="button" accessibilityLabel={t("pro.points.title")} hitSlop={10} style={styles.pointsInfoButton} onPress={() => setPointsUsageVisible(true)}><Ionicons name="information-circle-outline" size={15} color="#999999" /></Pressable> : null}
-                </View>
-                    </View>
-                  ))}
-                </View>
-                {currentTier === tier && proExpiresAt ? (
-                  <Text style={styles.compactExpiry}>{tf("pro.valid_until", { date: formatDate(proExpiresAt) })}</Text>
-                ) : null}
-                {currentTier === tier ? (
-                  <View style={styles.compactAutoRenewRow}>
-                    <View style={styles.compactAutoRenewStatus}>
-                      <View
-                        style={[
-                          styles.compactAutoRenewDot,
-                          compactAutoRenewTone === "active"
-                            ? styles.compactAutoRenewDotActive
-                            : compactAutoRenewTone === "warning"
-                              ? styles.compactAutoRenewDotWarning
-                              : styles.compactAutoRenewDotNeutral,
-                        ]}
-                      />
-                      <Text numberOfLines={2} style={styles.compactAutoRenewStatusText}>
-                        {compactAutoRenewStatus}
-                      </Text>
-                    </View>
-                    {manageableAutoRenew || restorableAutoRenew ? (
-                      <Pressable
-                        accessibilityRole="button"
-                        accessibilityLabel={restorableAutoRenew ? t("pro.auto.resume") : t("pro.auto.cancel")}
-                        style={[
-                          styles.compactAutoRenewAction,
-                          restorableAutoRenew && styles.compactAutoRenewActionPrimary,
-                          isAutoRenewLoading && styles.subscribeButtonDisabled,
-                        ]}
-                        disabled={isAutoRenewLoading}
-                        onPress={() => void (restorableAutoRenew ? handleResumeAutoRenew() : handleManageAutoRenew())}
-                      >
-                        {isAutoRenewLoading ? (
-                          <ActivityIndicator size="small" color={restorableAutoRenew ? "#8A6218" : "#666666"} />
-                        ) : (
-                          <Text
-                            style={[
-                              styles.compactAutoRenewActionText,
-                              restorableAutoRenew && styles.compactAutoRenewActionTextPrimary,
-                            ]}
-                          >
-                            {restorableAutoRenew ? t("pro.auto.resume") : t("pro.auto.cancel")}
-                          </Text>
-                        )}
-                      </Pressable>
-                    ) : null}
-                  </View>
-                ) : null}
-                {currentTier === "free" ? (
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel={tf("pro.compact.subscribe", { plan: isPlus ? "Plus" : "Pro" })}
-                    style={[styles.compactPriceButton, (!canStartAutoRenew || purchaseBusy) && styles.subscribeButtonDisabled]}
-                    disabled={!canStartAutoRenew || purchaseBusy}
-                    onPress={() => void handleStartAutoRenew(productCode)}
-                  >
-                    {purchaseBusy ? <ActivityIndicator size="small" color="#FFFFFF" /> : (
-                      <View style={styles.compactPriceContent}>
-                        <Text style={styles.compactPrice}>{price ?? "--"}</Text>
-                        {price ? <Text style={styles.compactPriceSuffix}>{productPrices.monthSuffix}</Text> : null}
-                      </View>
-                    )}
-                  </Pressable>
-                ) : null}
-              </View>
-            );
-          })}
-        </View>
-        {Platform.OS === "ios" && currentTier === "free" ? (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={t("pro.redeem.button")}
-            style={({ pressed }) => [
-              styles.compactRedeemButton,
-              pressed && styles.compactRedeemButtonPressed,
-              (isRedeemingAppleOffer || isRestoringApplePurchases || isPaying || isAutoRenewLoading) &&
-                styles.subscribeButtonDisabled,
-            ]}
-            disabled={isRedeemingAppleOffer || isRestoringApplePurchases || isPaying || isAutoRenewLoading}
-            onPress={() => void handleRedeemAppleOfferCode()}
-          >
-            {isRedeemingAppleOffer
-              ? <ActivityIndicator size="small" color="#111111" />
-              : <Text style={styles.compactRedeemText}>{t("pro.redeem.button")}</Text>}
-          </Pressable>
-        ) : null}
-        {currentTier === "free" && (Platform.OS === "ios" || (Platform.OS === "android" && !IS_CHINA_ANDROID)) ? (
-          <Pressable
-            style={styles.compactRestoreButton}
-            disabled={isRestoringApplePurchases || isRestoringGooglePlayPurchases}
-            onPress={() => void (Platform.OS === "android" ? handleRestoreGooglePlayPurchases() : handleRestoreApplePurchases())}
-          >
-            {isRestoringApplePurchases || isRestoringGooglePlayPurchases
-              ? <ActivityIndicator size="small" color="#777777" />
-              : <Text style={styles.compactRestoreText}>{t("pro.restore.button")}</Text>}
-          </Pressable>
-        ) : null}
-      </View>
-    );
-  }
-
   const selectedProducts = (["plus", "pro"] as const).map((tier) => {
     const productCode = subscriptionProductCode(tier, billingPeriod);
     return {
@@ -2348,21 +2169,6 @@ function resolveAutoRenewDescription(input: {
   return tf("pro.auto.desc.first_payment", { provider: formatAutoRenewProviderLabel() });
 }
 
-function resolveCompactAutoRenewStatus(input: {
-  autoRenew: MobileAutoRenewSubscription | null;
-  hasLoadedAutoRenew: boolean;
-}): string {
-  if (!input.hasLoadedAutoRenew) return t("pro.auto.status.syncing");
-  if (input.autoRenew?.status === "pending") return t("pro.auto.status.pending");
-  if (hasActiveAutoRenew(input.autoRenew) && input.autoRenew.cancelAtPeriodEnd) {
-    return tf("pro.auto.status.cancelled", { provider: formatProviderName(input.autoRenew.provider) });
-  }
-  if (hasActiveAutoRenew(input.autoRenew)) {
-    return tf("pro.auto.status.active", { provider: formatProviderName(input.autoRenew.provider) });
-  }
-  return t("pro.auto.status.none");
-}
-
 function resolveMembershipStatusLabel(input: { isMember: boolean; expiresAt: string | null }): string | null {
   return input.isMember && input.expiresAt
     ? tf("pro.valid_until", { date: formatDate(input.expiresAt) })
@@ -2426,59 +2232,6 @@ function resolveQuotaBenefit(entitlement: CurrentEntitlement | null, usage: Usag
   return {
     title: t("me.quota.v2_ai"),
     subtitle: t("subscription.manager.points_unavailable"),
-  };
-}
-
-type ProductPriceLabels = {
-  plus: string | null;
-  pro: string | null;
-  monthSuffix: string;
-};
-
-function resolveMembershipPriceLabels(
-  appleIap: AppleIapBridgeState | null,
-  productQuotes: Partial<Record<MobilePaymentProductCode, MobilePaymentProductQuote>>
-): ProductPriceLabels {
-  if (Platform.OS === "ios") {
-    const plusSubscriptionPrice = appleIap?.subscriptions.find(
-      (product) => product.id === APPLE_PLUS_MONTHLY_SUBSCRIPTION_PRODUCT_ID
-    )?.displayPrice;
-    const proSubscriptionPrice = appleIap?.subscriptions.find(
-      (product) => product.id === APPLE_PRO_MONTHLY_SUBSCRIPTION_PRODUCT_ID
-    )?.displayPrice;
-    return {
-      plus: plusSubscriptionPrice ?? null,
-      pro: proSubscriptionPrice ?? null,
-      monthSuffix: t("pro.price.month_suffix"),
-    };
-  }
-
-  if (IS_CHINA_ANDROID) {
-    return {
-      plus: productQuotes.plus_monthly?.displayPrice ?? null,
-      pro: productQuotes.pro_monthly?.displayPrice ?? null,
-      monthSuffix: t("pro.price.month_suffix"),
-    };
-  }
-
-  if (Platform.OS === "android") {
-    const plusSubscriptionPrice = appleIap?.subscriptions.find(
-      (product) => product.id === GOOGLE_PLAY_PLUS_MONTHLY_SUBSCRIPTION_PRODUCT_ID
-    )?.displayPrice;
-    const proSubscriptionPrice = appleIap?.subscriptions.find(
-      (product) => product.id === GOOGLE_PLAY_PRO_MONTHLY_SUBSCRIPTION_PRODUCT_ID
-    )?.displayPrice;
-    return {
-      plus: plusSubscriptionPrice ?? null,
-      pro: proSubscriptionPrice ?? null,
-      monthSuffix: t("pro.price.month_suffix"),
-    };
-  }
-
-  return {
-    plus: null,
-    pro: null,
-    monthSuffix: "",
   };
 }
 
@@ -2794,190 +2547,6 @@ const styles = StyleSheet.create({
   managerFooterActions: { marginTop: 24, flexDirection: "row", justifyContent: "center", gap: 28 },
   managerFooterLink: { color: "#555555", fontSize: 13, textDecorationLine: "underline" },
   managerFootnote: { marginTop: 14, color: "#929292", fontSize: 10.5, lineHeight: 16, textAlign: "center" },
-  compactContainer: {
-    paddingVertical: 16,
-  },
-  compactPlanGrid: {
-    gap: 12,
-  },
-  compactPlanCard: {
-    padding: 16,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "#DCDCDC",
-    borderRadius: 12,
-    backgroundColor: "#FFFFFF",
-  },
-  compactPlanCardCurrent: {
-    borderWidth: 1.5,
-    borderColor: "#C99A35",
-    backgroundColor: "#FFF9EB",
-  },
-  compactPlanTitleRow: {
-    minHeight: 24,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 6,
-  },
-  compactPlanTitle: {
-    color: "#111111",
-    fontSize: 17,
-    fontWeight: "600",
-  },
-  compactCurrentBadge: {
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 999,
-    overflow: "hidden",
-    color: "#8A6218",
-    backgroundColor: "#FFF2D7",
-    fontSize: 9,
-    fontWeight: "600",
-  },
-  compactBenefitList: {
-    marginTop: 12,
-    gap: 8,
-  },
-  compactBenefitRow: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 8,
-  },
-  compactBenefitIcon: {
-    width: 16,
-    lineHeight: 20,
-    textAlign: "center",
-    includeFontPadding: false,
-  },
-  compactBenefitContent: { flex: 1, flexDirection: "row", alignItems: "flex-start", gap: 5 },
-  compactBenefitLabel: { flex: 0, flexShrink: 1 },
-  pointsInfoButton: { width: 20, height: 20, alignItems: "center", justifyContent: "center" },
-  compactBenefitText: {
-    includeFontPadding: false,
-    flex: 1,
-    color: "#444444",
-    fontSize: 13,
-    lineHeight: 20,
-  },
-  compactExpiry: {
-    marginTop: 12,
-    paddingTop: 10,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: "#E8E8E8",
-    color: "#777777",
-    fontSize: 11,
-  },
-  compactAutoRenewRow: {
-    minHeight: 38,
-    marginTop: 10,
-    paddingTop: 10,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: "#E8E8E8",
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-  },
-  compactAutoRenewStatus: {
-    minWidth: 0,
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 7,
-  },
-  compactAutoRenewDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 999,
-  },
-  compactAutoRenewDotActive: {
-    backgroundColor: "#63A785",
-  },
-  compactAutoRenewDotWarning: {
-    backgroundColor: "#C49338",
-  },
-  compactAutoRenewDotNeutral: {
-    backgroundColor: "#B8B8B8",
-  },
-  compactAutoRenewStatusText: {
-    minWidth: 0,
-    flex: 1,
-    color: "#666666",
-    fontSize: 10.5,
-    lineHeight: 15,
-  },
-  compactAutoRenewAction: {
-    minHeight: 28,
-    paddingHorizontal: 10,
-    borderRadius: 999,
-    backgroundColor: "#F3F3F3",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  compactAutoRenewActionPrimary: {
-    backgroundColor: "#FFF2D7",
-  },
-  compactAutoRenewActionText: {
-    color: "#666666",
-    fontSize: 10,
-    fontWeight: "600",
-  },
-  compactAutoRenewActionTextPrimary: {
-    color: "#8A6218",
-  },
-  compactPriceButton: {
-    marginTop: 16,
-    minHeight: 44,
-    paddingHorizontal: 8,
-    borderRadius: 9,
-    backgroundColor: "#171717",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  compactPriceContent: {
-    flexDirection: "row",
-    alignItems: "baseline",
-    gap: 3,
-  },
-  compactPrice: {
-    color: "#FFFFFF",
-    fontSize: 15,
-    fontWeight: "600",
-  },
-  compactPriceSuffix: {
-    color: "#D0D0D0",
-    fontSize: 10,
-  },
-  compactRestoreButton: {
-    minHeight: 30,
-    marginTop: 6,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  compactRestoreText: {
-    color: "#777777",
-    fontSize: 11,
-  },
-  compactRedeemButton: {
-    minHeight: 42,
-    marginTop: 12,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: "#111111",
-    backgroundColor: "#FFFFFF",
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 7,
-  },
-  compactRedeemButtonPressed: {
-    backgroundColor: "#F1F1F1",
-  },
-  compactRedeemText: {
-    color: "#111111",
-    fontSize: 13,
-    fontWeight: "600",
-  },
-
   header: {
     height: 48,
     paddingHorizontal: 16,

@@ -430,7 +430,33 @@
   [layoutManager ensureLayoutForTextContainer:textContainer];
   UIColor *blankLineColor = [self colorFromString:@"#D05F78" fallback:self.currentTextColor];
 
-  for (NSDictionary *range in [self parseRanges:self.blankRangesJson]) {
+  NSMutableArray<NSDictionary *> *underlineRanges = [NSMutableArray arrayWithArray:[self parseRanges:self.blankRangesJson]];
+  void (^addUnderlineRange)(NSDictionary *) = ^(NSDictionary *underlineRange) {
+    for (NSDictionary *range in underlineRanges) {
+      if ([range[@"start"] isEqual:underlineRange[@"start"]] && [range[@"end"] isEqual:underlineRange[@"end"]]) return;
+    }
+    [underlineRanges addObject:underlineRange];
+  };
+  NSRegularExpression *wordPattern = [NSRegularExpression regularExpressionWithPattern:@"\\S+" options:0 error:nil];
+  for (NSDictionary *correctRange in [self parseRanges:self.correctRangesJson]) {
+    NSRange safeCorrectRange = [self safeRangeFromDictionary:correctRange length:textView.textStorage.length];
+    NSString *rangeText = safeCorrectRange.length > 0
+      ? [textView.text substringWithRange:safeCorrectRange]
+      : @"";
+    NSArray<NSTextCheckingResult *> *wordMatches = [wordPattern matchesInString:rangeText options:0 range:NSMakeRange(0, rangeText.length)];
+    if (wordMatches.count == 0) {
+      addUnderlineRange(correctRange);
+      continue;
+    }
+    for (NSTextCheckingResult *match in wordMatches) {
+      NSRange matchRange = match.range;
+      NSRange wordRange = NSMakeRange(safeCorrectRange.location + matchRange.location, matchRange.length);
+      NSDictionary *underlineRange = @{ @"start": @(wordRange.location), @"end": @(NSMaxRange(wordRange)) };
+      addUnderlineRange(underlineRange);
+    }
+  }
+
+  for (NSDictionary *range in underlineRanges) {
     NSRange characterRange = [self safeRangeFromDictionary:range length:textView.textStorage.length];
     if (characterRange.length == 0) continue;
     NSRange glyphRange = [layoutManager glyphRangeForCharacterRange:characterRange actualCharacterRange:nil];

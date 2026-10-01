@@ -33,6 +33,19 @@ export async function playIncorrectFeedbackSound(): Promise<void> {
   cleanupTimer = setTimeout(cleanupPlayer, 520);
 }
 
+export async function playSelectionFeedbackSound(): Promise<void> {
+  await setAudioModeAsync({ playsInSilentMode: true, interruptionMode: "mixWithOthers" });
+  const file = new File(Paths.cache, "choice-tile-key-feedback-v2.wav");
+  if (!file.exists) file.write(createSelectionKeyWav());
+
+  cleanupPlayer();
+  const player = createAudioPlayer({ uri: file.uri });
+  activePlayer = player;
+  player.volume = 0.24;
+  player.play();
+  cleanupTimer = setTimeout(cleanupPlayer, 140);
+}
+
 function cleanupPlayer(): void {
   if (cleanupTimer) clearTimeout(cleanupTimer);
   cleanupTimer = null;
@@ -71,6 +84,44 @@ function createDescendingToneWav(): Uint8Array {
     const frequency = 330 - progress * 120;
     const envelope = Math.sin(Math.PI * progress) * 0.34;
     const sample = Math.sin(2 * Math.PI * frequency * index / sampleRate) * envelope;
+    view.setInt16(44 + index * 2, Math.round(sample * 0x7fff), true);
+  }
+  return bytes;
+}
+
+function createSelectionKeyWav(): Uint8Array {
+  const sampleRate = 16_000;
+  const durationSeconds = 0.055;
+  const sampleCount = Math.floor(sampleRate * durationSeconds);
+  const dataSize = sampleCount * 2;
+  const bytes = new Uint8Array(44 + dataSize);
+  const view = new DataView(bytes.buffer);
+  writeAscii(view, 0, "RIFF");
+  view.setUint32(4, 36 + dataSize, true);
+  writeAscii(view, 8, "WAVEfmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  writeAscii(view, 36, "data");
+  view.setUint32(40, dataSize, true);
+  let noiseState = 0x5f3759df;
+  for (let index = 0; index < sampleCount; index += 1) {
+    const time = index / sampleRate;
+    noiseState = (noiseState * 1664525 + 1013904223) >>> 0;
+    const noise = ((noiseState / 0xffffffff) * 2) - 1;
+    const attack = Math.min(1, time / 0.0015);
+    const click = Math.sin(2 * Math.PI * 1_450 * time) * Math.exp(-time * 92) * 0.44;
+    const texture = noise * Math.exp(-time * 115) * 0.32;
+    const keyBody = Math.sin(2 * Math.PI * 185 * time) * Math.exp(-time * 48) * 0.2;
+    const returnClickTime = Math.max(0, time - 0.027);
+    const returnClick = time >= 0.027
+      ? Math.sin(2 * Math.PI * 980 * returnClickTime) * Math.exp(-returnClickTime * 150) * 0.12
+      : 0;
+    const sample = Math.max(-1, Math.min(1, (click + texture + keyBody + returnClick) * attack));
     view.setInt16(44 + index * 2, Math.round(sample * 0x7fff), true);
   }
   return bytes;

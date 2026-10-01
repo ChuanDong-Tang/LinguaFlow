@@ -7,6 +7,8 @@ export type ClozeAnswerPuzzleToken = {
 
 export type ClozeAnswerPuzzle = {
   mode: ClozeAnswerPuzzleMode;
+  isSingleWord: boolean;
+  fixedPrefix: string;
   target: ClozeAnswerPuzzleToken[];
   shuffled: ClozeAnswerPuzzleToken[];
 };
@@ -16,15 +18,23 @@ const COMPACT_SCRIPT_PATTERN = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Kata
 
 export function buildClozeAnswerPuzzle(answer: string, seed = answer): ClozeAnswerPuzzle {
   const words = answer.match(WORD_PATTERN) ?? [];
-  const mode: ClozeAnswerPuzzleMode = COMPACT_SCRIPT_PATTERN.test(answer) || words.length <= 1
+  const isCompactScript = COMPACT_SCRIPT_PATTERN.test(answer);
+  const isSingleWord = !isCompactScript && words.length === 1;
+  const mode: ClozeAnswerPuzzleMode = isCompactScript || words.length <= 1
     ? "characters"
     : "words";
   const values = mode === "words"
     ? words
     : graphemes(words.length === 1 ? words[0]! : answer).filter((value) => /[\p{L}\p{M}\p{N}]/u.test(value));
   const safeValues = values.length ? values : graphemes(answer).filter((value) => value.trim());
-  const target = safeValues.map((text, index) => ({ id: `answer-unit-${index}`, text }));
-  return { mode, target, shuffled: seededShuffle(target, seed) };
+  const fixedValues = isSingleWord
+    ? safeValues.length > 5
+      ? safeValues.slice(0, -5)
+      : safeValues.slice(0, 1)
+    : [];
+  const selectableValues = isSingleWord ? safeValues.slice(fixedValues.length) : safeValues;
+  const target = selectableValues.map((text, index) => ({ id: `answer-unit-${fixedValues.length + index}`, text }));
+  return { mode, isSingleWord, fixedPrefix: fixedValues.join(""), target, shuffled: seededShuffle(target, seed) };
 }
 
 export function isClozeAnswerPuzzleComplete(puzzle: ClozeAnswerPuzzle, selectedIds: string[]): boolean {
@@ -39,7 +49,8 @@ export function isClozeAnswerPuzzleCorrect(puzzle: ClozeAnswerPuzzle, selectedId
 
 export function clozeAnswerPuzzleText(puzzle: ClozeAnswerPuzzle, selectedIds: string[]): string {
   const byId = new Map(puzzle.target.map((token) => [token.id, token]));
-  return selectedIds.map((id) => byId.get(id)?.text ?? "").join(puzzle.mode === "words" ? " " : "");
+  const selected = selectedIds.map((id) => byId.get(id)?.text ?? "").join(puzzle.mode === "words" ? " " : "");
+  return `${puzzle.fixedPrefix}${selected}`;
 }
 
 function graphemes(value: string): string[] {

@@ -406,11 +406,14 @@ class ChatSelectableTextView(context: Context) : AppCompatTextView(context) {
       strokeWidth = 2f * density
       style = Paint.Style.STROKE
     }
-    parseRanges(blankRangesJson).forEach { range ->
-      drawRangeLines(textLayout, textLength, range) { left, _, right, bottom ->
-        canvas.drawLine(left, bottom + density, right, bottom + density, linePaint)
+    val correctUnderlineRanges = correctRanges.flatMap { range -> splitRangeByWhitespace(rawText, range) }
+    (parseRanges(blankRangesJson) + correctUnderlineRanges)
+      .distinctBy { range -> "${range.start}:${range.end}" }
+      .forEach { range ->
+        drawRangeLines(textLayout, textLength, range) { left, _, right, bottom ->
+          canvas.drawLine(left, bottom + density, right, bottom + density, linePaint)
+        }
       }
-    }
     val activePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
       color = Color.parseColor("#D05F78")
       strokeWidth = 1.5f * density
@@ -823,6 +826,16 @@ class ChatSelectableTextView(context: Context) : AppCompatTextView(context) {
     if (safeStart < safeEnd) {
       spannable.setSpan(span, safeStart, safeEnd, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
     }
+  }
+
+  private fun splitRangeByWhitespace(text: String, range: Range): List<Range> {
+    val safeStart = range.start.coerceIn(0, text.length)
+    val safeEnd = range.end.coerceIn(safeStart, text.length)
+    if (safeStart >= safeEnd) return emptyList()
+    val matches = Regex("\\S+").findAll(text.substring(safeStart, safeEnd)).map { match ->
+      Range(safeStart + match.range.first, safeStart + match.range.last + 1, range.groupIndex)
+    }.toList()
+    return matches.ifEmpty { listOf(Range(safeStart, safeEnd, range.groupIndex)) }
   }
 
   private fun parseRanges(json: String): List<Range> {

@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { Alert, Animated, AppState, DevSettings, Image, Linking, Modal, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import * as AuthSession from "expo-auth-session";
+import * as SplashScreen from "expo-splash-screen";
 import * as Updates from "expo-updates";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider, initialWindowMetrics } from "react-native-safe-area-context";
@@ -138,6 +139,13 @@ export default function App() {
   useEffect(() => {
     void hasStoredMemoryRound().then(setMemoryRoundResumeAvailable).catch(() => undefined);
   }, [sessionRevision, cardDataRevision]);
+  useEffect(() => {
+    if (screen === "booting") return;
+    // Automatic splash dismissal can leave the native launch view visually
+    // composited above an already-running React tree in the iOS 27 dev client.
+    // Close it explicitly only after bootstrap has selected a renderable screen.
+    void SplashScreen.hideAsync().catch(() => undefined);
+  }, [screen]);
   const authingDiscovery = authingConfigured ? getAuthingDiscovery() : null;
   const authingClientId = authingConfigured ? getAuthingClientId() : "authing-disabled";
   const authingRedirectUri = getAuthingRedirectUri();

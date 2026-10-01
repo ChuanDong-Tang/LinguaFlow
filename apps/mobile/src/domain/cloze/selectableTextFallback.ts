@@ -56,7 +56,7 @@ export function buildSelectableTextFallbackSegments({
       hidden: !!blank && !answersVisible && !answer,
       highlighted: !!highlight,
       correct: mastered,
-      blank: !!blank,
+      blank: !!blank || mastered,
       groupIndex: highlight?.groupIndex,
     }];
   });
