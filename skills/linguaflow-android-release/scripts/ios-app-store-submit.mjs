@@ -19,7 +19,7 @@ function fail(message) {
 }
 
 function parseArgs(argv) {
-  const options = { mode: "check", config: defaultConfig, releaseType: "manual", whatsNew: [] };
+  const options = { mode: "check", config: defaultConfig, releaseType: "automatic", whatsNew: [] };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === "--check-version") options.mode = "check-version";
@@ -416,6 +416,8 @@ async function submitReview(token, submission) {
 }
 
 function runSelfTest() {
+  const defaults = parseArgs(["--check"]);
+  if (defaults.releaseType !== "automatic") throw new Error("Automatic release must be the project default.");
   const parsed = parseArgs(["--submit", "--version", "1.1.7", "--build", "157", "--release-type", "automatic"]);
   if (parsed.releaseType !== "automatic") throw new Error("Release type argument parsing failed.");
   const selected = selectExactBuild([{ id: "b", attributes: { version: "157", processingState: "VALID", expired: false } }], "157");

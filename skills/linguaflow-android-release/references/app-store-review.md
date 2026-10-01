@@ -60,10 +60,10 @@ node skills/linguaflow-android-release/scripts/ios-app-store-submit.mjs \
 ```
 
 Submit mode requires an artifact-bound iOS record that passes the candidate
-gate. Version 1.1.8 is the one-off manual-release exception. Later versions use
-the project owner's standing automatic-release policy, so complete the normal
-promotion evidence before submission unless the owner explicitly accepts the
-remaining release risk for that candidate.
+gate. Version 1.1.8 and later versions use the project owner's standing
+automatic-release policy, so complete the normal promotion evidence before
+submission unless the owner explicitly accepts the remaining release risk for
+that candidate.
 It creates the App Store version if needed, binds the exact build, creates or
 reuses one review submission, adds the version, and marks the submission as
 submitted. Apple rejects incomplete metadata; report the returned missing
@@ -72,13 +72,13 @@ answers, export-compliance answers, or content-rights declarations.
 The script refuses to continue while any localization lacks What's New text;
 pass reviewed copy with one `--whats-new <locale>=<text>` argument per locale.
 
-For versions after 1.1.8, default to the project owner's standing policy:
+Beginning with version 1.1.8, default to the project owner's standing policy:
 `--release-type automatic --accept-auto-release-risk`. The explicit risk flag
 keeps the consequential setting visible in logs and prevents an accidental
-implicit default. Version 1.1.8 remains `MANUAL`. Automatic release normally
-requires the standard `promote` gate; bypassing that gate still requires an
-explicit decision for the particular candidate and is not implied by the
-standing automatic-release policy.
+unacknowledged release. Automatic release normally requires the standard
+`promote` gate; bypassing that gate still requires an explicit decision for the
+particular candidate and is not implied by the standing automatic-release
+policy. Use `--release-type manual` only for an explicitly requested exception.
 
 The workflow is idempotent for a version already waiting for review, in review,
 or awaiting manual release. It must fail on an ambiguous build, an expired or
@@ -91,9 +91,8 @@ version/build with `--release-type automatic --accept-auto-release-risk`. The
 idempotent path updates the version to `AFTER_APPROVAL` without creating a new
 review submission.
 
-For the 1.1.8 manual exception, do not interpret App Review approval as
-authorization to publish: a later public-release request still requires the
-normal `promote` acceptance gate and Apple's explicit version-release
-operation. For later automatic releases, approval itself can publish the app;
-therefore finish the `promote` gate before submitting unless the owner
-explicitly accepts that candidate's remaining risk.
+For automatic releases, approval itself can publish the app; therefore finish
+the `promote` gate before submitting unless the owner explicitly accepts that
+candidate's remaining risk. If the owner explicitly chooses manual release for
+a particular version, approval does not authorize the later public-release
+operation.

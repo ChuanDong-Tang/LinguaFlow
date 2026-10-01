@@ -90,11 +90,11 @@ routine release step. After uploading the accepted exact IPA, poll
 `ios-app-store-submit.mjs --check` until the build is `VALID`, run `--prepare`
 to bind it and discover the live localization list, then use `--submit` with
 reviewed What's New text for every locale. The project owner's standing policy
-is automatic App Store release for versions after 1.1.8; pass
+is automatic App Store release for version 1.1.8 and every later version; pass
 `--release-type automatic --accept-auto-release-risk` explicitly so the setting
-is visible and verified on every submission. Version 1.1.8 is the one-off
-manual-release exception. Keep this policy until the owner explicitly changes
-it.
+is visible and verified on every submission. Use manual release only when the
+owner explicitly requests an exception. Keep this policy until the owner
+explicitly changes it.
 
 ## Platform versions are independent
 
@@ -256,13 +256,11 @@ same record passes `live` against its real public delivery path.
 
 App Store review submission is a narrowly scoped exception to the normal
 promotion gate only when the user explicitly accepts the remaining candidate
-risk. Version 1.1.8 uses `releaseType=MANUAL`, so approval cannot publish that
-build and public release still requires the normal `promote` gate. For later
-versions, the project owner's standing policy is `releaseType=AFTER_APPROVAL`;
-record and verify it on every submission with
-`--release-type automatic --accept-auto-release-risk`. Do not apply that
-standing policy retroactively to 1.1.8, and replace it only when the owner
-explicitly gives a new release policy.
+risk. Beginning with version 1.1.8, the project owner's standing policy is
+`releaseType=AFTER_APPROVAL`; record and verify it on every submission with
+`--release-type automatic --accept-auto-release-risk`. Use `MANUAL` only for an
+explicit version-specific exception, and replace the standing policy only when
+the owner explicitly gives a new release policy.
 
 Before reporting success, use the script and artifact validation output to
 confirm all of the following:

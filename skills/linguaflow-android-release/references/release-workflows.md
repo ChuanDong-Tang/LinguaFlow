@@ -80,11 +80,12 @@ The normal end-to-end order is: run `--check`, build the candidate, complete
 the artifact-bound acceptance record, upload that exact IPA, poll the API
 `--check` until the build is `VALID`, run `--prepare` to bind the build and
 discover the actual App Store locales, then run `--submit` with reviewed
-What's New copy for every reported locale. Version 1.1.8 is the one-off manual
-release. Later versions follow the project owner's standing automatic-release
-policy and must pass both `--release-type automatic` and the separate
-`--accept-auto-release-risk` flag. All steps are retryable against the same
-version/build without allocating a replacement artifact.
+What's New copy for every reported locale. Version 1.1.8 and later versions
+follow the project owner's standing automatic-release policy and must pass both
+`--release-type automatic` and the separate `--accept-auto-release-risk` flag.
+Use manual release only for an explicit version-specific exception. All steps
+are retryable against the same version/build without allocating a replacement
+artifact.
 
 The iOS marketing version and Apple build number describe iOS only. Do not use
 them as the expected Android versionName or versionCode, and do not update an
