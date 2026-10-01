@@ -329,6 +329,8 @@ log "Building production IPA locally with EAS"
     --platform ios \
     --profile "$BUILD_PROFILE" \
     --local \
+    --wait \
+    --verbose-logs \
     --non-interactive \
     --output "$raw_ipa"
 )
