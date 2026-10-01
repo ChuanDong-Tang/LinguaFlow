@@ -30,8 +30,18 @@
       }
     },
     "testflight-local": {
-      "extends": "testflight",
-      "credentialsSource": "local"
+      "environment": "production",
+      "autoIncrement": true,
+      "distribution": "store",
+      "channel": "production",
+      "credentialsSource": "local",
+      "android": {
+        "buildType": "app-bundle"
+      },
+      "ios": {
+        "simulator": false,
+        "image": "macos-tahoe-26.5-xcode-26.6"
+      }
     },
     "production": {
       "environment": "production",
