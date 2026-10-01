@@ -325,14 +325,19 @@ log "Building production IPA locally with EAS"
   # config plugins before a local build. Without this step `expo run:ios` and
   # local EAS builds can silently use stale Objective-C/Swift sources.
   npx expo prebuild --platform ios --no-install
-  npx --yes eas-cli build \
-    --platform ios \
-    --profile "$BUILD_PROFILE" \
-    --local \
-    --wait \
-    --verbose-logs \
-    --non-interactive \
+  eas_build_args=(
+    build
+    --platform ios
+    --profile "$BUILD_PROFILE"
+    --local
+    --wait
+    --verbose-logs
     --output "$raw_ipa"
+  )
+  if [[ "${EAS_BUILD_INTERACTIVE:-false}" != "true" ]]; then
+    eas_build_args+=(--non-interactive)
+  fi
+  npx --yes eas-cli "${eas_build_args[@]}"
 )
 
 [[ -s "$raw_ipa" ]] || fail "EAS build did not produce an IPA."
