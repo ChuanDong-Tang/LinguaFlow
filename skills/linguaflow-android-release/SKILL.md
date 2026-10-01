@@ -81,6 +81,21 @@ If the user requests all three, run them sequentially, not concurrently. For a
 configuration-only request, use the selected script's `--check`. Respect an
 explicit no-upload request for iOS by adding `--build-only`.
 
+For iOS, let `ios-testflight.sh --check` query App Store Connect before any
+expensive build. The proposed marketing version must be higher than the highest
+closed/approved train, unless that exact version is still
+`PREPARE_FOR_SUBMISSION`. Build with the `testflight-local` EAS profile and
+downloaded existing credentials; never create or revoke Apple credentials as a
+routine release step. After uploading the accepted exact IPA, poll
+`ios-app-store-submit.mjs --check` until the build is `VALID`, run `--prepare`
+to bind it and discover the live localization list, then use `--submit` with
+reviewed What's New text for every locale. The project owner's standing policy
+is automatic App Store release for versions after 1.1.8; pass
+`--release-type automatic --accept-auto-release-risk` explicitly so the setting
+is visible and verified on every submission. Version 1.1.8 is the one-off
+manual-release exception. Keep this policy until the owner explicitly changes
+it.
+
 ## Platform versions are independent
 
 Treat the live iOS, Google Android, and China Android versions as three separate
@@ -241,11 +256,13 @@ same record passes `live` against its real public delivery path.
 
 App Store review submission is a narrowly scoped exception to the normal
 promotion gate only when the user explicitly accepts the remaining candidate
-risk. Default to `releaseType=MANUAL`; then approval cannot publish the build,
-and public release still requires the normal `promote` gate. If the user
-explicitly requests automatic release in the active request, record that choice
-with the script's separate auto-release risk flag; never infer it from an old
-preference or from authorization to submit for review.
+risk. Version 1.1.8 uses `releaseType=MANUAL`, so approval cannot publish that
+build and public release still requires the normal `promote` gate. For later
+versions, the project owner's standing policy is `releaseType=AFTER_APPROVAL`;
+record and verify it on every submission with
+`--release-type automatic --accept-auto-release-risk`. Do not apply that
+standing policy retroactively to 1.1.8, and replace it only when the owner
+explicitly gives a new release policy.
 
 Before reporting success, use the script and artifact validation output to
 confirm all of the following:

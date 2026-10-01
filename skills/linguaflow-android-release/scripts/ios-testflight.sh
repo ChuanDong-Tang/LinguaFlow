@@ -199,13 +199,21 @@ NODE
     log "Using EAS remote iOS signing credentials"
   fi
 
-  if ! $BUILD_ONLY; then
-    : "${APP_STORE_CONNECT_API_KEY_ID:?Missing APP_STORE_CONNECT_API_KEY_ID in $CONFIG_FILE}"
-    : "${APP_STORE_CONNECT_API_ISSUER_ID:?Missing APP_STORE_CONNECT_API_ISSUER_ID in $CONFIG_FILE}"
-    : "${APP_STORE_CONNECT_API_KEY_PATH:?Missing APP_STORE_CONNECT_API_KEY_PATH in $CONFIG_FILE}"
-    [[ -f "$APP_STORE_CONNECT_API_KEY_PATH" ]] || \
-      fail "App Store Connect API private key not found: $APP_STORE_CONNECT_API_KEY_PATH"
+  : "${APP_STORE_CONNECT_API_KEY_ID:?Missing APP_STORE_CONNECT_API_KEY_ID in $CONFIG_FILE}"
+  : "${APP_STORE_CONNECT_API_ISSUER_ID:?Missing APP_STORE_CONNECT_API_ISSUER_ID in $CONFIG_FILE}"
+  : "${APP_STORE_CONNECT_API_KEY_PATH:?Missing APP_STORE_CONNECT_API_KEY_PATH in $CONFIG_FILE}"
+  [[ -f "$APP_STORE_CONNECT_API_KEY_PATH" ]] || \
+    fail "App Store Connect API private key not found: $APP_STORE_CONNECT_API_KEY_PATH"
 
+  # App Store Connect is the authority for version-train availability. Run
+  # this before simulator work and local EAS build so a closed or older train
+  # cannot consume another build number and several minutes of build time.
+  if [[ -z "$SUBMIT_ONLY_IPA" ]]; then
+    node "$SCRIPT_DIR/ios-app-store-submit.mjs" \
+      --check-version --version "$EXPECTED_APP_VERSION" --config "$CONFIG_FILE"
+  fi
+
+  if ! $BUILD_ONLY; then
     if [[ -x /Applications/Transporter.app/Contents/itms/bin/iTMSTransporter ]]; then
       TRANSPORTER_BIN=/Applications/Transporter.app/Contents/itms/bin/iTMSTransporter
     else

@@ -14,6 +14,21 @@ Before the first run on a Mac, copy
 `skills/linguaflow-android-release/config/ios-testflight.env` and fill in the
 machine-specific values.
 
+Download the existing Apple signing credentials once instead of creating or
+revoking credentials during a release:
+
+```bash
+cd apps/mobile
+npx --yes eas-cli@24.8.0 credentials --platform ios
+```
+
+Choose the TestFlight/production build profile, sign in to Apple when prompted,
+select `credentials.json`, and download the existing distribution certificate
+and provisioning profile. Keep `credentials.json`, the certificate, the
+profile, and passwords in ignored local files. Confirm that
+`BUILD_PROFILE=testflight-local`; do not commit, upload, recreate, or revoke
+credentials merely to make a local build work.
+
 ## Candidate build
 
 ```bash
@@ -22,10 +37,13 @@ bash skills/linguaflow-android-release/scripts/ios-testflight.sh
 
 The workflow performs these steps:
 
-1. Checks macOS, Xcode, signing identity, `.env`, and the EAS production profile.
-2. Builds and cold-launches the same source twice on iOS 26, iOS 27, and the
-   configured Android emulator.
-3. Runs a complete local EAS production build and allocates the next build number.
+1. Checks macOS, Xcode, local signing credentials, `.env`, and the EAS
+   production profile, then asks the App Store Connect API whether the proposed
+   marketing version is available. The public App Store page is not authority.
+2. Builds and cold-launches the same source twice on iOS 26 and iOS 27. An iOS
+   candidate is not blocked on an unrelated Android emulator.
+3. Runs a complete local EAS production build with the downloaded local
+   credentials and allocates the next build number.
 4. Opens the generated IPA and verifies its bundle ID, production update channel,
    production API URL, signing team, version, and build number.
 5. Stops with a retained local candidate. Upload is a separate, acceptance-gated
@@ -57,6 +75,16 @@ When the user separately asks for App Store review, read
 `references/app-store-review.md` and use `ios-app-store-submit.mjs`. Do not use
 the deprecated `appStoreVersionSubmissions` endpoint and do not treat TestFlight
 upload, App Review submission, approval, and public release as one action.
+
+The normal end-to-end order is: run `--check`, build the candidate, complete
+the artifact-bound acceptance record, upload that exact IPA, poll the API
+`--check` until the build is `VALID`, run `--prepare` to bind the build and
+discover the actual App Store locales, then run `--submit` with reviewed
+What's New copy for every reported locale. Version 1.1.8 is the one-off manual
+release. Later versions follow the project owner's standing automatic-release
+policy and must pass both `--release-type automatic` and the separate
+`--accept-auto-release-risk` flag. All steps are retryable against the same
+version/build without allocating a replacement artifact.
 
 The iOS marketing version and Apple build number describe iOS only. Do not use
 them as the expected Android versionName or versionCode, and do not update an

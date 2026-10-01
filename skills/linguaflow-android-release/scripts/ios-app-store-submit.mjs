@@ -22,7 +22,9 @@ function parseArgs(argv) {
   const options = { mode: "check", config: defaultConfig, releaseType: "manual", whatsNew: [] };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
-    if (arg === "--check") options.mode = "check";
+    if (arg === "--check-version") options.mode = "check-version";
+    else if (arg === "--check") options.mode = "check";
+    else if (arg === "--prepare") options.mode = "prepare";
     else if (arg === "--submit") options.mode = "submit";
     else if (["--version", "--build", "--acceptance", "--config"].includes(arg)) {
       const value = argv[index + 1];
@@ -51,15 +53,24 @@ function parseArgs(argv) {
 function usage() {
   console.log(`Usage:
   node skills/linguaflow-android-release/scripts/ios-app-store-submit.mjs \\
+    --check-version --version <version>
+
+  node skills/linguaflow-android-release/scripts/ios-app-store-submit.mjs \\
     --check --version <version> --build <build>
+
+  node skills/linguaflow-android-release/scripts/ios-app-store-submit.mjs \\
+    --prepare --version <version> --build <build> \\
+    --acceptance <record> --release-type manual|automatic --yes
 
   node skills/linguaflow-android-release/scripts/ios-app-store-submit.mjs \\
     --submit --version <version> --build <build> \\
     --acceptance <record> --release-type manual|automatic \\
     --whats-new <locale>=<text> [--whats-new <locale>=<text>] --yes
 
-The submit mode creates the App Store version when absent, sets the requested release mode,
-binds the exact VALID build, creates/reuses a review submission, and submits it.
+Check-version validates the marketing version before an expensive native build. Prepare creates
+the App Store version when absent, sets the release mode, binds the exact VALID build, and reports
+the actual localization metadata without submitting. Submit additionally applies What's New,
+creates/reuses a review submission, and submits it.
 Automatic release additionally requires --accept-auto-release-risk.`);
 }
 
@@ -160,6 +171,52 @@ const submittedStates = new Set([
 
 function versionState(version) {
   return version?.attributes?.appStoreState ?? version?.attributes?.appVersionState ?? "UNKNOWN";
+}
+
+function compareDottedVersions(left, right) {
+  const parse = (value) => {
+    if (!/^\d+(?:\.\d+)*$/u.test(value)) throw new Error(`Invalid numeric version: ${value}`);
+    return value.split(".").map((part) => Number(part));
+  };
+  const leftParts = parse(left);
+  const rightParts = parse(right);
+  const length = Math.max(leftParts.length, rightParts.length);
+  for (let index = 0; index < length; index += 1) {
+    const delta = (leftParts[index] ?? 0) - (rightParts[index] ?? 0);
+    if (delta !== 0) return Math.sign(delta);
+  }
+  return 0;
+}
+
+function evaluateVersionAvailability(versions, candidate) {
+  const sorted = [...versions].sort((left, right) =>
+    compareDottedVersions(right.attributes?.versionString, left.attributes?.versionString));
+  const highest = sorted[0] ?? null;
+  const exact = versions.find((version) => version.attributes?.versionString === candidate) ?? null;
+  if (exact) {
+    const state = versionState(exact);
+    if (state !== "PREPARE_FOR_SUBMISSION") {
+      throw new Error(`App Store version ${candidate} already exists in ${state}; choose a higher version for a new native build.`);
+    }
+    return { highest, exact, available: true };
+  }
+  if (highest && compareDottedVersions(candidate, highest.attributes.versionString) <= 0) {
+    throw new Error(
+      `Version ${candidate} is not above the highest App Store Connect version ` +
+      `${highest.attributes.versionString} (${versionState(highest)}).`,
+    );
+  }
+  return { highest, exact: null, available: true };
+}
+
+async function checkVersionAvailability(token, appId, candidate) {
+  const query = new URLSearchParams({
+    "filter[platform]": "IOS",
+    "fields[appStoreVersions]": "platform,versionString,appStoreState,appVersionState,createdDate",
+    limit: "200",
+  });
+  const { body } = await request(token, "GET", `/apps/${appId}/appStoreVersions?${query}`);
+  return evaluateVersionAvailability(body.data ?? [], candidate);
 }
 
 function selectExactBuild(builds, buildNumber) {
@@ -375,20 +432,34 @@ function runSelfTest() {
   if (!submittedStates.has("IN_REVIEW") || submittedStates.has("PREPARE_FOR_SUBMISSION")) {
     throw new Error("Submission state policy is invalid.");
   }
+  if (compareDottedVersions("1.1.10", "1.1.9") <= 0 || compareDottedVersions("1.2", "1.2.0") !== 0) {
+    throw new Error("Numeric version comparison failed.");
+  }
+  const versions = [
+    { attributes: { versionString: "1.1.8", appStoreState: "WAITING_FOR_REVIEW" } },
+    { attributes: { versionString: "1.1.7", appStoreState: "READY_FOR_SALE" } },
+  ];
+  evaluateVersionAvailability(versions, "1.1.9");
+  let rejectedClosedTrain = false;
+  try { evaluateVersionAvailability(versions, "1.1.8"); } catch { rejectedClosedTrain = true; }
+  if (!rejectedClosedTrain) throw new Error("Closed App Store version was accepted.");
   console.log("ios-app-store-submit self-test passed");
 }
 
 const options = parseArgs(process.argv.slice(2));
 if (options.help) { usage(); process.exit(0); }
 if (options.selfTest) { runSelfTest(); process.exit(0); }
-if (!options.version || !options.build) { usage(); fail("--version and --build are required."); }
-if (options.mode === "submit" && (!options.acceptance || !options.yes)) {
-  fail("Submission requires --acceptance <record> and --yes after explicit user authorization.");
+if (!options.version || (options.mode !== "check-version" && !options.build)) {
+  usage();
+  fail(options.mode === "check-version" ? "--version is required." : "--version and --build are required.");
+}
+if (["prepare", "submit"].includes(options.mode) && (!options.acceptance || !options.yes)) {
+  fail(`${options.mode === "prepare" ? "Preparation" : "Submission"} requires --acceptance <record> and --yes after explicit user authorization.`);
 }
 if (!new Set(["manual", "automatic"]).has(options.releaseType)) {
   fail("--release-type must be manual or automatic.");
 }
-if (options.mode === "submit" && options.releaseType === "automatic" && !options.acceptAutoReleaseRisk) {
+if (["prepare", "submit"].includes(options.mode) && options.releaseType === "automatic" && !options.acceptAutoReleaseRisk) {
   fail("Automatic release requires --accept-auto-release-risk because approval can publish immediately.");
 }
 
@@ -397,7 +468,7 @@ try { config = parseEnvFile(path.resolve(options.config)); } catch (error) { fai
 for (const name of ["EXPECTED_BUNDLE_ID", "APP_STORE_CONNECT_API_KEY_ID", "APP_STORE_CONNECT_API_ISSUER_ID", "APP_STORE_CONNECT_API_KEY_PATH"]) {
   if (!config[name]) fail(`Missing ${name} in ${options.config}.`);
 }
-if (options.mode === "submit") {
+if (["prepare", "submit"].includes(options.mode)) {
   try { assertCandidateAcceptance(options.acceptance, options.version, options.build); } catch (error) { fail(error.message); }
 }
 
@@ -412,10 +483,23 @@ try {
 
 try {
   const app = await findApp(token, config.EXPECTED_BUNDLE_ID);
+  console.log(`App: ${config.EXPECTED_BUNDLE_ID} (${app.id})`);
+  if (options.mode === "check-version") {
+    const availability = await checkVersionAvailability(token, app.id, options.version);
+    if (availability.highest) {
+      console.log(
+        `Highest App Store Connect version: ${availability.highest.attributes.versionString} / ` +
+        `${versionState(availability.highest)}`,
+      );
+    } else {
+      console.log("Highest App Store Connect version: none");
+    }
+    console.log(`Target version: ${options.version} / AVAILABLE`);
+    process.exit(0);
+  }
   const build = await findBuild(token, app.id, options.build);
   let version = await findVersion(token, app.id, options.version);
 
-  console.log(`App: ${config.EXPECTED_BUNDLE_ID} (${app.id})`);
   console.log(`Build: ${options.build} / ${build.attributes.processingState}`);
   console.log(`Version: ${options.version} / ${version ? versionState(version) : "NOT_CREATED"}`);
   if (version) console.log(`Release type: ${version.attributes?.releaseType ?? "UNKNOWN"}`);
@@ -457,6 +541,11 @@ try {
   }
   await bindBuild(token, version, build);
   const metadata = await preflightMetadata(token, version.id);
+  if (options.mode === "prepare") {
+    printMetadata(metadata);
+    console.log(`Prepared App Store version ${options.version}; review was not submitted.`);
+    process.exit(0);
+  }
   await applyWhatsNew(token, metadata, options.whatsNew);
   printMetadata(metadata);
 
