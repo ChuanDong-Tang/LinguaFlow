@@ -82,7 +82,9 @@ function validateStartupReceipt(errors, record, receipt, requiredTargets) {
     return;
   }
   if (receipt.status !== 'passed') errors.push('startup smoke receipt status must be passed');
-  if (receipt.schemaVersion !== 2) errors.push('startup smoke receipt must use sequential schemaVersion 2');
+  if (![2, 3].includes(receipt.schemaVersion)) {
+    errors.push('startup smoke receipt must use a supported sequential schemaVersion');
+  }
   if (receipt.commit !== record?.sourceCommit) errors.push('startup smoke receipt commit must match sourceCommit');
   if (receipt.execution?.strategy !== 'sequential' || receipt.execution?.maxConcurrentDevices !== 1) {
     errors.push('startup smoke receipt must prove sequential execution with one active device');
@@ -179,7 +181,7 @@ function fileSha256(file) {
 function receiptPassesForCommit(receiptPath, commit, distribution) {
   if (!hasText(receiptPath) || !fs.existsSync(path.resolve(receiptPath))) return false;
   const receipt = JSON.parse(fs.readFileSync(path.resolve(receiptPath), 'utf8'));
-  return receipt.status === 'passed' && receipt.schemaVersion === 2 && receipt.commit === commit
+  return receipt.status === 'passed' && [2, 3].includes(receipt.schemaVersion) && receipt.commit === commit
     && receipt.execution?.strategy === 'sequential' && receipt.execution?.maxConcurrentDevices === 1
     && releaseTargetsForDistribution(distribution).every((target) => (receipt.targets?.[target]?.launches || 0) >= 2);
 }
