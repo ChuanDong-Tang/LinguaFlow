@@ -332,6 +332,7 @@ log "Building production IPA locally with EAS"
     --local
     --wait
     --verbose-logs
+    --freeze-credentials
     --output "$raw_ipa"
   )
   if [[ "${LF_EAS_BUILD_INTERACTIVE:-false}" != "true" ]]; then
