@@ -401,6 +401,9 @@ log "Building $ANDROID_TARGET production $PACKAGE_KIND locally with EAS"
     --platform android
     --profile "$BUILD_PROFILE"
     --local
+    --wait
+    --verbose-logs
+    --freeze-credentials
     --non-interactive
     --output "$raw_package"
   )
