@@ -107,6 +107,21 @@ been applied and verified. An additive migration may remain compatible with
 the old process during step 1; the reverse order can expose new code to an old
 schema and is a deployment failure.
 
+For a coordinated app release, update the three independent public version
+pointers and the immutable China APK URL with the bounded configuration script.
+It backs up the production `.env`, changes only the four allowlisted settings,
+restarts only the API with `--update-env`, and restores the backup if restart
+fails:
+
+```bash
+bash skills/linguaflow-backend-deploy/scripts/update-app-version-config.sh \
+  --ios <version> --google <version> --china <version> \
+  --china-url <immutable-apk-url> --confirm-production
+```
+
+Afterward, verify every platform-specific public `/app/version` response. Do
+not use `LF_APP_LATEST_VERSION` as a shortcut.
+
 The deployment script deliberately requires a clean remote tree, a
 fast-forward update, an exact deployed commit, allowlisted PM2 process names,
 and post-rollout API/Worker health. Stop rather than bypassing a failed guard.
