@@ -5,6 +5,7 @@ import { TtsPlayButton } from "../../components/TtsPlayButton";
 import { getDictionaryTermAudio, type DictionaryLookupResult } from "../../services/api/dictionaryApi";
 import { t } from "../../i18n";
 import { playTtsAudio } from "../../services/tts/ttsPlayback";
+import { calculateDictionaryPopoverLayout, DICTIONARY_POPOVER_WIDTH } from "./dictionaryPopoverLayout";
 
 export type DictionaryPopoverAnchor = {
   pageX: number;
@@ -27,13 +28,6 @@ type DictionaryPopoverProps = {
   onClose: () => void;
 };
 
-const POPOVER_WIDTH = 312;
-const POPOVER_MARGIN = 12;
-const POPOVER_BODY_HEIGHT = 260;
-const POPOVER_ESTIMATED_HEIGHT = 340;
-const BOTTOM_CHROME_HEIGHT = 96;
-const ANCHOR_GAP = 8;
-
 export function DictionaryPopover({
   visible,
   anchor,
@@ -48,7 +42,6 @@ export function DictionaryPopover({
   onClose,
 }: DictionaryPopoverProps) {
   const window = useWindowDimensions();
-  const [measuredCardHeight, setMeasuredCardHeight] = React.useState(0);
   const [playingDictionaryAudio, setPlayingDictionaryAudio] = React.useState(false);
   const audioRequestRef = React.useRef<AbortController | null>(null);
 
@@ -56,7 +49,6 @@ export function DictionaryPopover({
     audioRequestRef.current?.abort();
     audioRequestRef.current = null;
     setPlayingDictionaryAudio(false);
-    setMeasuredCardHeight(0);
   }, [visible, term]);
 
   React.useEffect(() => () => audioRequestRef.current?.abort(), []);
@@ -87,23 +79,11 @@ export function DictionaryPopover({
     }
   }
 
-  const position = React.useMemo(() => {
-    const cardHeight = measuredCardHeight || POPOVER_ESTIMATED_HEIGHT;
-    const maximumTop = Math.max(POPOVER_MARGIN, window.height - BOTTOM_CHROME_HEIGHT - cardHeight);
-    const fallbackTop = clamp(window.height * 0.12, POPOVER_MARGIN, maximumTop);
-    const fallbackLeft = Math.max(POPOVER_MARGIN, (window.width - POPOVER_WIDTH) / 2);
-    if (!anchor) return { left: fallbackLeft, top: fallbackTop };
-    const left = clamp(anchor.pageX + anchor.width / 2 - POPOVER_WIDTH / 2, POPOVER_MARGIN, window.width - POPOVER_WIDTH - POPOVER_MARGIN);
-    const below = anchor.pageY + anchor.height + ANCHOR_GAP;
-    const above = anchor.pageY - cardHeight - ANCHOR_GAP;
-    const top = below <= maximumTop
-      ? below
-      : above >= POPOVER_MARGIN
-        ? above
-        : clamp(below, POPOVER_MARGIN, maximumTop);
-    return { left, top };
-  }, [anchor, measuredCardHeight, window.height, window.width]);
-  const bodyHeight = clamp(POPOVER_BODY_HEIGHT, 120, window.height - position.top - POPOVER_MARGIN - 92);
+  const layout = React.useMemo(() => calculateDictionaryPopoverLayout({
+    windowWidth: window.width,
+    windowHeight: window.height,
+    anchor,
+  }), [anchor, window.height, window.width]);
   const useExistingMessageAudio = !isShortDictionaryExpression(term) && Boolean(messageId) && textStart !== undefined && textEnd !== undefined;
 
   if (!visible) return null;
@@ -113,11 +93,7 @@ export function DictionaryPopover({
     <View style={styles.overlay}>
       <Pressable style={styles.backdrop} onPress={onClose} />
       <View
-        style={[styles.card, { left: position.left, top: position.top }]}
-        onLayout={(event) => {
-          const nextHeight = Math.ceil(event.nativeEvent.layout.height);
-          if (nextHeight > 0 && Math.abs(nextHeight - measuredCardHeight) >= 1) setMeasuredCardHeight(nextHeight);
-        }}
+        style={[styles.card, { left: layout.left, top: layout.top }]}
       >
         <View style={styles.headerRow}>
           <Text style={styles.term} numberOfLines={2}>{term}</Text>
@@ -143,7 +119,7 @@ export function DictionaryPopover({
         </View>
 
         <ScrollView
-          style={[styles.bodyScroll, { height: bodyHeight }]}
+          style={[styles.bodyScroll, { height: layout.bodyHeight }]}
           contentContainerStyle={styles.bodyContent}
           alwaysBounceVertical={false}
           showsVerticalScrollIndicator
@@ -175,11 +151,6 @@ function isShortDictionaryExpression(text: string): boolean {
   return text.trim().length <= 60 && text.trim().split(/\s+/u).filter(Boolean).length <= 5;
 }
 
-function clamp(value: number, min: number, max: number): number {
-  if (max < min) return min;
-  return Math.max(min, Math.min(max, value));
-}
-
 const styles = StyleSheet.create({
   overlay: {
     ...StyleSheet.absoluteFill,
@@ -191,7 +162,7 @@ const styles = StyleSheet.create({
   },
   card: {
     position: "absolute",
-    width: POPOVER_WIDTH,
+    width: DICTIONARY_POPOVER_WIDTH,
     borderRadius: 16,
     borderWidth: 1,
     borderColor: "#DBDFE7",
