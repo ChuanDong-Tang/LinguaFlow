@@ -442,6 +442,29 @@ if (!source.includes('signingConfig signingConfigs.release')) {
 }
 fs.writeFileSync(file, source);
 NODE
+    credentials_file="${LF_ANDROID_CREDENTIALS_JSON:-}"
+    [[ -f "$credentials_file" ]] || fail "Set LF_ANDROID_CREDENTIALS_JSON to the local Android release credentials file for the China APK fallback."
+    node - "$credentials_file" "$GRADLE_USER_HOME/gradle.properties" <<'NODE'
+const fs = require('fs');
+const path = require('path');
+const [credentialsFile, outputFile] = process.argv.slice(2);
+const credentials = JSON.parse(fs.readFileSync(credentialsFile, 'utf8')).android?.keystore;
+if (!credentials) throw new Error('Missing android.keystore in Android credentials file');
+for (const key of ['keystorePath', 'keystorePassword', 'keyAlias', 'keyPassword']) {
+  if (!credentials[key]) throw new Error(`Missing android.keystore.${key}`);
+}
+const keystorePath = path.resolve(path.dirname(credentialsFile), credentials.keystorePath);
+if (!fs.existsSync(keystorePath)) throw new Error(`Android release keystore not found: ${keystorePath}`);
+const escapeProperty = (value) => String(value).replace(/([\\:=#!])/g, '\\$1');
+const properties = [
+  ['OIO_UPLOAD_STORE_FILE', keystorePath],
+  ['OIO_UPLOAD_STORE_PASSWORD', credentials.keystorePassword],
+  ['OIO_UPLOAD_KEY_ALIAS', credentials.keyAlias],
+  ['OIO_UPLOAD_KEY_PASSWORD', credentials.keyPassword],
+].map(([key, value]) => `${key}=${escapeProperty(value)}`).join('\n');
+fs.writeFileSync(outputFile, `${properties}\n`, { mode: 0o600 });
+NODE
+    trap 'rm -f "$GRADLE_USER_HOME/gradle.properties"' EXIT
     (
       cd "$MOBILE_DIR/android"
       ./gradlew app:assembleRelease
