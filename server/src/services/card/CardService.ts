@@ -38,7 +38,14 @@ import { buildCardExpressionPrompt, CARD_EXPRESSION_PROMPT_VERSION, CARD_TOPIC_M
 import { normalizePhraseSurface, PHRASE_NORMALIZER_VERSION } from "@lf/core/text/phraseNormalization.js";
 import type { AIProvider } from "@lf/core/ports/ai/AIProvider.js";
 import { ResourceLimitedError, type ResourceGovernor } from "../resource/ResourceGovernor.js";
-import { buildCardContentGenerationPrompt, cardContentMaxOutputTokens, parseCardAuxiliaryOutput, type CardGeneratedContentTarget } from "@lf/core/Prompts/cardContentGenerationPrompt.js";
+import {
+  buildCardContentGenerationPrompt,
+  CARD_CONTENT_AUXILIARY_PROMPT_VERSION,
+  CARD_REPLY_AUXILIARY_PROMPT_VERSION,
+  cardContentMaxOutputTokens,
+  parseCardAuxiliaryOutput,
+  type CardGeneratedContentTarget,
+} from "@lf/core/Prompts/cardContentGenerationPrompt.js";
 import { buildCardContentSegments } from "./cardContentSegments.js";
 import type { ChatTextGenerationStreamEvent } from "@lf/core/ports/ai/AIProvider.js";
 import type { UsageV2Service } from "../usage/UsageV2Service.js";
@@ -78,7 +85,6 @@ import { safeEnrichmentErrorMetadata } from "./EnrichmentJobRetry.js";
 
 const PREVIEW_GRAPHEMES = 240;
 const CARD_IMAGE_AUXILIARY_PROMPT_VERSION = "card_image_auxiliary_v1";
-const CARD_CONTENT_AUXILIARY_PROMPT_VERSION = "card_content_auxiliary_v1";
 const FOREGROUND_LLM_RETRY_DELAYS_MS = [750, 1_500, 3_000] as const;
 export const CARD_PROMPT_VERSION = CARD_EXPRESSION_PROMPT_VERSION;
 
@@ -844,6 +850,9 @@ export class CardService {
             : preference.learningLanguage,
           appLocale: input.target === "auxiliary" ? current.appLocaleSnapshot : preference.appLocale,
           difficulty: current.promptDifficultySnapshot,
+          auxiliaryPurpose: input.target === "auxiliary" && auxiliaryContentType === "reply"
+            ? "reply_translation"
+            : "supporting_text",
         });
     const maxOutputTokens = cardContentMaxOutputTokens(input.target, sourceText);
     const meteredPrompt = `${prompt.systemPrompt}\n${prompt.userPrompt}`;
@@ -944,7 +953,9 @@ export class CardService {
         contentVersion: sourceHash,
         auxiliarySegments,
         auxiliaryLanguageCode: generationLanguageCode,
-        auxiliaryPromptVersion: CARD_CONTENT_AUXILIARY_PROMPT_VERSION,
+        auxiliaryPromptVersion: auxiliaryContentType === "reply"
+          ? CARD_REPLY_AUXILIARY_PROMPT_VERSION
+          : CARD_CONTENT_AUXILIARY_PROMPT_VERSION,
       });
       if (!updated) throw new CardContentConflictError("The Card expression changed while auxiliary text was being generated");
       // Keep the legacy rewrite fields in sync so already released clients

@@ -1,4 +1,7 @@
 export type CardGeneratedContentTarget = "expression" | "translation" | "auxiliary" | "reply";
+export type CardAuxiliaryPurpose = "supporting_text" | "reply_translation";
+export const CARD_CONTENT_AUXILIARY_PROMPT_VERSION = "card_content_auxiliary_v1";
+export const CARD_REPLY_AUXILIARY_PROMPT_VERSION = "card_reply_auxiliary_v2";
 
 export function cardContentMaxOutputTokens(target: CardGeneratedContentTarget, sourceText: string): number {
   if (target === "reply") return 160;
@@ -14,11 +17,14 @@ export function buildCardContentGenerationPrompt(input: {
   languageCode: string;
   appLocale: string;
   difficulty: string;
+  auxiliaryPurpose?: CardAuxiliaryPurpose;
 }): { systemPrompt: string; userPrompt: string } {
   const task = input.target === "expression"
     ? `Rewrite the record as natural everyday ${languageName(input.languageCode)}. Preserve its meaning, facts, tone, emotion, and point of view.`
     : input.target === "auxiliary"
-      ? `The input is a JSON array of numbered, already-finalized ${languageName(input.languageCode)} expression segments. For every input segment, write clear, natural ${languageName(input.appLocale)} auxiliary text that helps the user understand that segment. Preserve its meaning, tone, and point of view. Do not rewrite, correct, merge, split, omit, or add to the finalized expression.
+      ? `${input.auxiliaryPurpose === "reply_translation"
+        ? `The input is a JSON array of numbered, already-finalized ${languageName(input.languageCode)} reply segments. For every input segment, write a direct, faithful, natural translation in ${languageName(input.appLocale)}. Preserve the exact meaning, tone, emotion, and point of view. Output only the translated sentence itself inside <text>. Do not explain, analyze, summarize, label, or describe the sentence, its intent, or its tone. Do not add advice, context, interpretation, or commentary. Never begin with wording equivalent to "this sentence", "this reply", "the speaker", or "helps the user understand".`
+        : `The input is a JSON array of numbered, already-finalized ${languageName(input.languageCode)} expression segments. For every input segment, write clear, natural ${languageName(input.appLocale)} auxiliary text that helps the user understand that segment. Preserve its meaning, tone, and point of view. Do not rewrite, correct, merge, split, omit, or add to the finalized expression.`}
 
 Return every ordinal exactly once and in the original order. Return XML only, with no markdown or explanation, in exactly this structure:
 <auxiliary_segments>
