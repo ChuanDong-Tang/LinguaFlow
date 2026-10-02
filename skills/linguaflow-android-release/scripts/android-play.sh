@@ -415,6 +415,41 @@ log "Building $ANDROID_TARGET production $PACKAGE_KIND locally with EAS"
     # Keep native releases on the last locally verified CLI.
     npx --yes eas-cli@24.7.0 "${eas_build_args[@]}"
   fi
+
+  # EAS CLI currently can return success after allocating the remote Android
+  # versionCode and resolving credentials for a store-distributed APK without
+  # invoking the local-build plugin or writing the requested output. Keep the
+  # China workflow deterministic by using the already generated native project,
+  # the same release-signing properties, and the exact remote versionCode.
+  if [[ "$ANDROID_TARGET" == "china" && ! -s "$raw_package" ]]; then
+    log "EAS did not write the China APK; building the allocated versionCode with Gradle"
+    if [[ -n "${LF_EAS_CLI_BIN:-}" ]]; then
+      remote_version_json="$("$LF_EAS_CLI_BIN" build:version:get --platform android --profile "$BUILD_PROFILE" --json)"
+    else
+      remote_version_json="$(npx --yes eas-cli@24.7.0 build:version:get --platform android --profile "$BUILD_PROFILE" --json)"
+    fi
+    remote_version_code="$(node -e 'const value=JSON.parse(process.argv[1]).versionCode; if (!/^\d+$/.test(String(value))) process.exit(1); process.stdout.write(String(value));' "$remote_version_json")"
+    EAS_BUILD_PROFILE="$BUILD_PROFILE" npx expo prebuild --platform android --no-install
+    node - "$MOBILE_DIR/android/app/build.gradle" "$remote_version_code" <<'NODE'
+const fs = require('fs');
+const [file, versionCode] = process.argv.slice(2);
+let source = fs.readFileSync(file, 'utf8');
+const pattern = /versionCode\s+\d+/;
+if (!pattern.test(source)) throw new Error('Unable to locate generated Android versionCode');
+source = source.replace(pattern, `versionCode ${versionCode}`);
+if (!source.includes('signingConfig signingConfigs.release')) {
+  throw new Error('Generated Android release signing config was not found');
+}
+fs.writeFileSync(file, source);
+NODE
+    (
+      cd "$MOBILE_DIR/android"
+      ./gradlew app:assembleRelease
+    )
+    gradle_apk="$(find "$MOBILE_DIR/android/app/build/outputs/apk/release" -type f -name '*.apk' -print -quit)"
+    [[ -s "$gradle_apk" ]] || fail "Gradle fallback did not produce a China APK."
+    cp "$gradle_apk" "$raw_package"
+  fi
 )
 
 [[ -s "$raw_package" ]] || fail "EAS build did not produce a $PACKAGE_KIND."
