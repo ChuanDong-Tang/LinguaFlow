@@ -122,6 +122,16 @@ bash skills/linguaflow-backend-deploy/scripts/update-app-version-config.sh \
 Afterward, verify every platform-specific public `/app/version` response. Do
 not use `LF_APP_LATEST_VERSION` as a shortcut.
 
+Change the production Grok default only with the allowlisted configuration
+script. It preserves the existing allowed-model list, backs up `.env`, restarts
+API and Worker with the updated environment, verifies both process environments
+and API health, and restores the backup if verification fails:
+
+```bash
+bash skills/linguaflow-backend-deploy/scripts/update-grok-model-config.sh \
+  --model grok-4-20-non-reasoning --confirm-production
+```
+
 The deployment script deliberately requires a clean remote tree, a
 fast-forward update, an exact deployed commit, allowlisted PM2 process names,
 and post-rollout API/Worker health. Stop rather than bypassing a failed guard.

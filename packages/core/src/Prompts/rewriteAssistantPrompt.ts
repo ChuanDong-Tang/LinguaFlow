@@ -29,8 +29,8 @@ function buildRewriteSystemPrompt(
     ? "The user may write in Chinese, English, Japanese, or mixed language."
     : "The user may write in Chinese, English, mixed Chinese and English, or use grammar that is incomplete, repetitive, casual, emotional, or unnatural.";
   const taskLine = language === "ja-JP"
-    ? "Your task is to understand what the user truly means, including emotion, tone, and situation, then rewrite it in natural everyday Japanese."
-    : "Your task is to first understand what the user truly means, including their emotion, tone, and situation, then rewrite it in the most natural way an American would actually say it.";
+    ? "Your task is to understand the user's stated meaning and the emotion and tone expressed in their wording, then rewrite it in natural everyday Japanese."
+    : "Your task is to understand the user's stated meaning and the emotion and tone expressed in their wording, then rewrite it in the most natural way an American would actually say it.";
   const rewritePrinciples = language === "ja-JP"
     ? `* Sound like a real Japanese speaker, not a literal translation.
 * Preserve the user's original meaning, emotion, and tone.
@@ -40,16 +40,23 @@ function buildRewriteSystemPrompt(
 * Do not output Chinese-style Japanese such as 日文, 日語, 中文, or 汉字 when natural Japanese would be 日本語, 中国語, or 漢字.
 * The rewrite should normally include kana. If the result is only Chinese characters, it is probably not natural Japanese.
 * Example: "我刚才发的那句日文，全都是中文汉字写的吧？" should become something like "さっき送った日本語の文、全部中国語の漢字で書かれてたよね？", not Chinese.
-* You may restructure, combine, simplify, or shorten sentences when it sounds more natural.`
+* Preserve every explicit meaningful detail, including people, actions, objects, numbers, times, causes, contrasts, uncertainty, and event order.
+* Never infer or add a concrete detail that the user did not state, including gender, identity, relationship, motive, emotion, cause, intensity, setting, or outcome.
+* You may restructure or combine sentences only when every explicit detail and the original logic survive unchanged.`
     : `* Sound like a real person, not a translation.
 * Use the most common and natural everyday American English.
 * Preserve the user's original meaning, emotion, and tone.
 * Do not translate word for word.
 * Do not keep Chinese sentence structure.
-* Feel free to restructure, combine, simplify, or shorten sentences to make the writing sound more natural.
-* If an American would usually say it in a shorter, more direct, or more conversational way, do that.
+* Preserve every explicit meaningful detail, including people, actions, objects, numbers, times, causes, contrasts, uncertainty, and event order. Do not drop a detail just to make the rewrite shorter.
+* Never infer or add a concrete detail that the user did not state, including gender, identity, relationship, motive, emotion, cause, intensity, setting, or outcome.
+* Preserve ambiguity for both people and animals. If gender, biological sex, identity, or singular versus plural is not explicit, use neutral wording such as they, the child, my roommate, it, or the dog instead of choosing he, she, him, her, or a count.
+* Preserve degree exactly. Do not strengthen or soften words such as a little, very, for a long time, might, or probably.
+* You may restructure or combine sentences only when every explicit detail and the original logic survive unchanged. Condense only genuinely repeated wording, never distinct facts.
+* Make the rewrite lively through natural rhythm, idiomatic wording, and conversational sentence structure grounded in the source. Vivid does not mean inventing adjectives, reactions, examples, or context.
 * Make it sound like a text message, casual conversation, or personal life update, not an essay, report, or news article.
-* Use natural spoken English, but do not force slang or filler words.`;
+* Use natural spoken English, but do not force slang or filler words.
+* Before answering, silently compare each source clause with the rewrite: every source detail must remain, and every rewrite detail must be supported by the source.`;
   const uiLanguage = getAppLocalePromptName(appLocale);
   const languageContract = outputMode === "rewrite_only"
     ? `* The <en> section must be only ${rewriteLanguage}. It must not follow the app UI language.`
@@ -139,16 +146,23 @@ function buildFriendSystemPrompt(language: PromptLanguage, difficulty?: string |
 * Use natural Japanese vocabulary and orthography. Convert Chinese-only wording into normal Japanese wording when needed.
 * Do not output Chinese-style Japanese such as 日文, 日語, 中文, or 汉字 when natural Japanese would be 日本語, 中国語, or 漢字.
 * The rewrite should normally include kana. If the result is only Chinese characters, it is probably not natural Japanese.
-* Feel free to restructure, combine, simplify, or shorten sentences when it sounds more natural.`
+* Preserve every explicit meaningful detail, including people, actions, objects, numbers, times, causes, contrasts, uncertainty, and event order.
+* Never infer or add a concrete detail that the user did not state, including gender, identity, relationship, motive, emotion, cause, intensity, setting, or outcome.
+* You may restructure or combine sentences only when every explicit detail and the original logic survive unchanged.`
     : `* Sound like a real native speaker, not a translation.
 * Preserve the user's original meaning, emotions, tone, and intent.
 * Use the most natural and common American English expressions.
 * Do not translate literally.
 * Do not keep Chinese sentence structure.
-* Feel free to restructure, combine, simplify, or shorten sentences when it sounds more natural.
-* If a native speaker would normally say it in a shorter, more direct, or more conversational way, do that.
+* Preserve every explicit meaningful detail, including people, actions, objects, numbers, times, causes, contrasts, uncertainty, and event order. Do not drop a detail just to make the rewrite shorter.
+* Never infer or add a concrete detail that the user did not state, including gender, identity, relationship, motive, emotion, cause, intensity, setting, or outcome.
+* Preserve ambiguity for both people and animals. If gender, biological sex, identity, or singular versus plural is not explicit, use neutral wording such as they, the child, my roommate, it, or the dog instead of choosing he, she, him, her, or a count.
+* Preserve degree exactly. Do not strengthen or soften words such as a little, very, for a long time, might, or probably.
+* You may restructure or combine sentences only when every explicit detail and the original logic survive unchanged. Condense only genuinely repeated wording, never distinct facts.
+* Make the rewrite lively through natural rhythm, idiomatic wording, and conversational sentence structure grounded in the source. Vivid does not mean inventing adjectives, reactions, examples, or context.
 * Make it sound like a real message, conversation, or life update.
-* Use natural spoken English, but do not force slang or filler words.`;
+* Use natural spoken English, but do not force slang or filler words.
+* Before answering, silently compare each source clause with the rewrite: every source detail must remain, and every rewrite detail must be supported by the source.`;
   const difficultyInstruction = buildDifficultyInstruction(difficulty);
 
   return `
