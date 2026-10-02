@@ -53,3 +53,39 @@ test("sends the configured reasoning effort to Grok", async () => {
   assert.equal(requestBody?.model, "grok-4.3");
   assert.equal(requestBody?.reasoning_effort, "none");
 });
+
+test("omits reasoning effort for non-reasoning Grok models", async () => {
+  const originalFetch = globalThis.fetch;
+  let requestBody: Record<string, unknown> | null = null;
+  globalThis.fetch = async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+    return new Response([
+      'data: {"choices":[{"delta":{"content":"ok"}}]}',
+      "",
+      "data: [DONE]",
+      "",
+    ].join("\n"), {
+      status: 200,
+      headers: { "Content-Type": "text/event-stream" },
+    });
+  };
+
+  try {
+    const provider = new GrokAIProvider({
+      apiKey: "test-key",
+      baseUrl: "https://example.test/v1",
+      model: "grok-4-20-non-reasoning",
+      reasoningEffort: "none",
+    });
+    await provider.generateChatTextStream({
+      userId: "test-user",
+      text: "probe",
+      rawUserPrompt: true,
+    }, () => {});
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  assert.equal(requestBody?.model, "grok-4-20-non-reasoning");
+  assert.equal(Object.hasOwn(requestBody ?? {}, "reasoning_effort"), false);
+});

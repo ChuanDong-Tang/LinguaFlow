@@ -86,6 +86,9 @@ export class GrokAIProvider implements AIProvider {
     const systemPrompt = promptProfile.systemPrompt;
     const userPrompt = input.rawUserPrompt ? input.text : promptProfile.buildUserPrompt(input.text);
     const model = this.resolveModelName(input);
+    const reasoningEffort = model.toLowerCase().includes("non-reasoning")
+      ? null
+      : this.reasoningEffort;
 
     try {
       if (input.signal?.aborted) {
@@ -102,7 +105,7 @@ export class GrokAIProvider implements AIProvider {
         },
         body: JSON.stringify({
           model,
-          ...(this.reasoningEffort ? { reasoning_effort: this.reasoningEffort } : {}),
+          ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
           ...(input.maxOutputTokens ? { max_tokens: input.maxOutputTokens } : {}),
           temperature: input.temperature ?? 1,
           top_p: 1,
