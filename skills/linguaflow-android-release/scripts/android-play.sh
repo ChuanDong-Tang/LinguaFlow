@@ -396,12 +396,22 @@ log "Building $ANDROID_TARGET production $PACKAGE_KIND locally with EAS"
     cp "$SCRIPT_DIR/gradle-repositories.init.gradle" "$GRADLE_USER_HOME/init.d/linguaflow-repositories.gradle"
   fi
   npx expo prebuild --platform android --no-install
-  npx --yes eas-cli build \
-    --platform android \
-    --profile "$BUILD_PROFILE" \
-    --local \
-    --non-interactive \
+  eas_build_args=(
+    build
+    --platform android
+    --profile "$BUILD_PROFILE"
+    --local
+    --non-interactive
     --output "$raw_package"
+  )
+  if [[ -n "${LF_EAS_CLI_BIN:-}" ]]; then
+    "$LF_EAS_CLI_BIN" "${eas_build_args[@]}"
+  else
+    # Newer CLI builds can return success immediately after resolving remote
+    # credentials without invoking the local-build plugin or writing output.
+    # Keep native releases on the last locally verified CLI.
+    npx --yes eas-cli@24.7.0 "${eas_build_args[@]}"
+  fi
 )
 
 [[ -s "$raw_package" ]] || fail "EAS build did not produce a $PACKAGE_KIND."
