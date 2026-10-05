@@ -20,6 +20,7 @@ import {
   View,
 } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Crypto from "expo-crypto";
 import * as Haptics from "expo-haptics";
 import * as ImagePicker from "expo-image-picker";
@@ -93,6 +94,8 @@ import { stabilizeProfileAvatar, stabilizeSignedImage } from "../services/image/
 import { useRealtimeSttInput } from "../hooks/useRealtimeSttInput";
 import { RealtimeSttButton } from "../components/RealtimeSttButton";
 import { extractTargetLanguageCorpus } from "@lf/core/text/corpusText";
+import { dictionaryLookupErrorKey, lookupDictionary, type DictionaryLookupResult } from "../services/api/dictionaryApi";
+import { DictionarySearchResultCard } from "./search/DictionarySearchResultCard";
 
 type MainScreenProps = {
   isActive: boolean;
@@ -109,6 +112,13 @@ type MainScreenProps = {
 
 type LibraryView = "all" | string;
 type RecordActionAnchor = { x: number; y: number; width: number; height: number };
+type StandaloneDictionarySearchState = {
+  term: string;
+  targetLanguage?: string;
+  loading: boolean;
+  error: string | null;
+  result: DictionaryLookupResult | null;
+};
 
 const UNCLASSIFIED_VIEW = "unclassified";
 const TRASH_VIEW = "trash";
@@ -117,6 +127,7 @@ const EMPTY_CORPUS_DRAFT: CardDraft = { ...EMPTY_DRAFT, mode: "corpus", enabledL
 const LIBRARY_PAGE_SIZE = 40;
 const BACKGROUND_REFRESH_INTERVAL_MS = 60_000;
 const TOPIC_REFRESH_DELAYS_MS = [1_000, 2_000, 3_000, 5_000, 8_000] as const;
+const SEARCH_DICTIONARY_HINT_KEY = "lf_home_search_dictionary_hint_v1";
 
 const THUMBNAIL_REFRESH_LEAD_MS = 60_000;
 const THUMBNAIL_ERROR_REFRESH_COOLDOWN_MS = 10_000;
@@ -144,6 +155,8 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
   const [searchVisible, setSearchVisible] = useState(false);
   const [searchResults, setSearchResults] = useState<RecallCandidate[] | null>(null);
   const [searching, setSearching] = useState(false);
+  const [dictionarySearch, setDictionarySearch] = useState<StandaloneDictionarySearchState | null>(null);
+  const [searchDictionaryHintVisible, setSearchDictionaryHintVisible] = useState(false);
   const [searchCollectionId, setSearchCollectionId] = useState<string | null | undefined>(undefined);
   const [composerVisible, setComposerVisible] = useState(false);
   const composerTransition = useRef(new Animated.Value(0)).current;
@@ -181,6 +194,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
   const loadMoreSequenceRef = useRef(0);
   const loadingMoreRef = useRef(false);
   const searchSequenceRef = useRef(0);
+  const searchDictionaryAbortRef = useRef<AbortController | null>(null);
   const submitInFlightRef = useRef(false);
   const quickNoteInputRef = useRef<TextInput>(null);
   const quickNoteGenerationQueueRef = useRef<Promise<void>>(Promise.resolve());
@@ -207,6 +221,14 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
   useEffect(() => {
     sidebarProfileRef.current = sidebarProfile;
   }, [sidebarProfile]);
+  useEffect(() => {
+    let active = true;
+    void AsyncStorage.getItem(SEARCH_DICTIONARY_HINT_KEY).then((seen) => {
+      if (active && !seen) setSearchDictionaryHintVisible(true);
+    }).catch(() => undefined);
+    return () => { active = false; };
+  }, []);
+  useEffect(() => () => searchDictionaryAbortRef.current?.abort(), []);
   function commitDraft(next: CardDraft): Promise<void> {
     draftRevisionRef.current += 1;
     draftRef.current = next;
@@ -1143,31 +1165,86 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
       clearSearch();
       return;
     }
+    searchDictionaryAbortRef.current?.abort();
+    const dictionaryController = new AbortController();
+    searchDictionaryAbortRef.current = dictionaryController;
     const sequence = ++searchSequenceRef.current;
     setSearching(true);
+    setSearchResults(null);
+    setDictionarySearch({ term: query, loading: true, error: null, result: null });
     try {
       const collectionId = searchCollectionId === null ? "unclassified" : searchCollectionId;
-      const rows = await searchCardsLexically({ q: query, collectionId, limit: 50 });
-      if (sequence === searchSequenceRef.current) setSearchResults(rows);
-    } catch {
-      if (sequence === searchSequenceRef.current) {
+      const cardSearch = searchCardsLexically({ q: query, collectionId, limit: 50 });
+      const dictionaryLookup = getUserPreference().then(async (preference) => ({
+        targetLanguage: preference.learningLanguage,
+        result: await lookupDictionary({
+          term: query,
+          context: query,
+          selectionStart: 0,
+          selectionEnd: query.length,
+          targetLanguage: preference.learningLanguage,
+          uiLanguage: getLanguage(),
+          contactId: "curious_companion",
+          messageId: null,
+          lookupMode: "standalone",
+          signal: dictionaryController.signal,
+        }),
+      }));
+      const cardTask = cardSearch.then((rows) => {
+        if (sequence === searchSequenceRef.current) setSearchResults(rows);
+      }).catch(() => {
+        if (sequence !== searchSequenceRef.current) return;
+        setSearchResults([]);
         Alert.alert(t("main.search.failed"), t("main.error.network_retry"));
-      }
+      });
+      const dictionaryTask = dictionaryLookup.then(({ result, targetLanguage }) => {
+        if (sequence === searchSequenceRef.current) setDictionarySearch({ term: query, targetLanguage, loading: false, error: null, result });
+      }).catch((error) => {
+        if (sequence !== searchSequenceRef.current || dictionaryController.signal.aborted) return;
+        console.warn("[main] standalone dictionary lookup failed", error);
+        setDictionarySearch({ term: query, loading: false, error: t(dictionaryLookupErrorKey(error)), result: null });
+      });
+      await Promise.allSettled([cardTask, dictionaryTask]);
     } finally {
+      if (searchDictionaryAbortRef.current === dictionaryController) searchDictionaryAbortRef.current = null;
       if (sequence === searchSequenceRef.current) setSearching(false);
     }
   }
 
+  function updateSearchQuery(value: string): void {
+    searchSequenceRef.current += 1;
+    searchDictionaryAbortRef.current?.abort();
+    searchDictionaryAbortRef.current = null;
+    setSearchQuery(value);
+    setSearchResults(null);
+    setDictionarySearch(null);
+    setSearching(false);
+  }
+
   function clearSearch(): void {
     searchSequenceRef.current += 1;
+    searchDictionaryAbortRef.current?.abort();
+    searchDictionaryAbortRef.current = null;
     setSearchQuery("");
     setSearchResults(null);
+    setDictionarySearch(null);
     setSearching(false);
   }
 
   function closeSearch(): void {
+    searchSequenceRef.current += 1;
+    searchDictionaryAbortRef.current?.abort();
+    searchDictionaryAbortRef.current = null;
+    setSearching(false);
     setSearchVisible(false);
     Keyboard.dismiss();
+  }
+
+  function openSearch(): void {
+    setSearchDictionaryHintVisible(false);
+    void AsyncStorage.setItem(SEARCH_DICTIONARY_HINT_KEY, "1").catch(() => undefined);
+    setSearchCollectionId(undefined);
+    setSearchVisible(true);
   }
 
   function selectLibraryView(view: LibraryView): void {
@@ -1441,13 +1518,14 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
           {selectingRecords ? <View style={styles.headerIconButton} /> : <Pressable
             accessibilityLabel={t("quick_note.a11y.search")}
             style={styles.headerIconButton}
-            onPress={() => {
-              setSearchCollectionId(undefined);
-              setSearchVisible(true);
-            }}
+            onPress={openSearch}
           >
             <Ionicons name="search-outline" size={23} color={theme.colors.text} />
           </Pressable>}
+          {!selectingRecords && searchDictionaryHintVisible ? <Pressable accessibilityRole="button" accessibilityLabel={t("main.search.new_hint")} style={styles.searchDictionaryCoachmark} onPress={openSearch}>
+            <Text style={styles.searchDictionaryCoachmarkText}>{t("main.search.new_hint")}</Text>
+            <View style={styles.searchDictionaryCoachmarkArrow} />
+          </Pressable> : null}
         </View>
       </View>
 
@@ -1668,10 +1746,11 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
           query={searchQuery}
           results={searchResults}
           searching={searching}
+          dictionarySearch={dictionarySearch}
           collections={collections}
           collectionId={searchCollectionId}
           onClose={closeSearch}
-          onQueryChange={(value) => { setSearchQuery(value); if (searchResults !== null) setSearchResults(null); }}
+          onQueryChange={updateSearchQuery}
           onSearch={() => void submitSearch()}
           onCollectionChange={(value) => { setSearchCollectionId(value); setSearchResults(null); }}
           onCreateCollection={createDraftCollection}
@@ -2769,10 +2848,11 @@ function collectionPathName(collection: CardCollection, collections: CardCollect
   return names.join(" / ");
 }
 
-function CardSearchScreen({ query, results, searching, collections, collectionId, onClose, onQueryChange, onSearch, onCollectionChange, onCreateCollection, onOpenResult }: {
+function CardSearchScreen({ query, results, searching, dictionarySearch, collections, collectionId, onClose, onQueryChange, onSearch, onCollectionChange, onCreateCollection, onOpenResult }: {
   query: string;
   results: RecallCandidate[] | null;
   searching: boolean;
+  dictionarySearch: StandaloneDictionarySearchState | null;
   collections: CardCollection[];
   collectionId: string | null | undefined;
   onClose: () => void;
@@ -2790,12 +2870,18 @@ function CardSearchScreen({ query, results, searching, collections, collectionId
   }, []);
   const selectedCollection = collectionId ? collections.find((collection) => collection.id === collectionId) : null;
   const collectionLabel = collectionId === undefined ? t("sidebar.collections") : collectionId === null ? t("sidebar.unclassified") : selectedCollection ? collectionPathName(selectedCollection, collections) : t("main.search.category");
+  const dictionaryVisualCandidates = (results ?? []).flatMap((result) => result.thumbnail ? [{
+    recordId: result.recordId,
+    url: result.thumbnail.url,
+    label: result.displayTitle,
+  }] : []);
+  const dictionaryVisuals = Array.from(new Map(dictionaryVisualCandidates.map((visual) => [visual.url, visual])).values()).slice(0, 2);
   return <SafeAreaView style={styles.searchPage}>
     <View style={styles.searchPageHeader}>
       <Pressable accessibilityLabel={t("card_detail.back")} style={styles.searchBackButton} onPress={onClose}><Ionicons name="chevron-back" size={25} color={theme.colors.text} /></Pressable>
       <View style={styles.searchBox}>
         <Ionicons name="search" size={18} color={theme.colors.textMuted} />
-        <TextInput ref={inputRef} value={query} onChangeText={onQueryChange} onSubmitEditing={onSearch} returnKeyType="search" style={styles.searchPageInput} />
+        <TextInput ref={inputRef} value={query} onChangeText={onQueryChange} onSubmitEditing={onSearch} returnKeyType="search" placeholder={t("main.search.placeholder")} placeholderTextColor={theme.colors.textMuted} style={styles.searchPageInput} />
         {query ? <Pressable accessibilityLabel={t("main.search.clear")} hitSlop={8} onPress={() => onQueryChange("")}><Ionicons name="close-circle" size={19} color={theme.colors.textMuted} /></Pressable> : null}
       </View>
       <Pressable accessibilityLabel={t("main.search.action")} disabled={!query.trim() || searching} style={[styles.searchPageSubmit, (!query.trim() || searching) && styles.searchPageSubmitDisabled]} onPress={onSearch}>
@@ -2803,6 +2889,7 @@ function CardSearchScreen({ query, results, searching, collections, collectionId
       </Pressable>
     </View>
     <View style={styles.searchFilters}>
+      <Text style={styles.searchCapabilities}>{t("main.search.capabilities")}</Text>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.searchFilterContent}>
         <Pressable style={[styles.searchFilterChip, collectionId !== undefined && styles.searchFilterChipActive]} onPress={() => setCollectionPickerVisible(true)}>
           <Ionicons name={collectionId === undefined ? "apps-outline" : "folder-outline"} size={14} color={collectionId !== undefined ? theme.colors.text : theme.colors.textSecondary} />
@@ -2812,9 +2899,12 @@ function CardSearchScreen({ query, results, searching, collections, collectionId
       </ScrollView>
     </View>
     <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.searchResultsContent} showsVerticalScrollIndicator={false}>
-      {results ? <Text style={styles.searchSummary}>{results.length ? tf("main.search.result_count", { count: results.length }) : tf("main.search.no_result", { query: query.trim() })}</Text> : <View style={styles.searchStart}><Ionicons name="search-outline" size={30} color="#C1C1C1" /><Text style={styles.searchStartText}>{t("main.search.description")}</Text></View>}
+      {dictionarySearch ? <DictionarySearchResultCard {...dictionarySearch} visuals={dictionaryVisuals} onOpenVisual={onOpenResult} /> : null}
+      {results ? <>
+        <Text style={styles.searchSectionTitle}>{t("main.search.cards_title")}</Text>
+        <Text style={styles.searchSummary}>{results.length ? tf("main.search.result_count", { count: results.length }) : t("main.search.empty_hint")}</Text>
+      </> : dictionarySearch ? null : <View style={styles.searchStart}><Ionicons name="search-outline" size={30} color="#C1C1C1" /><Text style={styles.searchStartText}>{t("main.search.description")}</Text></View>}
       {results?.map((result) => <SearchResultCard key={result.recordId} result={result} query={query} onPress={() => onOpenResult(result.recordId)} />)}
-      {results && !results.length ? <Text style={styles.searchEmptyHint}>{t("main.search.empty_hint")}</Text> : null}
     </ScrollView>
     <CollectionPickerModal visible={collectionPickerVisible} title={t("main.search.choose_category")} collections={collections} value={collectionId} includeAll onClose={() => setCollectionPickerVisible(false)} onSelect={(value) => { setCollectionPickerVisible(false); onCollectionChange(value); }} onCreateCollection={onCreateCollection} />
   </SafeAreaView>;
@@ -3116,11 +3206,14 @@ const styles = StyleSheet.create({
   homeHeaderTitle: { maxWidth: "86%", color: theme.colors.text, fontSize: 17, lineHeight: 23, fontWeight: "600" },
   selectionHeaderTitle: { flex: 1, textAlign: "center", color: theme.colors.text, fontSize: 17, fontWeight: "600" },
   headerDate: { color: theme.colors.textMuted, fontSize: 13 },
-  headerActions: { marginLeft: "auto", flexDirection: "row", alignItems: "center", gap: 2 },
+  headerActions: { position: "relative", zIndex: 5, marginLeft: "auto", flexDirection: "row", alignItems: "center", gap: 2 },
   headerCharacter: { width: 38, height: 42, alignItems: "center", justifyContent: "center" },
   recordButton: { minHeight: 44, paddingHorizontal: 13, borderRadius: theme.radius.pill, backgroundColor: theme.colors.accentStrong, flexDirection: "row", alignItems: "center", gap: 5 },
   recordButtonText: { color: theme.colors.surface, fontSize: 13, fontWeight: "600" },
   headerIconButton: { width: 42, height: 42, alignItems: "center", justifyContent: "center" },
+  searchDictionaryCoachmark: { position: "absolute", top: 45, right: 1, minWidth: 122, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, backgroundColor: "#171717", alignItems: "center", shadowColor: "#000000", shadowOpacity: 0.16, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 8 },
+  searchDictionaryCoachmarkText: { color: "#FFFFFF", fontSize: 12, lineHeight: 17, fontWeight: "500" },
+  searchDictionaryCoachmarkArrow: { position: "absolute", top: -5, right: 16, width: 10, height: 10, backgroundColor: "#171717", transform: [{ rotate: "45deg" }] },
   headerAssistantUnavailable: { opacity: 0.42 },
   libraryMenuBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.12)" },
   libraryMenuPanel: { position: "absolute", alignSelf: "center", width: 300, borderRadius: 18, backgroundColor: theme.colors.surface, overflow: "hidden", shadowColor: "#000", shadowOpacity: 0.16, shadowRadius: 20, shadowOffset: { width: 0, height: 8 }, elevation: 12 },
@@ -3170,12 +3263,14 @@ const styles = StyleSheet.create({
   searchPageSubmit: { width: 40, height: 40, borderRadius: 20, backgroundColor: "#171717", alignItems: "center", justifyContent: "center" },
   searchPageSubmitDisabled: { opacity: 0.35 },
   searchFilters: { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#E5E5E5" },
-  searchFilterContent: { paddingLeft: 54, paddingRight: 20, paddingTop: 7, paddingBottom: 13, gap: 8 },
+  searchCapabilities: { paddingLeft: 54, paddingRight: 20, paddingTop: 6, color: theme.colors.textMuted, fontSize: 11, lineHeight: 16 },
+  searchFilterContent: { paddingLeft: 54, paddingRight: 20, paddingTop: 5, paddingBottom: 13, gap: 8 },
   searchFilterChip: { maxWidth: 180, height: 34, paddingHorizontal: 11, borderWidth: 1, borderColor: "#E0E0E0", borderRadius: 17, backgroundColor: "#FFFFFF", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5 },
   searchFilterChipActive: { borderColor: "#BDBDBD", backgroundColor: "#ECECEC" },
   searchFilterText: { color: theme.colors.textSecondary, fontSize: 12 },
   searchFilterTextActive: { color: theme.colors.text, fontWeight: "600" },
   searchResultsContent: { paddingHorizontal: 20, paddingTop: 18, paddingBottom: 60 },
+  searchSectionTitle: { marginBottom: 5, color: theme.colors.text, fontSize: 15, fontWeight: "600" },
   searchStart: { paddingTop: 90, alignItems: "center", gap: 12 },
   searchStartText: { color: theme.colors.textMuted, fontSize: 13 },
   searchEmptyHint: { marginTop: 22, color: theme.colors.textMuted, textAlign: "center", fontSize: 13 },

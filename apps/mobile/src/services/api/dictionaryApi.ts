@@ -11,6 +11,7 @@ type ApiResult<T> = ApiOk<T> | ApiFail;
 export type DictionaryLookupResult = {
   queryType: "word" | "phrase" | "sentence";
   term: string;
+  targetExpression: string;
   phonetic: string | null;
   audioUrl: string | null;
   targetMeaning: string;
@@ -37,6 +38,7 @@ export async function lookupDictionary(input: {
   uiLanguage: string;
   contactId: string;
   messageId?: string | null;
+  lookupMode?: "contextual" | "standalone";
   signal?: AbortSignal;
 }): Promise<DictionaryLookupResult> {
   const res = await fetchWithTimeout(`${BASE_URL}/dictionary/lookup`, {
@@ -55,6 +57,7 @@ export async function lookupDictionary(input: {
       uiLanguage: input.uiLanguage,
       contactId: input.contactId,
       messageId: input.messageId ?? null,
+      lookupMode: input.lookupMode,
     }),
     signal: input.signal,
   });
@@ -70,11 +73,11 @@ export async function lookupDictionary(input: {
   return json.data;
 }
 
-export async function getDictionaryTermAudio(term: string, signal?: AbortSignal): Promise<{ audioUrl: string; audioUrlExpiresAt: string | null }> {
+export async function getDictionaryTermAudio(term: string, signal?: AbortSignal, languageCode = "en-US"): Promise<{ audioUrl: string; audioUrlExpiresAt: string | null }> {
   const res = await fetchWithTimeout(`${BASE_URL}/tts/dictionary`, {
     method: "POST",
     headers: { "Content-Type": "application/json", ...(await getAuthHeaders()) },
-    body: JSON.stringify({ term, languageCode: "en-US" }),
+    body: JSON.stringify({ term, languageCode }),
     signal,
   });
   const json = (await res.json()) as ApiResult<{ audioUrl: string; audioUrlExpiresAt: string | null }>;

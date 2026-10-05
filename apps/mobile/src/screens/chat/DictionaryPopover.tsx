@@ -2,6 +2,7 @@ import React from "react";
 import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { TtsPlayButton } from "../../components/TtsPlayButton";
+import { DictionaryTranslation } from "../../components/DictionaryTranslation";
 import { getDictionaryTermAudio, type DictionaryLookupResult } from "../../services/api/dictionaryApi";
 import { t } from "../../i18n";
 import { playTtsAudio } from "../../services/tts/ttsPlayback";
@@ -137,7 +138,7 @@ export function DictionaryPopover({
               {result.phonetic ? <Text style={styles.phonetic}>{result.phonetic}</Text> : null}
               <Text style={styles.sectionLabel}>{t("dictionary.meaning_here")}</Text>
               <Text style={styles.primaryMeaning}>{result.targetMeaning}</Text>
-              {result.nativeMeaning !== result.targetMeaning ? <Text style={styles.uiMeaning}>{result.nativeMeaning}</Text> : null}
+              {result.nativeMeaning !== result.targetMeaning ? <DictionaryTranslation key={`${term}:${messageId}:${textStart}:${result.nativeMeaning}`} text={result.nativeMeaning} /> : null}
             </>
           ) : null}
         </ScrollView>

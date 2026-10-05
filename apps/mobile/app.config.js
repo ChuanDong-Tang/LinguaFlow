@@ -1,6 +1,6 @@
 const isPreview = process.env.EAS_BUILD_PROFILE === "preview";
-const appVersion = process.env.OIO_APP_VERSION?.trim() || "1.1.7";
-const runtimeVersion = process.env.OIO_RUNTIME_VERSION?.trim() || "1.1.7";
+const appVersion = process.env.OIO_APP_VERSION?.trim() || "1.1.8";
+const runtimeVersion = process.env.OIO_RUNTIME_VERSION?.trim() || "1.1.8";
 
 const scheme = isPreview ? "oio-preview" : "oio";
 const updateChannelByBuildProfile = {
