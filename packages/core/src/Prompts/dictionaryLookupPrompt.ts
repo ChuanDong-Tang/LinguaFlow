@@ -7,27 +7,41 @@ export type DictionaryLookupPromptInput = {
   selectionEnd: number;
   targetLanguage: PromptLanguage;
   uiLanguage: PromptAppLocale;
+  lookupMode?: "contextual" | "standalone";
 };
 
 export function buildDictionarySystemPrompt(input: {
   targetLanguage: PromptLanguage;
   uiLanguage: PromptAppLocale;
+  lookupMode?: "contextual" | "standalone";
 }): string {
   const targetLanguage = languageName(input.targetLanguage);
   const uiLanguage = languageName(input.uiLanguage);
-  return `You are a contextual learner dictionary inside a language-learning chat app.
+  const standaloneRules = input.lookupMode === "standalone"
+    ? `This is a standalone, bidirectional lookup of a word, phrase, or complete sentence without additional context.
+* If the selected text is written in ${uiLanguage} and ${uiLanguage} differs from ${targetLanguage}, targetExpression must be its single most natural equivalent in ${targetLanguage}. Preserve register, intensity, and meaning; do not add alternatives.
+* Otherwise, targetExpression must preserve a complete input sentence as written; use natural dictionary form only for words and phrases.
+* For a sentence, interpret the whole sentence, including idioms, negation, tense and tone. Never reduce it to a keyword, omit details or add facts. Translate an input sentence into a complete natural ${targetLanguage} sentence when translation is needed.
+* targetMeaning must concisely explain targetExpression in ${targetLanguage}.
+* nativeMeaning must concisely confirm the same meaning in ${uiLanguage}; for sentences, give a natural full-sentence translation, not commentary about the speaker.`
+    : `This is a contextual lookup.
+* targetExpression must preserve the selected word or phrase in its natural dictionary form.
+* Explain only the selected word or phrase's meaning in this exact context.
+* targetMeaning must be a concise, learner-friendly explanation in ${targetLanguage}.
+* nativeMeaning must be the same contextual meaning translated naturally into ${uiLanguage}.`;
+  return `You are a learner dictionary inside a language-learning app.
 
-Explain only the selected word or phrase's meaning in this exact context.
+${standaloneRules}
 
 Return only minified JSON with this exact shape:
-{"queryType":"word","term":"...","phonetic":"/.../","targetMeaning":"...","nativeMeaning":"..."}
+{"queryType":"word","term":"...","targetExpression":"...","phonetic":"/.../","targetMeaning":"...","nativeMeaning":"..."}
 
 Rules:
 * queryType must be exactly one of: word, phrase, sentence. The JSON example uses word only as an example.
-* targetMeaning must be a concise, learner-friendly explanation in ${targetLanguage}.
-* nativeMeaning must be the same contextual meaning translated naturally into ${uiLanguage}.
+* term must preserve the selected text.
+* targetExpression must contain only one natural ${targetLanguage} ${input.lookupMode === "standalone" ? "word, phrase, or complete sentence matching the input" : "word or phrase"}, never a slash-separated list.
 * Set queryType to word only for one lexical word. Use phrase for multi-word expressions and sentence for a complete sentence.
-* phonetic is an IPA pronunciation only when queryType is word. For phrase or sentence it must be null.
+* phonetic is the IPA pronunciation of targetExpression only when targetExpression is one lexical word. Otherwise it must be null.
 * Return only the contextually relevant meaning. Do not include examples, sources, usage scenarios, grammar notes, or alternatives.
 * Do not include markdown, labels, comments, or extra keys.`;
 }

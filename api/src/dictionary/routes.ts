@@ -21,7 +21,8 @@ import type { ResourceGovernor } from "@lf/server/services/resource/ResourceGove
 
 const FAILED_MODEL_OUTPUT_LOG_MAX_CHARS = 2_000;
 const DATAMUSE_TIMEOUT_MS = 4_000;
-const DICTIONARY_PROMPT_VERSION = "dictionary-meaning-v3";
+const CONTEXTUAL_DICTIONARY_PROMPT_VERSION = "dictionary-meaning-v3";
+const STANDALONE_DICTIONARY_PROMPT_VERSION = "dictionary-standalone-v2";
 const DICTIONARY_CACHE_TTL_MS = 90 * 24 * 60 * 60 * 1_000;
 
 export interface DictionaryRouteDeps {
@@ -49,11 +50,13 @@ type DictionaryLookupBody = {
   uiLanguage: string;
   contactId: string;
   messageId?: string | null;
+  lookupMode?: "contextual" | "standalone";
 };
 
 type DictionaryLookupResult = {
   queryType: "word" | "phrase" | "sentence";
   term: string;
+  targetExpression: string;
   phonetic: string | null;
   audioUrl: string | null;
   targetMeaning: string;
@@ -153,11 +156,15 @@ export function registerDictionaryRoutes(app: FastifyInstance, deps: DictionaryR
       const targetLanguage = preference.learningLanguage;
       const uiLanguage = preference.appLocale;
       const normalizedTerm = normalizeLookupTerm(body.term, targetLanguage);
+      const lookupMode = body.lookupMode ?? "contextual";
+      const promptVersion = dictionaryPromptVersion(lookupMode);
       const context = extractSelectionSentence(body.context, body.selectionStart, body.selectionEnd) ?? body.context.slice(0, 1_400);
       const contextHash = sha256(context);
       const provider = deps.aiProvider.resolveProviderName?.() ?? deps.aiProvider.providerName;
       const model = deps.aiProvider.resolveModelName?.() ?? deps.aiProvider.modelName;
-      const cacheKey = sha256([DICTIONARY_PROMPT_VERSION, userContext.userId, provider, model, targetLanguage, uiLanguage, normalizedTerm, contextHash].join("\u0000"));
+      const cacheKeyParts = [promptVersion, userContext.userId, provider, model, targetLanguage, uiLanguage, normalizedTerm, contextHash];
+      if (lookupMode === "standalone") cacheKeyParts.splice(1, 0, lookupMode);
+      const cacheKey = sha256(cacheKeyParts.join("\u0000"));
       const cached = await deps.cacheRepository.find(cacheKey).catch((error) => {
         req.log.warn({ requestId, error }, "dictionary cache read failed");
         return null;
@@ -173,6 +180,7 @@ export function registerDictionaryRoutes(app: FastifyInstance, deps: DictionaryR
           selectionEnd: body.selectionEnd,
           targetLanguage,
           uiLanguage,
+          lookupMode,
         };
         const meteredPrompt = `${buildDictionarySystemPrompt(promptInput)}\n${buildDictionaryUserPrompt(promptInput)}`;
         await deps.usageV2Service.reserveTokens({
@@ -193,6 +201,7 @@ export function registerDictionaryRoutes(app: FastifyInstance, deps: DictionaryR
             selectionEnd: body.selectionEnd,
             targetLanguage,
             uiLanguage,
+            lookupMode,
             maxOutputTokens: runtimeConfig.dictionaryLookupMaxOutputTokens,
             signal: abortController.signal,
           }, {
@@ -231,7 +240,7 @@ export function registerDictionaryRoutes(app: FastifyInstance, deps: DictionaryR
           }
           await deps.cacheRepository.put({
             cacheKey, userId: userContext.userId, term: normalizedTerm, contextHash, targetLanguage, uiLanguage,
-            promptVersion: DICTIONARY_PROMPT_VERSION, provider, model, result: data,
+            promptVersion, provider, model, result: data,
             expiresAt: new Date(Date.now() + DICTIONARY_CACHE_TTL_MS),
           }).catch((error) => req.log.warn({ requestId, error }, "dictionary cache write failed"));
         } catch (modelError) {
@@ -347,6 +356,7 @@ type DictionaryAiInput = {
   selectionEnd: number;
   targetLanguage: "en-US" | "ja-JP";
   uiLanguage: "zh-CN" | "zh-TW" | "en-US" | "ja-JP";
+  lookupMode?: "contextual" | "standalone";
   maxOutputTokens: number;
   signal: AbortSignal;
 };
@@ -465,6 +475,7 @@ export function parseDictionaryResult(value: unknown, fallbackTerm = ""): Dictio
   if (!isRecord(root)) return null;
   const candidate = isRecord(root.data) ? root.data : isRecord(root.result) ? root.result : root;
   const term = readFirstString(candidate.term, candidate.word, candidate.phrase) || fallbackTerm.trim();
+  const targetExpression = readFirstString(candidate.targetExpression, candidate.target_expression) || term;
   const queryType = normalizeDictionaryQueryType(candidate.queryType ?? candidate.query_type, term);
   const targetMeaning = readFirstString(candidate.targetMeaning, candidate.target_meaning, candidate.definition, candidate.meaning);
   const nativeMeaning = readFirstString(candidate.nativeMeaning, candidate.native_meaning, candidate.translation, candidate.nativeTranslation);
@@ -472,7 +483,7 @@ export function parseDictionaryResult(value: unknown, fallbackTerm = ""): Dictio
   const phonetic = queryType === "word"
     ? readFirstString(candidate.phonetic, candidate.ipa, candidate.pronunciation) || null
     : null;
-  return { queryType, term, phonetic, audioUrl: null, targetMeaning, nativeMeaning };
+  return { queryType, term, targetExpression, phonetic, audioUrl: null, targetMeaning, nativeMeaning };
 }
 
 function normalizeDictionaryQueryType(
@@ -596,6 +607,12 @@ function normalizeLookupTerm(value: string, languageCode = "en-US"): string {
     : trimmed;
 }
 
+function dictionaryPromptVersion(lookupMode: "contextual" | "standalone"): string {
+  return lookupMode === "standalone"
+    ? STANDALONE_DICTIONARY_PROMPT_VERSION
+    : CONTEXTUAL_DICTIONARY_PROMPT_VERSION;
+}
+
 function normalizeDatamuseResult(value: unknown, fallbackTerm: string): DictionaryLookupResult | null {
   const entry = Array.isArray(value) ? value.find(isRecord) : null;
   if (!entry) return null;
@@ -623,6 +640,7 @@ function normalizeDatamuseResult(value: unknown, fallbackTerm: string): Dictiona
   return {
     queryType: "word",
     term: readString(entry.defHeadword) || readString(entry.word) || fallbackTerm,
+    targetExpression: readString(entry.defHeadword) || readString(entry.word) || fallbackTerm,
     phonetic,
     audioUrl: null,
     targetMeaning: meaning,
@@ -657,6 +675,7 @@ function isDictionaryLookupBody(value: unknown): value is DictionaryLookupBody {
     isSupportedAppLocale(body.uiLanguage) &&
     typeof body.contactId === "string" &&
     body.contactId.trim().length > 0 &&
+    (body.lookupMode === undefined || body.lookupMode === "contextual" || body.lookupMode === "standalone") &&
     (body.messageId === undefined || body.messageId === null || typeof body.messageId === "string")
   );
 }
@@ -762,7 +781,7 @@ async function writeDictionaryLog(
       inputChars: input.inputChars,
       outputChars: input.outputChars,
       durationMs: input.durationMs,
-      promptVersion: DICTIONARY_PROMPT_VERSION,
+      promptVersion: dictionaryPromptVersion(input.body.lookupMode ?? "contextual"),
       aiAttempts: input.aiAttempts ?? diagnostics.aiAttempts,
       aiRetryReasons: input.aiRetryReasons?.length ? input.aiRetryReasons : diagnostics.retryReasons,
       upstreamStatus: diagnostics.upstreamStatus,
