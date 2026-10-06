@@ -25,7 +25,7 @@ import * as Crypto from "expo-crypto";
 import * as Haptics from "expo-haptics";
 import * as ImagePicker from "expo-image-picker";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
-import { KeyboardAvoidingView, useReanimatedKeyboardAnimation } from "react-native-keyboard-controller";
+import { KeyboardAwareScrollView, useReanimatedKeyboardAnimation } from "react-native-keyboard-controller";
 import Reanimated, { useAnimatedRef, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
 import OioCharacter from "../../assets/app/oio-character.svg";
 import OioRecall from "../../assets/app/oio-recall.svg";
@@ -166,18 +166,19 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
   const [quickNoteLineCount, setQuickNoteLineCount] = useState(1);
   const quickNoteAnimatedHeight = useSharedValue(37);
   const quickNoteAnimatedHeightStyle = useAnimatedStyle(() => ({ height: quickNoteAnimatedHeight.value }));
+  const [sidebarVisible, setSidebarVisible] = useState(false);
   const { height: keyboardHeight } = useReanimatedKeyboardAnimation();
   const quickNoteKeyboardDockStyle = useAnimatedStyle(() => {
+    if (sidebarVisible) return { transform: [{ translateY: 0 }] };
     const keyboardTravel = Math.max(0, -keyboardHeight.value);
     const safeAreaOffset = Math.min(screenInsets.bottom, keyboardTravel);
 
     return {
       transform: [{ translateY: keyboardHeight.value + safeAreaOffset }],
     };
-  }, [screenInsets.bottom]);
+  }, [screenInsets.bottom, sidebarVisible]);
   const [recordMoveTarget, setRecordMoveTarget] = useState<CardRecordSummary | null>(null);
   const [recordActionMenu, setRecordActionMenu] = useState<{ record: CardRecordSummary; anchor: RecordActionAnchor } | null>(null);
-  const [sidebarVisible, setSidebarVisible] = useState(false);
   const [sidebarProfile, setSidebarProfile] = useState<UserProfile | null>(null);
   const sidebarProfileRef = useRef<UserProfile | null>(null);
   const [sidebarEntitlement, setSidebarEntitlement] = useState<CurrentEntitlement | null>(null);
@@ -1920,7 +1921,15 @@ function LibrarySidebar({ visible, activeView, collections, profile, entitlement
   const [collectionActionMenu, setCollectionActionMenu] = useState<{ collection: CardCollection; anchor: RecordActionAnchor } | null>(null);
   const collectionScrollRef = useAnimatedRef<ScrollView>();
   const collectionManagerScrollRef = useAnimatedRef<ScrollView>();
-  const focusedCollectionInputHandleRef = useRef<object | null>(null);
+  const sidebarCreateRowRef = useRef<View>(null);
+  const sidebarScrollViewportRef = useRef<View>(null);
+  const sidebarScrollOffsetRef = useRef(0);
+  const sidebarAnchorFrameRef = useRef<number | null>(null);
+  const [sidebarKeyboardTop, setSidebarKeyboardTop] = useState<number | null>(null);
+  // Keep Sortable's animated ref pointing at the underlying native ScrollView.
+  const attachCollectionManagerScroll = useCallback((view: ScrollView | null) => {
+    collectionManagerScrollRef(view);
+  }, [collectionManagerScrollRef]);
   const collectionKeyExtractor = useCallback((collection: CardCollection) => collection.id, []);
   const favoriteCollections = useMemo(
     () => orderedCollections
@@ -1948,6 +1957,46 @@ function LibrarySidebar({ visible, activeView, collections, profile, entitlement
   const managerInlineCreating = !sidebarInlineCreating && Boolean(editingCollectionId) && creatingParentId !== undefined && renamingCollectionId === null;
   const collectionNameEditing = (!sidebarInlineCreating && creatingParentId !== undefined && !managerInlineCreating) || renamingCollectionId !== null;
   const collectionManagerWidth = Math.max(280, windowDimensions.width - 32);
+  const alignSidebarCreateRow = useCallback(() => {
+    if (sidebarAnchorFrameRef.current !== null) cancelAnimationFrame(sidebarAnchorFrameRef.current);
+    if (!visible || !sidebarInlineCreating) return;
+    sidebarAnchorFrameRef.current = requestAnimationFrame(() => {
+      sidebarAnchorFrameRef.current = null;
+      const row = sidebarCreateRowRef.current;
+      row?.measureInWindow((_x, rowTop, _width, rowHeight) => {
+        if (!rowHeight || sidebarCreateRowRef.current !== row) return;
+        sidebarScrollViewportRef.current?.measureInWindow((_sx, scrollTop) => {
+          if (sidebarCreateRowRef.current !== row) return;
+          // Stable top anchor; only a taller keyboard/smaller screen may move it up.
+          const targetTop = Math.max(scrollTop, Math.min(
+            insets.top + 360,
+            (sidebarKeyboardTop ?? windowDimensions.height - insets.bottom) - rowHeight - 16,
+          ));
+          const offset = Math.max(0, sidebarScrollOffsetRef.current + rowTop - targetTop);
+          if (Math.abs(offset - sidebarScrollOffsetRef.current) > 1) {
+            collectionScrollRef.current?.scrollTo({ y: offset, animated: false });
+          }
+        });
+      });
+    });
+  }, [visible, sidebarInlineCreating, sidebarKeyboardTop, insets.top, insets.bottom, windowDimensions.height, collectionScrollRef]);
+
+  useEffect(() => {
+    if (!visible || !sidebarInlineCreating) return;
+    setSidebarKeyboardTop(Keyboard.metrics()?.screenY ?? null);
+    const change = Keyboard.addListener(Platform.OS === "ios" ? "keyboardWillChangeFrame" : "keyboardDidShow", (event) => {
+      setSidebarKeyboardTop(event.endCoordinates.height > 0 ? event.endCoordinates.screenY : null);
+    });
+    const hide = Keyboard.addListener("keyboardDidHide", () => setSidebarKeyboardTop(null));
+    return () => { change.remove(); hide.remove(); };
+  }, [visible, sidebarInlineCreating]);
+
+  useEffect(() => {
+    alignSidebarCreateRow();
+    return () => {
+      if (sidebarAnchorFrameRef.current !== null) cancelAnimationFrame(sidebarAnchorFrameRef.current);
+    };
+  }, [alignSidebarCreateRow, creatingParentId]);
   useEffect(() => {
     if (!draggingCollectionId && !reorderSavingId) setOrderedCollections(collections);
   }, [collections, draggingCollectionId, reorderSavingId]);
@@ -1962,25 +2011,6 @@ function LibrarySidebar({ visible, activeView, collections, profile, entitlement
       }
     }
   }, [sidebarInlineCreating, visible]);
-
-  useEffect(() => {
-    const subscription = Keyboard.addListener("keyboardDidShow", () => {
-      const nativeHandle = focusedCollectionInputHandleRef.current;
-      if (nativeHandle) scrollCollectionInputIntoView(nativeHandle);
-    });
-    return () => subscription.remove();
-  }, []);
-
-  useEffect(() => {
-    if (!editingCollectionId || collectionNameEditing) return;
-    const rowIndex = collectionManagerRows.findIndex((row) => row.collection.id === editingCollectionId);
-    if (rowIndex < 0) return;
-    const timer = setTimeout(() => {
-      const inlineOffset = managerInlineCreating ? 58 : 0;
-      collectionManagerScrollRef.current?.scrollTo({ y: Math.max(0, rowIndex * 52 + inlineOffset - 104), animated: managerInlineCreating });
-    }, 260);
-    return () => clearTimeout(timer);
-  }, [collectionManagerRows, collectionNameEditing, creatingParentId, editingCollectionId, managerInlineCreating]);
 
   useEffect(() => {
     if (!editingCollectionId) return;
@@ -2237,31 +2267,9 @@ function LibrarySidebar({ visible, activeView, collections, profile, entitlement
     });
   }
 
-  function scrollCollectionInputIntoView(nativeHandle: object): void {
-    const scrollResponder = collectionScrollRef.current?.getScrollResponder() as {
-      scrollResponderScrollNativeHandleToKeyboard?: (handle: object, extraOffset: number, preventNegativeScrollOffset: boolean) => void;
-    } | undefined;
-    scrollResponder?.scrollResponderScrollNativeHandleToKeyboard?.(nativeHandle, 18, true);
-  }
-
-  function keepCollectionInputVisible(nativeHandle: object): void {
-    focusedCollectionInputHandleRef.current = nativeHandle;
-    setTimeout(() => {
-      if (focusedCollectionInputHandleRef.current === nativeHandle) {
-        scrollCollectionInputIntoView(nativeHandle);
-      }
-    }, 180);
-  }
-
-  function clearFocusedCollectionInput(nativeHandle: object): void {
-    if (focusedCollectionInputHandleRef.current === nativeHandle) {
-      focusedCollectionInputHandleRef.current = null;
-    }
-  }
-
   function renderCreateRow(depth: number) {
     return (
-      <View style={[styles.sidebarCreateRow, { marginLeft: 6 + Math.min(depth, 2) * 18 }]}>
+      <View ref={sidebarCreateRowRef} collapsable={false} onLayout={alignSidebarCreateRow} style={[styles.sidebarCreateRow, { marginLeft: 6 + Math.min(depth, 2) * 18 }]}>
         <TextInput
           autoFocus
           value={newCollectionName}
@@ -2272,8 +2280,7 @@ function LibrarySidebar({ visible, activeView, collections, profile, entitlement
           returnKeyType="done"
           placeholder={creatingParentId ? t("main.collection.child_name") : t("main.collection.name")}
           placeholderTextColor={theme.colors.textMuted}
-          onFocus={(event) => keepCollectionInputVisible(event.target)}
-          onBlur={(event) => clearFocusedCollectionInput(event.target)}
+          onFocus={alignSidebarCreateRow}
           style={styles.sidebarCreateInput}
         />
         <Pressable accessibilityLabel={t("main.collection.a11y.finish_create")} disabled={!newCollectionName.trim() || savingCollection} hitSlop={8} onPress={() => void createCollection()}>
@@ -2403,7 +2410,7 @@ function LibrarySidebar({ visible, activeView, collections, profile, entitlement
   return (
     <>
     <AnimatedSidebarModal visible={visible} onRequestClose={onClose}>
-        <KeyboardAvoidingView behavior="height" style={[styles.sidebar, { paddingTop: Math.max(insets.top, 12), paddingBottom: insets.bottom }]}>
+        <View style={[styles.sidebar, { paddingTop: Math.max(insets.top, 12), paddingBottom: insets.bottom }]}>
           <View style={styles.sidebarHeader}>
             <Pressable accessibilityLabel={t("sidebar.settings")} style={styles.sidebarAccount} onPress={onOpenAccount}>
               <View style={styles.sidebarAvatar}>
@@ -2426,6 +2433,20 @@ function LibrarySidebar({ visible, activeView, collections, profile, entitlement
               <Ionicons name="settings-outline" size={21} color={theme.colors.textSecondary} />
             </Pressable>
           </View>
+          <View ref={sidebarScrollViewportRef} collapsable={false} style={styles.sidebarCollectionScroller}>
+          <Reanimated.ScrollView
+            ref={collectionScrollRef}
+            onLayout={alignSidebarCreateRow}
+            onContentSizeChange={alignSidebarCreateRow}
+            onScroll={(event) => { sidebarScrollOffsetRef.current = event.nativeEvent.contentOffset.y; }}
+            scrollEventThrottle={16}
+            automaticallyAdjustKeyboardInsets={false}
+            contentInsetAdjustmentBehavior="never"
+            style={styles.sidebarCollectionScroller}
+            keyboardShouldPersistTaps="always"
+            showsVerticalScrollIndicator={false}
+            alwaysBounceVertical={false}
+          >
           <CalendarSidebarPreview onPress={onOpenCalendar} />
           <View style={styles.sidebarFixedContent}>
             <SidebarRow
@@ -2438,18 +2459,7 @@ function LibrarySidebar({ visible, activeView, collections, profile, entitlement
             <SidebarRow icon="document-text-outline" label={t("sidebar.import_corpus")} muted={entitlement?.tier !== "pro"} onPress={entitlement?.tier === "pro" ? onOpenCorpus : () => Alert.alert(t("sidebar.pro_required_title"), t("sidebar.pro_required_message"))} />
           </View>
 
-          <View style={styles.sidebarCollectionSection}>
-            <Reanimated.ScrollView
-              ref={collectionScrollRef}
-              style={styles.sidebarCollectionScroller}
-              contentContainerStyle={styles.sidebarCollectionContent}
-              nestedScrollEnabled
-              alwaysBounceVertical={false}
-              bounces={collections.length > 7}
-              keyboardShouldPersistTaps="always"
-              showsVerticalScrollIndicator={false}
-              scrollEventThrottle={16}
-            >
+          <View style={[styles.sidebarCollectionSection, styles.sidebarCollectionContent]}>
                   <View style={styles.sidebarSectionHeader}>
                     <Pressable
                       accessibilityLabel={favoritesExpanded ? t("sidebar.a11y.collapse_favorites") : t("sidebar.a11y.expand_favorites")}
@@ -2529,7 +2539,9 @@ function LibrarySidebar({ visible, activeView, collections, profile, entitlement
                     </>
                   ) : null}
                   <SidebarRow icon="trash-outline" label="回收站" selected={activeView === TRASH_VIEW} depth={0} onPress={() => onSelect(TRASH_VIEW)} />
-            </Reanimated.ScrollView>
+          </View>
+          {sidebarInlineCreating ? <View style={{ height: windowDimensions.height }} /> : null}
+          </Reanimated.ScrollView>
           </View>
           {collectionActionMenu ? (
             <Pressable style={styles.collectionActionBackdrop} onPress={() => setCollectionActionMenu(null)}>
@@ -2554,7 +2566,7 @@ function LibrarySidebar({ visible, activeView, collections, profile, entitlement
               </Pressable>
             </Pressable>
           ) : null}
-        </KeyboardAvoidingView>
+        </View>
     </AnimatedSidebarModal>
     <Modal
       visible={Boolean(editingCollectionId) || collectionNameEditing}
@@ -2566,7 +2578,7 @@ function LibrarySidebar({ visible, activeView, collections, profile, entitlement
       }}
     >
       <SafeAreaView style={styles.modalPage}>
-        <KeyboardAvoidingView behavior="padding" style={styles.collectionNameSheet}>
+        <View style={styles.collectionNameSheet}>
           <View style={styles.modalHeader}>
             <Pressable
               style={styles.modalHeaderButton}
@@ -2611,8 +2623,10 @@ function LibrarySidebar({ visible, activeView, collections, profile, entitlement
                   ]}>{collectionNameEditing ? renamingCollectionId ? t("common.save") : t("common.confirm") : t("main.collection.done")}</Text>}
             </Pressable>}
           </View>
-          <Reanimated.ScrollView
-            ref={collectionManagerScrollRef}
+          <KeyboardAwareScrollView
+            ref={attachCollectionManagerScroll}
+            mode="layout"
+            bottomOffset={24}
             contentContainerStyle={styles.collectionNameSheetBody}
             keyboardDismissMode="on-drag"
             keyboardShouldPersistTaps="handled"
@@ -2682,8 +2696,8 @@ function LibrarySidebar({ visible, activeView, collections, profile, entitlement
                 ))}
               </Sortable.Flex>
             ) : null}
-          </Reanimated.ScrollView>
-        </KeyboardAvoidingView>
+          </KeyboardAwareScrollView>
+        </View>
       </SafeAreaView>
     </Modal>
     </>
@@ -3413,7 +3427,7 @@ const styles = StyleSheet.create({
   sidebarMembershipBadgeText: { color: "#B57B18", fontSize: 9, lineHeight: 12, fontWeight: "700", letterSpacing: 0.3 },
   sidebarSettingsButton: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
   sidebarFixedContent: { paddingHorizontal: 10 },
-  sidebarCollectionSection: { flex: 1, minHeight: 0, marginTop: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "#E2E2E2" },
+  sidebarCollectionSection: { marginTop: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "#E2E2E2" },
   sidebarCollectionScroller: { flex: 1 },
   sidebarCollectionContent: { paddingHorizontal: 10, paddingTop: 10, paddingBottom: 24 },
   sidebarSortableCollection: { width: "100%" },
