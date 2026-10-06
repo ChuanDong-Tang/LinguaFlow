@@ -164,6 +164,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
   const [quickNoteCreating, setQuickNoteCreating] = useState(false);
   const [quickNoteAddMenuVisible, setQuickNoteAddMenuVisible] = useState(false);
   const [quickNoteLineCount, setQuickNoteLineCount] = useState(1);
+  const [androidQuickNoteContentHeight, setAndroidQuickNoteContentHeight] = useState(44);
   const quickNoteAnimatedHeight = useSharedValue(37);
   const quickNoteAnimatedHeightStyle = useAnimatedStyle(() => ({ height: quickNoteAnimatedHeight.value }));
   const [sidebarVisible, setSidebarVisible] = useState(false);
@@ -1489,6 +1490,9 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
   const quickNoteActualLineCount = Math.max(1, quickNoteLineCount, quickNoteExplicitLineCount);
   const quickNoteVisibleLineCount = Math.min(7, quickNoteActualLineCount);
   const quickNoteInputHeight = 20 + quickNoteVisibleLineCount * 24;
+  const androidQuickNoteInputHeight = draft.text.length === 0
+    ? 44
+    : Math.max(44, Math.min(188, Math.ceil(androidQuickNoteContentHeight)));
   const quickNoteSendDisabled = quickNoteCreating || (!draft.text.trim() && !draft.images.length)
     || preparingDraftImageCount > 0 || draft.images.some((image) => image.status !== "ready");
   const quickNoteNeedsFullEditor = draft.text.length > 0
@@ -1496,6 +1500,9 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
   useEffect(() => {
     quickNoteAnimatedHeight.value = withTiming(quickNoteInputHeight, { duration: 120 });
   }, [quickNoteAnimatedHeight, quickNoteInputHeight]);
+  useEffect(() => {
+    if (Platform.OS === "android" && draft.text.length === 0) setAndroidQuickNoteContentHeight(44);
+  }, [draft.text.length]);
   const updateQuickNoteText = quickNoteStt.onChangeText;
 
   return (
@@ -1649,7 +1656,9 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
               <View style={styles.unifiedComposerRailSpacer} />
               <Pressable accessibilityRole="button" accessibilityLabel={t("quick_note.add_attachment")} accessibilityState={{ expanded: quickNoteAddMenuVisible, disabled: quickNoteCreating }} disabled={quickNoteCreating} hitSlop={6} style={styles.unifiedComposerTool} onPress={() => setQuickNoteAddMenuVisible((visible) => !visible)}><Ionicons name={quickNoteAddMenuVisible ? "close" : "add"} size={25} color={theme.colors.textSecondary} /></Pressable>
             </View>
-            <Reanimated.View style={[styles.unifiedComposerInputArea, quickNoteAnimatedHeightStyle]}>
+            <Reanimated.View style={[styles.unifiedComposerInputArea, Platform.OS === "android"
+              ? { height: androidQuickNoteInputHeight }
+              : quickNoteAnimatedHeightStyle]}>
             <Text
               pointerEvents="none"
               aria-hidden
@@ -1662,9 +1671,13 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
             <TextInput
               ref={quickNoteInputRef}
               accessibilityLabel={t("quick_note.placeholder")}
-              style={styles.unifiedComposerTextInput}
+              style={[styles.unifiedComposerTextInput, Platform.OS === "android" && styles.unifiedComposerTextInputAndroid]}
               value={draft.text}
               onChangeText={updateQuickNoteText}
+              onContentSizeChange={Platform.OS === "android" ? (event) => {
+                const height = event.nativeEvent.contentSize.height;
+                if (Number.isFinite(height) && height > 0) setAndroidQuickNoteContentHeight(draft.text.length === 0 ? 44 : height);
+              } : undefined}
               onSelectionChange={({ nativeEvent }) => quickNoteStt.onSelectionChange(nativeEvent.selection)}
               onFocus={() => { setQuickNoteAddMenuVisible(false); if (quickNoteStt.status !== "idle") void quickNoteStt.toggle(); }}
               placeholder={t("quick_note.placeholder")}
@@ -1672,7 +1685,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
               maxLength={cardLimits.contentChars}
               multiline
               scrollEnabled
-              textAlignVertical="top"
+              textAlignVertical={Platform.OS === "android" && androidQuickNoteInputHeight === 44 ? "center" : "top"}
               editable={!quickNoteCreating}
             />
             </Reanimated.View>
@@ -3363,6 +3376,9 @@ const styles = StyleSheet.create({
   fullEditorIconBottomRight: { position: "absolute", right: 1, bottom: 1, width: 8, height: 8, borderRightWidth: 2, borderBottomWidth: 2, borderColor: theme.colors.textSecondary, borderBottomRightRadius: 1 },
   unifiedComposerCompactExpand: { width: 30, height: 30, flexShrink: 0, borderRadius: 15, backgroundColor: theme.colors.surface, alignItems: "center", justifyContent: "center" },
   unifiedComposerTextInput: { width: "100%", height: "100%", paddingVertical: 10, paddingRight: 6, color: theme.colors.text, fontSize: 17, lineHeight: 24 },
+  // Android applies explicit lineHeight spans to text but not the empty hint/cursor.
+  // Keep native font metrics identical before and after typing the first character.
+  unifiedComposerTextInputAndroid: { lineHeight: undefined, includeFontPadding: false },
   unifiedComposerTextInputTwoLines: { height: 58, paddingTop: 8, paddingBottom: 8, paddingRight: 38 },
   unifiedComposerCollapse: { position: "absolute", top: 9, right: 9, zIndex: 2, width: 32, height: 32, borderRadius: 16, backgroundColor: "rgba(255,255,255,0.82)", alignItems: "center", justifyContent: "center" },
   unifiedComposerToolbar: { minHeight: 40, paddingHorizontal: 5, flexDirection: "row", alignItems: "center", gap: 5 },
