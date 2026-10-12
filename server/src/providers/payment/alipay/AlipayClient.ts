@@ -103,9 +103,9 @@ export class AlipayAutoRenewClient {
     const result = await this.call("alipay.trade.subscription.modify", {
       subscription_id: input.subscriptionId,
       modify_type: input.mode === "upgrade" ? "UPGRADE" : "DOWNGRADE",
-      ...(input.mode === "upgrade"
-        ? { preserve_billing_cycle: true }
-        : { cancel_at_period_end: true }),
+      // DOWNGRADE already takes effect at period end. The live API rejects
+      // cancel_at_period_end for both plan-change types (it belongs to CANCEL).
+      ...(input.mode === "upgrade" ? { preserve_billing_cycle: true } : {}),
       items: [{ item_id: input.itemId, price_id: input.targetPriceId }],
     });
     const subscriptionId = stringValue(result.subscription_id);

@@ -541,6 +541,16 @@ export class AlipayAutoRenewService {
     }
     if (event.changeType === "item_cancel_revert") {
       if (stale) return "ignored";
+      if (!event.subscription.items?.some((item) => stringValue(item.price?.id))) {
+        // Resume notifications can be sparse. Do not infer a paid period or
+        // reactivate membership from missing prices: verify current provider
+        // state through the same reconciliation path used by the Worker.
+        const result = await this.reconcileSubscription(subscription);
+        if (result.status === "skipped") {
+          throw new Error("ALIPAY_RESUME_RECONCILE_UNAVAILABLE");
+        }
+        return "processed";
+      }
       assertSubscriptionMatchesProduct(event.subscription, resolveExpectedPrice(subscription));
       await this.repository.updateSubscription({
         id: subscription.id,
