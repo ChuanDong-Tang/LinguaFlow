@@ -35,6 +35,7 @@ export type StartRealtimeSttInput = {
   candidateLanguages: string[];
   languageIdMode: "at_start" | "continuous";
   pronunciationReferenceText?: string;
+  postRefinement?: boolean;
   onEvent: (event: SttRecognitionEvent) => void;
 };
 

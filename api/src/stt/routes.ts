@@ -26,6 +26,7 @@ type RealtimeStartMessage = {
   languageIdMode?: "at_start" | "continuous";
   candidateLanguages?: string[];
   pronunciationReferenceText?: string;
+  postRefinement?: boolean;
 };
 
 export interface SttRouteDeps {
@@ -279,6 +280,7 @@ export function registerSttRoutes(app: FastifyInstance, deps: SttRouteDeps): voi
           candidateLanguages,
           languageIdMode,
           pronunciationReferenceText: message.pronunciationReferenceText,
+          postRefinement: message.postRefinement === true,
           onEvent: (event) => {
             if (event.type === "partial" || event.type === "final") {
               if (event.detectedLanguage) detectedLanguage = event.detectedLanguage;
@@ -343,6 +345,7 @@ function isRealtimeStartMessage(value: unknown): value is RealtimeStartMessage {
     v.bitsPerSample === 16 &&
     (v.candidateLanguages === undefined || isCandidateLanguageList(v.candidateLanguages)) &&
     (v.languageIdMode === undefined || v.languageIdMode === "at_start" || v.languageIdMode === "continuous") &&
+    (v.postRefinement === undefined || typeof v.postRefinement === "boolean") &&
     (v.pronunciationReferenceText === undefined || (
       typeof v.pronunciationReferenceText === "string" &&
       v.pronunciationReferenceText.trim().length > 0 &&

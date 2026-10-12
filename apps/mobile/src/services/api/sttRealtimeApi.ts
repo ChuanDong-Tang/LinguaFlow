@@ -37,6 +37,7 @@ export async function openRealtimeSttSession(input: {
   frameLength: number;
   languageIdMode?: "at_start" | "continuous";
   candidateLanguages?: string[];
+  postRefinement?: boolean;
   pronunciationReferenceText?: string;
   autoStopAfterMs?: number;
   onAutoStop?: () => void;
@@ -113,6 +114,7 @@ export async function openRealtimeSttSession(input: {
         languageIdMode: input.languageIdMode ?? "at_start",
         candidateLanguages: input.candidateLanguages?.slice(0, input.languageIdMode === "continuous" ? 10 : 4),
         pronunciationReferenceText: input.pronunciationReferenceText,
+        postRefinement: input.postRefinement,
       }));
     };
     const timeout = setTimeout(() => {

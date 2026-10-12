@@ -24,6 +24,7 @@ export function useRealtimeSttInput(input: {
   onChangeText?: (value: string) => void;
   disabled?: boolean;
   languageCode?: string;
+  postRefinement?: boolean;
 }) {
   const netInfo = useNetInfo();
   const [status, setStatus] = useState<RealtimeSttInputStatus>("idle");
@@ -43,7 +44,19 @@ export function useRealtimeSttInput(input: {
   const multilingualRecognitionRef = useRef(false);
   const lastAudioLevelAtRef = useRef(0);
 
-  useEffect(() => { valueRef.current = input.value; }, [input.value]);
+  useEffect(() => {
+    if (valueRef.current !== input.value) {
+      generationRef.current += 1;
+      void sourceRef.current?.stop().catch(() => undefined);
+      sourceRef.current = null;
+      sessionRef.current?.close();
+      sessionRef.current = null;
+      statusRef.current = "idle";
+      setStatus("idle");
+      setAudioLevel(0);
+    }
+    valueRef.current = input.value;
+  }, [input.value]);
   useEffect(() => { onChangeTextRef.current = input.onChangeText; }, [input.onChangeText]);
   useEffect(() => { statusRef.current = status; }, [status]);
   useEffect(() => {
@@ -65,21 +78,36 @@ export function useRealtimeSttInput(input: {
     };
   }, []);
 
-  const stop = useCallback(async () => {
-    if (statusRef.current === "idle" || statusRef.current === "stopping") return;
+  const cancel = useCallback(async () => {
     const generation = generationRef.current + 1;
     generationRef.current = generation;
+    // Ordinary typing must not flash the recording UI.
+    if (statusRef.current === "idle" && !sourceRef.current && !sessionRef.current) return;
+    statusRef.current = "stopping";
+    setStatus("stopping");
+    setAudioLevel(0);
+    const source = sourceRef.current;
+    sourceRef.current = null;
+    const session = sessionRef.current;
+    sessionRef.current = null;
+    session?.close();
+    await source?.stop().catch(() => undefined);
+    if (!mountedRef.current || generationRef.current !== generation) return;
+    statusRef.current = "idle";
+    setStatus("idle");
+  }, []);
+
+  const stop = useCallback(async () => {
+    if (statusRef.current === "idle" || statusRef.current === "stopping") return;
+    // Keep callbacks alive until the server flushes the last recognition result.
     statusRef.current = "stopping";
     setStatus("stopping");
     setAudioLevel(0);
     const source = sourceRef.current;
     sourceRef.current = null;
     await source?.stop().catch(() => undefined);
-    sessionRef.current?.close();
-    sessionRef.current = null;
-    if (!mountedRef.current || generationRef.current !== generation) return;
-    statusRef.current = "idle";
-    setStatus("idle");
+    sessionRef.current?.stop();
+    // If still connecting, the session's ready handler sends stop below.
   }, []);
 
   const start = useCallback(async () => {
@@ -145,7 +173,7 @@ export function useRealtimeSttInput(input: {
     };
     const fail = () => {
       if (!mountedRef.current || generationRef.current !== generation) return;
-      void stop();
+      void cancel();
       Alert.alert(t("stt.error.unavailable_title"), t("stt.error.retry"));
     };
 
@@ -167,6 +195,7 @@ export function useRealtimeSttInput(input: {
         frameLength: FRAME_LENGTH,
         languageIdMode: multilingual ? "continuous" : "at_start",
         candidateLanguages,
+        postRefinement: input.postRefinement,
         autoStopAfterMs: STT_INPUT_MAX_RECORDING_MS,
         onAutoStop: () => {
           if (!mountedRef.current || generationRef.current !== generation) return;
@@ -190,6 +219,7 @@ export function useRealtimeSttInput(input: {
               setStatus("recording");
             }
             const finalText = event.finalText ?? finalTextRef.current;
+            finalTextRef.current = finalText;
             partialTextRef.current = event.text;
             applyRecognition(finalText, event.text);
           } else if (event.type === "final") {
@@ -227,12 +257,13 @@ export function useRealtimeSttInput(input: {
           setAudioLevel(0);
         },
       });
-      if (generationRef.current !== generation || isInactiveStatus(statusRef.current)) {
+      if (generationRef.current !== generation || isIdleStatus(statusRef.current)) {
         session.close();
         return;
       }
       sessionRef.current = session;
       bufferedFrames.forEach((frame) => session.sendFrame(frame));
+      if (isStoppingStatus(statusRef.current)) session.stop();
     } catch {
       await source.stop().catch(() => undefined);
       if (generationRef.current !== generation) return;
@@ -244,13 +275,13 @@ export function useRealtimeSttInput(input: {
       setAudioLevel(0);
       Alert.alert(t("stt.error.unavailable_title"), t("stt.error.retry"));
     }
-  }, [input.disabled, input.languageCode, netInfo.isConnected, stop]);
+  }, [input.disabled, input.languageCode, input.postRefinement, netInfo.isConnected, stop, cancel]);
 
   const handleTextChange = useCallback((value: string) => {
-    if (statusRef.current !== "idle") void stop();
+    void cancel();
     valueRef.current = value;
     onChangeTextRef.current?.(value);
-  }, [stop]);
+  }, [cancel]);
 
   return {
     status,
@@ -267,9 +298,8 @@ function directLanguage(appLocale: string): string {
   return "zh-CN";
 }
 
-function isInactiveStatus(status: RealtimeSttInputStatus): boolean {
-  return status === "idle" || status === "stopping";
-}
+function isIdleStatus(status: RealtimeSttInputStatus): boolean { return status === "idle"; }
+function isStoppingStatus(status: RealtimeSttInputStatus): boolean { return status === "stopping"; }
 
 function joinRecognition(current: string, next: string): string {
   if (!current.trim()) return next.trim();

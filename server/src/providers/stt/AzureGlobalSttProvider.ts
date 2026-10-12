@@ -14,7 +14,7 @@ export class AzureGlobalSttProvider implements SttProvider {
 
   constructor(
     private readonly subscriptionKey = process.env.AZURE_SPEECH_KEY ?? "",
-    private readonly region = process.env.AZURE_SPEECH_REGION ?? ""
+    private readonly region = process.env.AZURE_SPEECH_REGION ?? "",
   ) {}
 
   async startRealtimeSession(input: StartRealtimeSttInput): Promise<RealtimeSttSession> {
@@ -28,6 +28,11 @@ export class AzureGlobalSttProvider implements SttProvider {
     const SpeechSDK = await loadSpeechSdk();
     const languages = input.candidateLanguages.length ? input.candidateLanguages : ["zh-CN", "en-US", "ja-JP", "ko-KR"];
     const speechConfig = createSpeechConfig(SpeechSDK, this.subscriptionKey, this.region, input.languageIdMode, languages);
+    // Roll out only the validated Chinese dictation profile, never pronunciation assessment.
+    if (usesChinesePostRefinement(input, this.region)) {
+      speechConfig.setProperty(SpeechSDK.PropertyId.SpeechServiceResponse_PostProcessingOption, "PostRefinement");
+      speechConfig.setProperty(SpeechSDK.PropertyId.Speech_SegmentationSilenceTimeoutMs, "800");
+    }
 
     const format = SpeechSDK.AudioStreamFormat.getWaveFormatPCM(
       input.sampleRate,
@@ -110,6 +115,12 @@ export class AzureGlobalSttProvider implements SttProvider {
       },
     };
   }
+}
+
+export function usesChinesePostRefinement(input: Pick<StartRealtimeSttInput, "postRefinement" | "pronunciationReferenceText" | "candidateLanguages" | "languageIdMode">, region: string): boolean {
+  return input.postRefinement === true && !input.pronunciationReferenceText
+    && input.languageIdMode === "at_start" && input.candidateLanguages.length === 1
+    && input.candidateLanguages[0] === "zh-CN" && region === "southeastasia";
 }
 
 function readPronunciationAssessment(

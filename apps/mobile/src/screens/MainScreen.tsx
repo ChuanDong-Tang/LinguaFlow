@@ -216,6 +216,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
     onChangeText: (value) => void updateDraftText(value),
     disabled: quickNoteCreating || composerVisible,
     languageCode: appLocale,
+    postRefinement: true,
   });
   useEffect(() => {
     recordsRef.current = records;
@@ -1493,7 +1494,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
   const androidQuickNoteInputHeight = draft.text.length === 0
     ? 44
     : Math.max(44, Math.min(188, Math.ceil(androidQuickNoteContentHeight)));
-  const quickNoteSendDisabled = quickNoteCreating || (!draft.text.trim() && !draft.images.length)
+  const quickNoteSendDisabled = quickNoteCreating || quickNoteStt.status !== "idle" || (!draft.text.trim() && !draft.images.length)
     || preparingDraftImageCount > 0 || draft.images.some((image) => image.status !== "ready");
   const quickNoteNeedsFullEditor = draft.text.length > 0
     && (quickNoteActualLineCount >= 3 || draft.text.length >= 100);
