@@ -27,6 +27,18 @@ type PrismaAutoRenewClient = {
 export class PrismaAutoRenewRepository implements AutoRenewRepository {
   constructor(private readonly prisma: PrismaAutoRenewClient) {}
 
+  async expirePendingAlipaySignup(input: { id: string; expectedUpdatedAt: Date; metadata: unknown }): Promise<boolean> {
+    const result = await this.prisma.autoRenewSubscription.updateMany({
+      where: {
+        id: input.id, provider: "alipay", status: "pending", updatedAt: input.expectedUpdatedAt,
+        latestTransactionId: null, currentPeriodStart: null, currentPeriodEnd: null,
+        charges: { none: {} },
+      },
+      data: { status: "expired", nextBillingAt: null, metadata: input.metadata },
+    });
+    return result.count === 1;
+  }
+
   async findById(id: string): Promise<AutoRenewSubscriptionEntity | null> {
     const row = await this.prisma.autoRenewSubscription.findUnique({
       where: { id },

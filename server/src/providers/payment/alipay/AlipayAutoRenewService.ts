@@ -25,7 +25,7 @@ export type AlipayAutoRenewReconcileResult =
   | { status: "skipped"; reason: "not_configured" | "no_current_alipay_subscription" | "customer_link_missing" }
   | {
       status: "checked";
-      action: "unchanged" | "paid_period_recorded" | "cancel_scheduled" | "cancel_reverted" | "billing_retry" | "cancelled";
+      action: "unchanged" | "paid_period_recorded" | "cancel_scheduled" | "cancel_reverted" | "billing_retry" | "cancelled" | "signup_expired";
       subscriptionStatus: string;
       currentPeriodEnd: string | null;
       cancelAtPeriodEnd: boolean;
@@ -136,6 +136,9 @@ export class AlipayAutoRenewService {
   async create(input: { userId: string; nickname?: string | null; email?: string | null; phone?: string | null; productCode: AutoRenewProductCode }) {
     if (!this.client) throw new Error("ALIPAY_AUTORENEW_NOT_CONFIGURED");
     assertAlipayMonthlyProduct(input.productCode);
+    // A stale client can post directly without first refreshing the current view.
+    // Query the provider before releasing a pending signup or creating another one.
+    await this.reconcileCurrentAutoRenewForUser(input.userId);
     const [pendingAnnualOrder, currentMembership] = await Promise.all([
       this.paymentOrderRepository?.findPendingByUserProvider({
         userId: input.userId,
@@ -168,17 +171,12 @@ export class AlipayAutoRenewService {
       const storedPriceId = stringValue(metadata.alipayPriceId);
       const currentPriceId = resolvePriceId(input.productCode, input);
       const isSameOffer = existingPending.productCode === input.productCode && (!storedPriceId || storedPriceId === currentPriceId);
-      if (isSameOffer && jumpSchema && (!expiresAt || expiresAt > new Date())) {
+      if (isSameOffer && jumpSchema && expiresAt && expiresAt > new Date()) {
         return { subscription: existingPending, jumpSchema, reused: true };
       }
-      await this.repository.cancelSubscription({
-        id: existingPending.id,
-        cancelledAt: new Date(),
-        metadata: {
-          ...metadata,
-          cancelSource: isSameOffer ? "expired_jump_schema" : "offer_changed_before_activation",
-        },
-      });
+      // Reconciliation did not prove this attempt safe to expire. Do not bypass
+      // that result merely because its offer changed or its link is missing.
+      throw new AutoRenewAlreadyActiveError("alipay");
     }
     const quote = await this.getProductQuote(input.productCode, input);
     const customerId = await this.resolveCustomer(input);
@@ -406,11 +404,14 @@ export class AlipayAutoRenewService {
         amount, currency: "CNY", periodStart, periodEnd,
         paidAt: parseDate(event.changeDate) ?? new Date(), rawPayload: sanitizeEvent(event),
       });
-      // A paid event must always grant the paid period. A locally cancelled pending
-      // agreement may still complete in Alipay after its jump schema expires, so that
-      // specific state can be reactivated. Real provider/user cancellations stay final.
-      const canReactivateExpiredJumpSchema = subscription.status === "cancelled"
-        && metadata.cancelSource === "expired_jump_schema";
+      // Local signup expiry is not provider cancellation. Late confirmed payments
+      // must still grant their paid period and may reactivate the original record.
+      const canReactivateExpiredJumpSchema = isLocallyExpiredSignup(subscription);
+      if (canReactivateExpiredJumpSchema && !stale) {
+        if (await this.stopSupersededSignupRenewal(subscription, periodStart, periodEnd, providerTransactionId)) {
+          return "processed";
+        }
+      }
       if (stale || (subscription.status === "cancelled" && !canReactivateExpiredJumpSchema)) {
         return "processed";
       }
@@ -591,6 +592,39 @@ export class AlipayAutoRenewService {
     return this.reconcileSubscription(current);
   }
 
+  private async stopSupersededSignupRenewal(
+    subscription: AutoRenewSubscriptionEntity, periodStart: Date | null, periodEnd: Date,
+    transactionId: string | null,
+  ): Promise<boolean> {
+    if (!isLocallyExpiredSignup(subscription)) return false;
+    const replacement = await this.repository.findCurrentByUserId(subscription.userId);
+    if (!replacement || replacement.id === subscription.id) return false;
+    const metadata = objectValue(subscription.metadata);
+    const storedLink = await this.store.alipayAccountLink.findUnique({ where: { userId: subscription.userId } });
+    const customerId = stringValue(metadata.customerId) ?? storedLink?.customerId;
+    if (!customerId) throw new Error("ALIPAY_LATE_SIGNUP_CUSTOMER_MISSING");
+    const query = () => this.client!.querySubscription({ customerId, subscriptionId: subscription.providerAgreementId });
+    const remote = await query();
+    const status = normalizeSubscriptionStatus(remote.subscription_status);
+    if (status !== "ACTIVE" && status !== "CANCELED") throw new Error("ALIPAY_LATE_SIGNUP_REQUIRES_RECONCILIATION");
+    // Preserve paid access, but do not silently leave the superseded agreement renewing.
+    if (status === "ACTIVE" && remote.cancel_at_period_end !== true) {
+      await this.client!.cancelAtPeriodEnd(subscription.providerAgreementId);
+      const confirmed = await query();
+      if (confirmed.cancel_at_period_end !== true && normalizeSubscriptionStatus(confirmed.subscription_status) !== "CANCELED") {
+        throw new Error("ALIPAY_LATE_SIGNUP_CANCEL_NOT_CONFIRMED");
+      }
+    }
+    await this.repository.updateSubscription({
+      id: subscription.id, status: "cancelled", latestTransactionId: transactionId,
+      currentPeriodStart: periodStart, currentPeriodEnd: periodEnd, nextBillingAt: null,
+      cancelledAt: new Date(),
+      metadata: { ...metadata, cancelSource: "superseded_signup_late_payment", cancelAtPeriodEnd: true,
+        replacementSubscriptionId: replacement.id, lastAlipayReconciledAt: new Date().toISOString() },
+    });
+    return true;
+  }
+
   async reconcileAlipayAutoRenewSubscription(providerAgreementId: string): Promise<AlipayAutoRenewReconcileResult> {
     if (!this.client) return { status: "skipped", reason: "not_configured" };
     const current = await this.repository.findByProviderAgreement({ provider: "alipay", providerAgreementId });
@@ -614,6 +648,21 @@ export class AlipayAutoRenewService {
     const cancelAtPeriodEnd = snapshot.cancel_at_period_end === true;
     const hadCancelAtPeriodEnd = metadata.cancelAtPeriodEnd === true;
     const now = new Date();
+
+    const signupExpiresAt = parseDate(metadata.schemaEffectiveEnd);
+    if (subscriptionStatus === "INCOMPLETE" && current.status === "pending"
+      && signupExpiresAt && signupExpiresAt <= now
+      && !snapshot.current_period_start && !snapshot.current_period_end
+      && !current.latestTransactionId && !current.currentPeriodStart && !current.currentPeriodEnd) {
+      const expired = await this.repository.expirePendingAlipaySignup({
+        id: current.id, expectedUpdatedAt: current.updatedAt,
+        metadata: { ...metadata, signupExpiredAt: now.toISOString(),
+          signupExpiryReason: "expired_unpaid_signup", lastAlipayReconciledAt: now.toISOString(),
+          lastAlipaySubscriptionStatus: subscriptionStatus },
+      });
+      return { status: "checked", action: expired ? "signup_expired" : "unchanged",
+        subscriptionStatus, currentPeriodEnd: null, cancelAtPeriodEnd: false };
+    }
 
     if (subscriptionStatus === "ACTIVE") {
       if (!periodEnd) throw new Error("ALIPAY_RECONCILE_PERIOD_END_MISSING");
@@ -660,6 +709,10 @@ export class AlipayAutoRenewService {
           paidAt: periodStart ?? new Date(),
           rawPayload: { source: "alipay_subscription_reconcile", subscription: snapshot },
         });
+      }
+      if (await this.stopSupersededSignupRenewal(current, periodStart, periodEnd, current.latestTransactionId)) {
+        return { status: "checked", action: "cancel_scheduled", subscriptionStatus,
+          currentPeriodEnd: periodEnd.toISOString(), cancelAtPeriodEnd: true };
       }
       await this.repository.updateSubscription({
         id: current.id,
@@ -1072,5 +1125,11 @@ function positiveIntegerValue(value: unknown): number | null {
   const parsed = Number(value);
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
 }
+function isLocallyExpiredSignup(subscription: AutoRenewSubscriptionEntity): boolean {
+  const metadata = objectValue(subscription.metadata);
+  return (subscription.status === "expired" && metadata.signupExpiryReason === "expired_unpaid_signup")
+    || (subscription.status === "cancelled" && metadata.cancelSource === "expired_jump_schema");
+}
+
 function parseDate(value: unknown): Date | null { const text = stringValue(value); if (!text) return null; const date = new Date(text.replace(" ", "T") + (/[zZ]|[+-]\d\d:?\d\d$/.test(text) ? "" : "+08:00")); return Number.isNaN(date.getTime()) ? null : date; }
 function sanitizeEvent(event: AlipaySubscriptionChanged): unknown { return { ...event, raw: { ...event.raw, sign: "[redacted]", biz_content: "[parsed]" } }; }

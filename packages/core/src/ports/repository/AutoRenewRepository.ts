@@ -98,6 +98,8 @@ export interface UpsertAutoRenewChargeInput {
 }
 
 export interface AutoRenewRepository {
+  /** Local unpaid signup expiry only; never overwrite a concurrent payment. */
+  expirePendingAlipaySignup(input: { id: string; expectedUpdatedAt: Date; metadata: unknown }): Promise<boolean>;
   findById(id: string): Promise<AutoRenewSubscriptionEntity | null>;
   findActiveByUserId(userId: string): Promise<AutoRenewSubscriptionEntity | null>;
   findCurrentByUserId(userId: string): Promise<AutoRenewSubscriptionEntity | null>;

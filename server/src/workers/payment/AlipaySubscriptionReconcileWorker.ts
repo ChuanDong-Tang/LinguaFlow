@@ -50,7 +50,12 @@ export class AlipaySubscriptionReconcileWorker {
       const rows = await this.prisma.autoRenewSubscription.findMany({
         where: {
           provider: "alipay",
-          status: { in: ["pending", "active", "billing_retry", "paused"] },
+          OR: [
+            { status: { in: ["pending", "active", "billing_retry", "paused"] } },
+            // Local expiry releases the purchase UI; provider truth still needs
+            // reconciliation in case a late paid notification is lost.
+            { status: "expired", metadata: { path: ["signupExpiryReason"], equals: "expired_unpaid_signup" } },
+          ],
           ...(this.cursorId ? { id: { gt: this.cursorId } } : {}),
         },
         select: { id: true, userId: true, providerAgreementId: true },
