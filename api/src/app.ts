@@ -51,6 +51,7 @@ import { PrismaPaymentEventRepository } from "@lf/server/infrastructure/reposito
 import { PrismaBenefitGrantRepository } from "@lf/server/infrastructure/repository/PrismaBenefitGrantRepository.js";
 import { EntitlementService } from "@lf/server/services/entitlement/EntitlementService.js";
 import { UsageV2Service } from "@lf/server/services/usage/UsageV2Service.js";
+import { ReferralService } from "@lf/server/services/usage/ReferralService.js";
 import { SubscriptionService } from "@lf/server/services/subscription/SubscriptionService.js";
 import { AppleIapService } from "@lf/server/providers/payment/apple/AppleIapService.js";
 import { GooglePlayBillingService } from "@lf/server/providers/payment/google/GooglePlayBillingService.js";
@@ -517,6 +518,7 @@ export function createApp() {
       systemEventLogRepository,
     });
     registerMeRoutes(app, {
+      referralService: new ReferralService(prisma),
       subscriptionService,
       entitlementService,
       usageV2Service,

@@ -34,6 +34,7 @@ import {
 } from "@lf/server/services/auth/UserProfileService.js";
 import type { UserAvatarService } from "@lf/server/services/auth/UserAvatarService.js";
 import type { UsageV2Service } from "@lf/server/services/usage/UsageV2Service.js";
+import { ReferralError, type ReferralService } from "@lf/server/services/usage/ReferralService.js";
 import {
   AvatarModerationRejectedError,
   AvatarModerationUnavailableError,
@@ -42,6 +43,7 @@ import {
 } from "@lf/server/services/auth/UserAvatarService.js";
 
 export interface MeRouteDeps {
+  referralService: ReferralService;
   subscriptionService: SubscriptionService;
   entitlementService: EntitlementService;
   usageV2Service: UsageV2Service;
@@ -86,6 +88,25 @@ function firstHeaderValue(value: string | string[] | undefined): string | undefi
 }
 
 export function registerMeRoutes(app: FastifyInstance, deps: MeRouteDeps): void {
+  app.post("/me/referral/complete", async (req, reply) => {
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    const user = await resolveMeUserContext(req, reply, deps, requestId, "/me/referral/complete");
+    if (!user) return;
+    if (!await deps.profileRateLimiter.consume(`referral:${user.userId}`, 10, 60_000)) {
+      return reply.status(429).send({ ok: false, request_id: requestId, error: { code: "RATE_LIMITED", message: "Too many attempts" } });
+    }
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    if (Object.keys(body).some(key => key !== "code") || (body.code !== undefined && (typeof body.code !== "string" || body.code.length > 64))) {
+      return reply.status(400).send({ ok: false, request_id: requestId, error: { code: "VALIDATION_FAILED", message: "Invalid referral code" } });
+    }
+    try {
+      const data = await deps.referralService.complete(user.userId, body.code as string | undefined);
+      return reply.send({ ok: true, request_id: requestId, data });
+    } catch (error) {
+      if (!(error instanceof ReferralError)) throw error;
+      return reply.status(400).send({ ok: false, request_id: requestId, error: { code: error.code, message: error.code } });
+    }
+  });
   app.post("/me/feedback", async (req, reply) => {
     const requestId = resolveRequestId(req.headers["x-request-id"]);
     reply.header("x-request-id", requestId);

@@ -5,7 +5,7 @@ export type LearningLanguage = TargetLanguageCode;
 export type TtsProviderCode = "azure_global";
 export type PromptDifficulty = "simple" | "native";
 export type AutoClozeFrequency = "high" | "medium" | "low";
-export const ACQUISITION_SOURCES = ["youtube", "xiaohongshu", "douyin", "app_store", "google_play"] as const;
+export const ACQUISITION_SOURCES = ["youtube", "xiaohongshu", "douyin", "app_store", "google_play", "referral"] as const;
 export type AcquisitionSource = typeof ACQUISITION_SOURCES[number];
 export type GuideState = Record<string, { completedAt?: string }>;
 

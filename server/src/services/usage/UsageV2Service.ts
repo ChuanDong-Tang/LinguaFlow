@@ -1,6 +1,7 @@
 import { getRuntimeConfig } from "../../config/runtimeConfig.js";
 import type { MembershipTier, SubscriptionService } from "../subscription/SubscriptionService.js";
 import { dateKeyRangeInTimeZone } from "../time/businessClock.js";
+import { allocatePoints, lockPointAccount } from "./bonusAllocation.js";
 
 export const USAGE_API_VERSION = "v2";
 
@@ -54,6 +55,9 @@ export type UsageV2View = {
     reserved: number;
     remaining: number;
     remainingPercent: number;
+    monthlyRemaining: number;
+    bonusRemaining: number;
+    bonusGranted: number;
   };
   images: {
     periodStart: string;
@@ -96,6 +100,7 @@ type ImageAccountRow = {
 };
 
 type UsagePrismaClient = {
+  referralRedemption: { findUnique(args: any): Promise<{ grantedPoints: number; usedPoints: number; reservedPoints: number } | null> };
   $transaction<T>(callback: (tx: any) => Promise<T>): Promise<T>;
   aiTokenCycle: {
     upsert(args: any): Promise<TokenCycleRow>;
@@ -190,6 +195,8 @@ export class UsageV2Service {
       configVersion: config.usageV2ConfigVersion,
     });
     const remainingTokens = Math.max(0, cycle.quotaTokens - cycle.usedTokens - cycle.reservedTokens);
+    const bonus = await this.prisma.referralRedemption.findUnique({ where: { userId } });
+    const bonusRemaining = Math.max(0, (bonus?.grantedPoints ?? 0) - (bonus?.usedPoints ?? 0) - (bonus?.reservedPoints ?? 0));
     const remainingBytes = maxBigInt(0n, imageAccount.capacityBytes - imageAccount.usedBytes - imageAccount.reservedBytes);
     return {
       apiVersion: USAGE_API_VERSION,
@@ -201,7 +208,10 @@ export class UsageV2Service {
         quota: cycle.quotaTokens,
         used: cycle.usedTokens,
         reserved: cycle.reservedTokens,
-        remaining: remainingTokens,
+        remaining: remainingTokens + bonusRemaining,
+        monthlyRemaining: remainingTokens,
+        bonusRemaining,
+        bonusGranted: bonus?.grantedPoints ?? 0,
         remainingPercent: cycle.quotaTokens > 0 ? Math.floor(remainingTokens * 100 / cycle.quotaTokens) : 0,
       },
       images: {
@@ -231,6 +241,7 @@ export class UsageV2Service {
     now: Date,
   ): Promise<TokenCycleRow> {
     return this.prisma.$transaction(async (tx) => {
+      await lockPointAccount(tx, userId);
       await tx.$queryRawUnsafe(
         'SELECT pg_advisory_xact_lock(hashtextextended($1, 0))::text AS "lock"',
         `token-cycle-repair:${userId}`,
@@ -238,8 +249,8 @@ export class UsageV2Service {
       const premature = await tx.$queryRawUnsafe(
         `SELECT
            t."cycleId",
-           COALESCE(SUM(t."totalTokens") FILTER (WHERE t."status" = 'settled'), 0)::int AS "usedTokens",
-           COALESCE(SUM(t."reservedTokens") FILTER (WHERE t."status" = 'reserved'), 0)::int AS "reservedTokens"
+           COALESCE(SUM(t."totalTokens" - t."bonusUsedTokens") FILTER (WHERE t."status" = 'settled'), 0)::int AS "usedTokens",
+           COALESCE(SUM(t."reservedTokens" - t."bonusReservedTokens") FILTER (WHERE t."status" = 'reserved'), 0)::int AS "reservedTokens"
          FROM "ai_token_transactions" t
          JOIN "ai_token_cycles" source ON source."id" = t."cycleId"
          WHERE t."userId" = $1
@@ -378,17 +389,26 @@ export class UsageV2Service {
         where: { userId_apiVersion_periodStart: { userId: input.userId, apiVersion: USAGE_API_VERSION, periodStart } },
       });
       if (!cycle) throw new Error("TOKEN_CYCLE_NOT_FOUND");
+      const bonus = await tx.referralRedemption.findUnique({ where: { userId: input.userId } });
+      let allocation;
+      try {
+        allocation = allocatePoints(reservedTokens, cycle.quotaTokens - cycle.usedTokens - cycle.reservedTokens,
+          (bonus?.grantedPoints ?? 0) - (bonus?.usedPoints ?? 0) - (bonus?.reservedPoints ?? 0));
+      } catch {
+        throw new TokenQuotaExceededError(usage.token.remaining, new Date(usage.token.periodEnd));
+      }
       const changed = reservedTokens === 0 ? 1 : await tx.$executeRawUnsafe(
         `UPDATE "ai_token_cycles"
             SET "reservedTokens" = "reservedTokens" + $1, "updatedAt" = NOW()
           WHERE "id" = $2
             AND "usedTokens" + "reservedTokens" + $1 <= "quotaTokens"`,
-        reservedTokens,
+        allocation.monthly,
         cycle.id,
       );
       if (changed === 0) {
         throw new TokenQuotaExceededError(usage.token.remaining, new Date(usage.token.periodEnd));
       }
+      if (allocation.bonus > 0) await tx.referralRedemption.update({ where: { userId: input.userId }, data: { reservedPoints: { increment: allocation.bonus } } });
       const created = await tx.aiTokenTransaction.create({
         data: {
           userId: input.userId,
@@ -397,6 +417,7 @@ export class UsageV2Service {
           feature: input.feature,
           status: "reserved",
           reservedTokens,
+          bonusReservedTokens: allocation.bonus,
           provider: input.provider,
           model: input.model,
           metadata: input.metadata,
@@ -432,6 +453,14 @@ export class UsageV2Service {
       if (!transaction) throw new Error("TOKEN_RESERVATION_NOT_FOUND");
       if (transaction.status !== "reserved") return tokenTransactionView(transaction);
       const totalTokens = billedPoints(transaction.feature, input.billableCharacters);
+      const ownBonus = transaction.bonusReservedTokens ?? 0;
+      const ownMonthly = transaction.reservedTokens - ownBonus;
+      const cycle = await tx.aiTokenCycle.findUnique({ where: { id: transaction.cycleId } });
+      if (!cycle) throw new Error("TOKEN_CYCLE_NOT_FOUND");
+      const bonus = await tx.referralRedemption.findUnique({ where: { userId: input.userId } });
+      const allocation = allocatePoints(totalTokens,
+        cycle.quotaTokens - cycle.usedTokens - cycle.reservedTokens + ownMonthly,
+        (bonus?.grantedPoints ?? 0) - (bonus?.usedPoints ?? 0) - (bonus?.reservedPoints ?? 0) + ownBonus);
       const changed = await tx.$executeRawUnsafe(
         `UPDATE "ai_token_cycles"
             SET "reservedTokens" = "reservedTokens" - $1,
@@ -440,11 +469,13 @@ export class UsageV2Service {
           WHERE "id" = $3
             AND "reservedTokens" >= $1
             AND ($2 = 0 OR "usedTokens" + "reservedTokens" - $1 + $2 <= "quotaTokens")`,
-        transaction.reservedTokens,
-        totalTokens,
+        ownMonthly,
+        allocation.monthly,
         transaction.cycleId,
       );
       if (changed === 0) throw new Error("TOKEN_SETTLEMENT_EXCEEDS_CYCLE");
+      if (ownBonus || allocation.bonus) await tx.referralRedemption.update({ where: { userId: input.userId },
+        data: { reservedPoints: { decrement: ownBonus }, usedPoints: { increment: allocation.bonus } } });
       const settled = await tx.aiTokenTransaction.update({
         where: { id: transaction.id },
         data: {
@@ -452,6 +483,7 @@ export class UsageV2Service {
           inputTokens: input.inputTokens,
           outputTokens: input.outputTokens,
           totalTokens,
+          bonusUsedTokens: allocation.bonus,
           meteringSource: input.meteringSource,
           provider: input.provider ?? transaction.provider,
           model: input.model ?? transaction.model,
@@ -479,8 +511,10 @@ export class UsageV2Service {
       if (transaction.status !== "reserved") return tokenTransactionView(transaction);
       await tx.aiTokenCycle.update({
         where: { id: transaction.cycleId },
-        data: { reservedTokens: { decrement: transaction.reservedTokens } },
+        data: { reservedTokens: { decrement: transaction.reservedTokens - (transaction.bonusReservedTokens ?? 0) } },
       });
+      if (transaction.bonusReservedTokens > 0) await tx.referralRedemption.update({ where: { userId },
+        data: { reservedPoints: { decrement: transaction.bonusReservedTokens } } });
       const released = await tx.aiTokenTransaction.update({
         where: { id: transaction.id },
         data: { status: "released", settledAt: new Date() },
@@ -777,6 +811,7 @@ function isUniqueConstraintError(error: unknown): boolean {
 }
 
 async function lockUsageRequest(tx: any, userId: string, requestId: string): Promise<void> {
+  await lockPointAccount(tx, userId);
   await tx.$queryRawUnsafe(
     'SELECT pg_advisory_xact_lock(hashtextextended($1, 0))::text AS "lock"',
     `usage-v2:${userId}:${requestId}`,
