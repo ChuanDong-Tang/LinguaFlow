@@ -13,6 +13,8 @@ function fixture({ eligible = true, enabled = true, limit = 1, expired = false, 
         return await fn({
           $queryRawUnsafe: async (sql, code) => {
             if (sql.includes('advisory')) return [];
+            // Prisma timestamps are UTC even when the database session uses PRC.
+            assert.match(sql, /"expiresAt" > \(NOW\(\) AT TIME ZONE 'UTC'\)/);
             if (code !== 'PARTNER' || !enabled || expired || state.count >= limit) return [];
             state.count++; return [{ code }];
           },

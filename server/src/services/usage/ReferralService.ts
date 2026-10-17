@@ -36,9 +36,9 @@ export class ReferralService {
       // Row-level conditional update serializes the last available redemption
       // across DIFFERENT users; the account lock handles retries for one user.
       const rows = await tx.$queryRawUnsafe(
-        `UPDATE "referral_codes" SET "redemptionCount" = "redemptionCount" + 1, "updatedAt" = NOW()
+        `UPDATE "referral_codes" SET "redemptionCount" = "redemptionCount" + 1, "updatedAt" = (NOW() AT TIME ZONE 'UTC')
          WHERE "code" = $1 AND "enabled" = true
-           AND ("expiresAt" IS NULL OR "expiresAt" > NOW())
+           AND ("expiresAt" IS NULL OR "expiresAt" > (NOW() AT TIME ZONE 'UTC'))
            AND ("maxRedemptions" IS NULL OR "redemptionCount" < "maxRedemptions") RETURNING "code"`, code,
       );
       if (!rows.length) throw new ReferralError('REFERRAL_INVALID');
