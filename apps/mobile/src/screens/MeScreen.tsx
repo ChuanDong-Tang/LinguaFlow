@@ -229,12 +229,15 @@ export function MeScreen({ isActive, onOpenAbout, onApplyAppLocale, sessionRevis
           <UsageMeter
             label={t("me.quota.v2_ai")}
             value={pointsUsage && usageV2 ? tf("me.quota.v2_points_remaining", {
-              remaining: formatNumber(usageV2.token.remaining),
+              remaining: formatNumber(usageV2.token.monthlyRemaining ?? usageV2.token.remaining),
               total: formatNumber(usageV2.token.quota),
             }) : "--"}
             ratio={pointsUsage?.usedRatio ?? 0}
             loading={!usageV2}
           />
+          {(usageV2?.token.bonusGranted ?? 0) > 0 ? <Text style={{ color: theme.colors.textSecondary, marginTop: 8 }}>
+            {tf("onboarding.referral.balance", { count: formatNumber(usageV2?.token.bonusRemaining ?? 0) })}
+          </Text> : null}
           <UsageMeter
             label={t("me.quota.v2_images")}
             value={usageV2 ? tf("me.quota.v2_used_amount", {

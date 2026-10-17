@@ -74,7 +74,7 @@ export async function completePreLoginOnboarding(
   const next: PreLoginOnboardingState = {
     ...current,
     status: "completed",
-    step: 3,
+    step: 4,
     pendingSync: false,
     completedAt: new Date().toISOString(),
   };

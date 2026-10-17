@@ -5,6 +5,7 @@ import {
   isCompletePreLoginOnboardingDraft,
   normalizePreLoginOnboardingState,
   resolvePreLoginOnboardingLaunch,
+  selectOnboardingSource,
 } from "./preLoginOnboardingState";
 
 test("local onboarding draft is keyed to one authenticated account", () => {
@@ -78,4 +79,22 @@ test("keeps valid in-progress state and clamps an invalid step", () => {
   });
   assert.equal(state?.step, 0);
   assert.deepEqual(state?.draft, { appLocale: "en-US" });
+});
+
+test("fifth optional referral step survives account-scoped persistence", () => {
+  const state = normalizePreLoginOnboardingState({ version: 1, status: "in_progress", step: 4,
+    draft: { appLocale: "zh-CN", learningLanguage: "en-US", promptDifficulty: "native", acquisitionSource: "referral", hasReferralCode: true, referralCode: "PARTNER" } });
+  assert.equal(state?.step, 4);
+  assert.equal(state?.draft.referralCode, "PARTNER");
+  assert.equal(state?.draft.hasReferralCode, true);
+  assert.equal(isCompletePreLoginOnboardingDraft({ ...state!.draft, hasReferralCode: false }), true);
+});
+
+test("referral source defaults checked, preserves manual override and accepts codes from other sources", () => {
+  const selected = selectOnboardingSource({}, "referral");
+  assert.equal(selected.hasReferralCode, true);
+  assert.equal(selectOnboardingSource({ ...selected, hasReferralCode: false }, "referral").hasReferralCode, false);
+  const other = selectOnboardingSource({ ...selected, referralCode: "PARTNER" }, "xiaohongshu");
+  assert.equal(other.hasReferralCode, false);
+  assert.equal(other.referralCode, "PARTNER");
 });

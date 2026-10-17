@@ -1,13 +1,15 @@
 import { isAcquisitionSource, type AcquisitionSource } from "@lf/core/ports/repository/UserPreferenceRepository";
 import type { AppLocale, LearningLanguage, PromptDifficulty } from "../api/meApi";
 
-export type PreLoginOnboardingStep = 0 | 1 | 2 | 3;
+export type PreLoginOnboardingStep = 0 | 1 | 2 | 3 | 4;
 
 export type PreLoginOnboardingDraft = {
   appLocale?: AppLocale;
   learningLanguage?: LearningLanguage;
   promptDifficulty?: PromptDifficulty;
   acquisitionSource?: AcquisitionSource;
+  hasReferralCode?: boolean;
+  referralCode?: string;
 };
 
 export type PreLoginOnboardingState = {
@@ -18,6 +20,11 @@ export type PreLoginOnboardingState = {
   pendingSync: boolean;
   completedAt: string | null;
 };
+
+export function selectOnboardingSource(draft: PreLoginOnboardingDraft, source: AcquisitionSource): PreLoginOnboardingDraft {
+  return { ...draft, acquisitionSource: source,
+    hasReferralCode: draft.acquisitionSource === source ? draft.hasReferralCode : source === "referral" };
+}
 
 export function accountOnboardingKey(prefix: string, userId: string): string {
   if (!userId.trim()) throw new Error("An account is required for onboarding");
@@ -35,7 +42,7 @@ export function resolvePreLoginOnboardingLaunch(input: {
 
 export function isCompletePreLoginOnboardingDraft(
   draft: PreLoginOnboardingDraft,
-): draft is Required<PreLoginOnboardingDraft> {
+): draft is PreLoginOnboardingDraft & Required<Pick<PreLoginOnboardingDraft, "appLocale" | "learningLanguage" | "promptDifficulty" | "acquisitionSource">> {
   return Boolean(
     draft.appLocale &&
     draft.learningLanguage &&
@@ -62,7 +69,7 @@ export function normalizePreLoginOnboardingState(value: unknown): PreLoginOnboar
 }
 
 function normalizeStep(value: unknown): PreLoginOnboardingStep {
-  return value === 1 || value === 2 || value === 3 ? value : 0;
+  return value === 1 || value === 2 || value === 3 || value === 4 ? value : 0;
 }
 
 function normalizeDraft(value: unknown): PreLoginOnboardingDraft {
@@ -73,6 +80,8 @@ function normalizeDraft(value: unknown): PreLoginOnboardingDraft {
     ...(isLearningLanguage(input.learningLanguage) ? { learningLanguage: input.learningLanguage } : {}),
     ...(isPromptDifficulty(input.promptDifficulty) ? { promptDifficulty: input.promptDifficulty } : {}),
     ...(isAcquisitionSource(input.acquisitionSource) ? { acquisitionSource: input.acquisitionSource } : {}),
+    ...(typeof input.hasReferralCode === "boolean" ? { hasReferralCode: input.hasReferralCode } : {}),
+    ...(typeof input.referralCode === "string" ? { referralCode: input.referralCode.slice(0, 32) } : {}),
   };
 }
 

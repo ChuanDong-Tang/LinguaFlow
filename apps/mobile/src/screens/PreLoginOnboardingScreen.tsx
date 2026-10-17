@@ -1,5 +1,5 @@
 import React from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { SafeAreaView } from "react-native-safe-area-context";
 import type { AcquisitionSource } from "@lf/core/ports/repository/UserPreferenceRepository";
@@ -10,8 +10,10 @@ import type {
   PreLoginOnboardingStep,
 } from "../services/preferences/preLoginOnboarding";
 import { theme } from "../theme";
+import { selectOnboardingSource } from "../services/preferences/preLoginOnboardingState";
 
 type Props = {
+  busy?: boolean;
   step: PreLoginOnboardingStep;
   draft: PreLoginOnboardingDraft;
   onChangeDraft: (draft: PreLoginOnboardingDraft) => void;
@@ -19,26 +21,28 @@ type Props = {
   onContinue: () => void;
 };
 
-export function PreLoginOnboardingScreen({ step, draft, onChangeDraft, onBack, onContinue }: Props) {
+export function PreLoginOnboardingScreen({ step, draft, onChangeDraft, onBack, onContinue, busy = false }: Props) {
   const content = stepContent(step);
   const selected = selectedValue(step, draft);
+  const canContinue = step === 4 ? !draft.hasReferralCode || Boolean(draft.referralCode?.trim()) : Boolean(selected);
 
   return (
     <SafeAreaView style={styles.safeArea} edges={["top", "bottom"]}>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
       <View style={styles.header}>
         <View style={styles.headerSide}>
           {step > 0 ? (
-            <Pressable accessibilityRole="button" accessibilityLabel={t("onboarding.flow.back")} style={styles.backButton} onPress={onBack}>
+            <Pressable disabled={busy} accessibilityRole="button" accessibilityLabel={t("onboarding.flow.back")} style={styles.backButton} onPress={onBack}>
               <Ionicons name="chevron-back" size={24} color={theme.colors.text} />
             </Pressable>
           ) : null}
         </View>
-        <Text style={styles.progressText}>{tf("onboarding.flow.progress", { current: step + 1, total: 4 })}</Text>
+        <Text style={styles.progressText}>{tf("onboarding.flow.progress", { current: step + 1, total: 5 })}</Text>
         <View style={styles.headerSide} />
       </View>
 
       <View style={styles.progressTrack}>
-        {[0, 1, 2, 3].map((index) => (
+        {[0, 1, 2, 3, 4].map((index) => (
           <View key={index} style={[styles.progressSegment, index <= step && styles.progressSegmentActive]} />
         ))}
       </View>
@@ -47,19 +51,34 @@ export function PreLoginOnboardingScreen({ step, draft, onChangeDraft, onBack, o
         style={styles.body}
         contentContainerStyle={styles.bodyContent}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
       >
         <View>
-          <Text style={styles.eyebrow}>OIO</Text>
           <Text style={styles.title}>{t(content.titleKey)}</Text>
-          <Text style={styles.subtitle}>{t(content.subtitleKey)}</Text>
+          {content.subtitleKey ? <Text style={styles.subtitle}>{t(content.subtitleKey)}</Text> : null}
         </View>
 
         <View style={styles.options}>
+          {step === 4 ? <>
+            <Pressable disabled={busy} accessibilityRole="checkbox" accessibilityState={{ checked: Boolean(draft.hasReferralCode) }}
+              style={styles.option} onPress={() => onChangeDraft({ ...draft, hasReferralCode: !draft.hasReferralCode })}>
+              <Ionicons name={draft.hasReferralCode ? "checkbox" : "square-outline"} size={24} color={theme.colors.accentStrong} />
+              <Text style={[styles.optionLabel, { marginLeft: 12 }]}>{t("onboarding.referral.checkbox")}</Text>
+            </Pressable>
+            {draft.hasReferralCode ? <TextInput accessibilityLabel={t("onboarding.referral.placeholder")}
+              editable={!busy} style={styles.codeInput} value={draft.referralCode ?? ""}
+              onChangeText={referralCode => onChangeDraft({ ...draft, referralCode })}
+              placeholder={t("onboarding.referral.placeholder")} placeholderTextColor={theme.colors.textMuted}
+              autoCapitalize="characters" autoCorrect={false} maxLength={32} returnKeyType="done"
+              onSubmitEditing={() => { if (canContinue && !busy) onContinue(); }} /> : null}
+            <Text style={styles.subtitle}>{t("onboarding.referral.rules")}</Text>
+          </> : null}
           {content.options.map((option) => {
             const active = selected === option.value;
             return (
               <Pressable
                 key={option.value}
+                disabled={busy}
                 accessibilityRole="radio"
                 accessibilityState={{ checked: active }}
                 style={[styles.option, active && styles.optionActive]}
@@ -84,14 +103,15 @@ export function PreLoginOnboardingScreen({ step, draft, onChangeDraft, onBack, o
       <View style={styles.footer}>
         <Pressable
           accessibilityRole="button"
-          disabled={!selected}
-          style={[styles.continueButton, !selected && styles.continueButtonDisabled]}
+          disabled={!canContinue || busy}
+          style={[styles.continueButton, (!canContinue || busy) && styles.continueButtonDisabled]}
           onPress={onContinue}
         >
-          <Text style={styles.continueText}>{step === 3 ? t("onboarding.flow.finish") : t("common.continue")}</Text>
+          <Text style={styles.continueText}>{step === 4 ? t("onboarding.flow.finish") : t("common.continue")}</Text>
           <Ionicons name="arrow-forward" size={19} color="#FFFFFF" />
         </Pressable>
       </View>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
@@ -105,9 +125,10 @@ type Option = {
 
 function stepContent(step: PreLoginOnboardingStep): {
   titleKey: Parameters<typeof t>[0];
-  subtitleKey: Parameters<typeof t>[0];
+  subtitleKey?: Parameters<typeof t>[0];
   options: Option[];
 } {
+  if (step === 4) return { titleKey: "onboarding.referral.title", options: [] };
   if (step === 0) {
     return {
       titleKey: "onboarding.flow.app_language.title",
@@ -159,6 +180,7 @@ function stepContent(step: PreLoginOnboardingStep): {
       { value: "douyin", label: "抖音", icon: "musical-note-outline" },
       { value: "app_store", label: "App Store", icon: "logo-apple-appstore" },
       { value: "google_play", label: "Google Play", icon: "logo-google-playstore" },
+      { value: "referral", label: t("onboarding.referral.source"), icon: "people-outline" },
     ],
   };
 }
@@ -178,10 +200,11 @@ function updateDraft(
   if (step === 0) return { ...draft, appLocale: value as AppLocale };
   if (step === 1) return { ...draft, learningLanguage: value as LearningLanguage };
   if (step === 2) return { ...draft, promptDifficulty: value as PromptDifficulty };
-  return { ...draft, acquisitionSource: value as AcquisitionSource };
+  return selectOnboardingSource(draft, value as AcquisitionSource);
 }
 
 const styles = StyleSheet.create({
+  codeInput: { minHeight: 54, padding: 16, borderRadius: 14, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surface, color: theme.colors.text, fontSize: 18 },
   safeArea: { flex: 1, backgroundColor: theme.colors.canvas },
   header: {
     minHeight: 52,
@@ -198,7 +221,6 @@ const styles = StyleSheet.create({
   progressSegmentActive: { backgroundColor: theme.colors.accentStrong },
   body: { flex: 1 },
   bodyContent: { flexGrow: 1, paddingHorizontal: 24, paddingTop: 46, paddingBottom: 24 },
-  eyebrow: { color: theme.colors.success, fontSize: 14, lineHeight: 20, fontWeight: "800", letterSpacing: 1.8 },
   title: { marginTop: 12, color: theme.colors.text, fontSize: 30, lineHeight: 39, fontWeight: "700" },
   subtitle: { marginTop: 10, color: theme.colors.textSecondary, fontSize: 15, lineHeight: 23 },
   options: { marginTop: 34, gap: 12 },

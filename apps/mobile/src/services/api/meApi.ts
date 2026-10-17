@@ -67,6 +67,9 @@ export type UsageV2 = {
     reserved: number;
     remaining: number;
     remainingPercent: number;
+    monthlyRemaining?: number;
+    bonusRemaining?: number;
+    bonusGranted?: number;
   };
   images: {
     periodStart: string;
@@ -170,6 +173,16 @@ export async function getUsageV2(): Promise<UsageV2> {
   });
   const json = (await res.json()) as ApiResult<UsageV2>;
   if (!json.ok) throw new Error(json.error.message);
+  return json.data;
+}
+
+export async function completeReferral(code?: string): Promise<{ grantedPoints: number; alreadyClaimed: boolean }> {
+  const res = await fetchWithTimeout(`${BASE_URL}/me/referral/complete`, {
+    method: "POST", headers: { ...(await getAuthHeaders()), "Content-Type": "application/json" },
+    body: JSON.stringify(code === undefined ? {} : { code }),
+  });
+  const json = await res.json() as ApiResult<{ grantedPoints: number; alreadyClaimed: boolean }>;
+  if (!json.ok) throw new Error(json.error.code);
   return json.data;
 }
 

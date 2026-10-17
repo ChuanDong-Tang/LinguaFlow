@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Alert, Animated, AppState, DevSettings, Image, Linking, Modal, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import * as AuthSession from "expo-auth-session";
@@ -9,7 +9,7 @@ import { SafeAreaProvider, initialWindowMetrics } from "react-native-safe-area-c
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { LoginScreen } from "./screens/LoginScreen";
 import { PreLoginOnboardingScreen } from "./screens/PreLoginOnboardingScreen";
-import { getLanguage, getSavedLanguage, initI18n, setLanguage, t, tf } from "./i18n";
+import { getLanguage, getSavedLanguage, initI18n, useSystemLanguage, setLanguage, t, tf } from "./i18n";
 import {
   clearAuthingAccessToken,
   clearSession,
@@ -24,6 +24,7 @@ import { ApiError, confirmBindEmail, confirmDeleteAccount, logout, prepareBindEm
 import {
   getCurrentEntitlement,
   getUsageV2,
+  completeReferral,
   getUserPreference,
   updateUserPreference,
   type AppLocale,
@@ -95,8 +96,15 @@ export default function App() {
   const [activeContact, setActiveContact] = useState<ChatContact>(DEFAULT_CHAT_CONTACT);
   const [chatContacts, setChatContacts] = useState<ChatContact[]>([]);
   const [, bumpLanguageRevision] = useState(0);
+  useLayoutEffect(() => {
+    if (screen !== "login") return;
+    useSystemLanguage();
+    bumpLanguageRevision((revision) => revision + 1);
+  }, [screen]);
   const [preLoginOnboarding, setPreLoginOnboarding] = useState<PreLoginOnboardingState | null>(null);
   const [onboardingUserId, setOnboardingUserId] = useState<string | null>(null);
+  const [onboardingSaving, setOnboardingSaving] = useState(false);
+  const onboardingSavingRef = useRef(false);
   const [sessionRevision, setSessionRevision] = useState(0);
   const [cardDataRevision, setCardDataRevision] = useState(0);
   const [cardDetailRequest, setCardDetailRequest] = useState<CardDetailRequest | null>(null);
@@ -181,7 +189,6 @@ export default function App() {
         await Promise.all([initI18n(), preloadImages(PRELOAD_IMAGES)]);
         const savedLanguage = await getSavedLanguage();
         const session = await getSession();
-        if (savedLanguage) await setLanguage(savedLanguage);
         let preference: UserPreference | null = null;
         if (session) {
           preference = await getUserPreference().catch(() => null);
@@ -208,6 +215,8 @@ export default function App() {
           if (preference) {
             await setLanguage(preference.appLocale);
             await saveLocalGuideState(preference.guideState, session.user.id).catch(() => undefined);
+          } else if (savedLanguage) {
+            await setLanguage(savedLanguage);
           }
         }
         if (!mounted) return;
@@ -415,6 +424,8 @@ export default function App() {
         const local = await loadPreLoginOnboardingState(session.user.id);
         const launch = resolvePreLoginOnboardingLaunch({ accountCompleted: false, state: local });
         const onboardingState = launch === "resume" && local ? local : await beginPreLoginOnboarding(session.user.id);
+        if (onboardingState.draft.appLocale) await setLanguage(onboardingState.draft.appLocale);
+        else useSystemLanguage();
         setOnboardingUserId(session.user.id);
         setPreLoginOnboarding(onboardingState);
         setScreen("onboarding");
@@ -476,21 +487,25 @@ export default function App() {
   }
 
   async function continuePreLoginOnboarding(): Promise<void> {
-    if (!preLoginOnboarding || !onboardingUserId) return;
-    if (preLoginOnboarding.step < 3) {
-      const nextStep = (preLoginOnboarding.step + 1) as 1 | 2 | 3;
+    if (!preLoginOnboarding || !onboardingUserId || onboardingSavingRef.current) return;
+    if (preLoginOnboarding.step < 4) {
+      const nextStep = (preLoginOnboarding.step + 1) as 1 | 2 | 3 | 4;
       const next = await savePreLoginOnboardingProgress(onboardingUserId, preLoginOnboarding, { step: nextStep });
       setPreLoginOnboarding(next);
       return;
     }
     if (!isCompletePreLoginOnboardingDraft(preLoginOnboarding.draft)) return;
+    onboardingSavingRef.current = true;
+    setOnboardingSaving(true);
     try {
       const session = await getSession();
       if (session?.user.id !== onboardingUserId) throw new Error("Account changed during onboarding");
       const preference = await getUserPreference();
       if (preference.userId !== onboardingUserId) throw new Error("Preference belongs to another account");
+      const { hasReferralCode, referralCode, ...preferences } = preLoginOnboarding.draft;
+      const reward = await completeReferral(hasReferralCode ? referralCode?.trim() ?? "" : undefined);
       const updated = await updateUserPreference({
-        ...preLoginOnboarding.draft,
+        ...preferences,
         guideState: completeGuide(completeGuide(preference.guideState, GUIDE_ACCOUNT_ONBOARDING), GUIDE_FIRST_LEARNING_SETUP),
       });
       await completePreLoginOnboarding(onboardingUserId, preLoginOnboarding).catch(() => undefined);
@@ -500,14 +515,23 @@ export default function App() {
       setSessionRevision((value) => value + 1);
       setScreen("main");
       void loadChatContacts();
-    } catch {
-      Alert.alert(t("me.language.save_failed_title"), t("me.language.save_failed_message"));
+      if (reward.grantedPoints > 0) Alert.alert(t("onboarding.referral.success"), t("onboarding.referral.rules"));
+    } catch (error) {
+      const code = error instanceof Error ? error.message : "";
+      const message = code === "REFERRAL_INVALID" ? t("onboarding.referral.invalid")
+        : code === "REFERRAL_ALREADY_CLAIMED" ? t("onboarding.referral.claimed")
+        : code === "REFERRAL_NOT_ELIGIBLE" ? t("onboarding.referral.ineligible")
+        : t("me.language.save_failed_message");
+      Alert.alert(t("me.language.save_failed_title"), message);
+    } finally {
+      onboardingSavingRef.current = false;
+      setOnboardingSaving(false);
     }
   }
 
   async function backPreLoginOnboarding(): Promise<void> {
-    if (!preLoginOnboarding || !onboardingUserId || preLoginOnboarding.step === 0) return;
-    const previousStep = (preLoginOnboarding.step - 1) as 0 | 1 | 2;
+    if (!preLoginOnboarding || !onboardingUserId || preLoginOnboarding.step === 0 || onboardingSavingRef.current) return;
+    const previousStep = (preLoginOnboarding.step - 1) as 0 | 1 | 2 | 3;
     const next = await savePreLoginOnboardingProgress(onboardingUserId, preLoginOnboarding, { step: previousStep });
     setPreLoginOnboarding(next);
   }
@@ -883,6 +907,7 @@ export default function App() {
   else if (screen === "onboarding" && preLoginOnboarding) {
     content = (
       <PreLoginOnboardingScreen
+        busy={onboardingSaving}
         step={preLoginOnboarding.step}
         draft={preLoginOnboarding.draft}
         onChangeDraft={handlePreLoginOnboardingDraft}

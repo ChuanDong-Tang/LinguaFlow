@@ -1,21 +1,35 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { I18nManager, Platform, Settings } from "react-native";
+import { resolveDeviceLanguage } from "./deviceLanguage";
 import { messages, type SupportedLanguage, type TranslationKey } from "./messages";
 export type { SupportedLanguage, TranslationKey } from "./messages";
 
 const LANGUAGE_KEY = "lf_i18n_language";
-const DEFAULT_LANGUAGE: SupportedLanguage = "zh-CN";
+const DEFAULT_LANGUAGE: SupportedLanguage = "en-US";
 
 let currentLanguage: SupportedLanguage = DEFAULT_LANGUAGE;
 
-/** 初始化语言：启动时调用，优先使用本地已保存的用户语言。 */
-export async function initI18n(): Promise<SupportedLanguage> {
-  const saved = await AsyncStorage.getItem(LANGUAGE_KEY);
-  const normalized = normalizeLanguage(saved);
-  if (normalized) {
-    currentLanguage = normalized;
-    return currentLanguage;
+export function useSystemLanguage(): SupportedLanguage {
+  let locale: unknown;
+  try {
+    if (Platform.OS === "ios") {
+      const languages = Settings.get("AppleLanguages");
+      locale = Array.isArray(languages) ? languages[0] : undefined;
+      locale = locale || Settings.get("AppleLocale");
+    } else if (Platform.OS === "android") {
+      locale = I18nManager.getConstants().localeIdentifier;
+    }
+    locale = locale || Intl.DateTimeFormat().resolvedOptions().locale;
+  } catch {
+    // Unsupported or unavailable device locale falls back to English.
   }
+  currentLanguage = resolveDeviceLanguage(locale);
   return currentLanguage;
+}
+
+/** Guest startup follows the device without overwriting the account preference. */
+export async function initI18n(): Promise<SupportedLanguage> {
+  return useSystemLanguage();
 }
 
 export async function getSavedLanguage(): Promise<SupportedLanguage | null> {
