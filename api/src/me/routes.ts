@@ -96,7 +96,7 @@ export function registerMeRoutes(app: FastifyInstance, deps: MeRouteDeps): void 
       return reply.status(429).send({ ok: false, request_id: requestId, error: { code: "RATE_LIMITED", message: "Too many attempts" } });
     }
     const body = (req.body ?? {}) as Record<string, unknown>;
-    if (Object.keys(body).some(key => key !== "code") || (body.code !== undefined && (typeof body.code !== "string" || body.code.length > 64))) {
+    if (typeof body !== "object" || Array.isArray(body) || Object.keys(body).some(key => key !== "code" && key !== "__rawBody") || (body.code !== undefined && (typeof body.code !== "string" || body.code.length > 64))) {
       return reply.status(400).send({ ok: false, request_id: requestId, error: { code: "VALIDATION_FAILED", message: "Invalid referral code" } });
     }
     try {
