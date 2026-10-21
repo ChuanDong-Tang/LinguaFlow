@@ -1,5 +1,6 @@
 import { resolveCardPlaybackProgress } from "../services/tts/cardPlaybackProgress";
 import { saveTutorialPractice } from "../services/card/tutorialPracticeStorage";
+import { resolveCardSecondaryContent } from "../services/card/cardSecondaryContent";
 import { alignCardSpeechMarks } from "@lf/core/text/cardSpeechText";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
@@ -1996,6 +1997,8 @@ function Review({ onLanguageControlChange, hidePhraseRecommendation = true, deta
   const flipCardScrollYRef = useRef(0);
   const actionBarRef = useRef<View>(null);
   const [relationsVisible, setRelationsVisible] = useState(false);
+  const cardSecondarySegments = (block: CardRecordDetail["contentBlocks"][number]) =>
+    resolveCardSecondaryContent(block, detail.isSample).segments;
   const [languageRelationVisible, setLanguageRelationVisible] = useState(false);
   const images = useMemo(
     () => detail.images?.length ? detail.images : detail.image ? [detail.image] : [],
@@ -2119,9 +2122,9 @@ function Review({ onLanguageControlChange, hidePhraseRecommendation = true, deta
   const [displayMode, setDisplayMode] = useState<ContentDisplayMode>(defaultDisplayMode);
   useEffect(() => { setDisplayMode(defaultDisplayMode); }, [detail.id]);
   const [auxiliaryLoading, setAuxiliaryLoading] = useState(false);
-  const auxiliaryDisplayLanguage = playbackPrimaryBlock?.contentType === "rewrite"
-    ? playbackPrimaryBlock.alignedOriginalLanguageCode ?? getLanguage()
-    : playbackPrimaryBlock?.auxiliaryLanguageCode ?? getLanguage();
+  const auxiliaryDisplayLanguage = (playbackPrimaryBlock
+    ? resolveCardSecondaryContent(playbackPrimaryBlock, detail.isSample).languageCode
+    : null) ?? getLanguage();
   const displayModeLabel = cardDisplayModeLabel(displayMode, detail.languageCode, auxiliaryDisplayLanguage);
   const [collapsedSections, setCollapsedSections] = useState<Record<"imageDescription" | "learning" | "reply" | "translation", boolean>>({ imageDescription: false, learning: false, reply: false, translation: false });
   const [articleAudioLoading, setArticleAudioLoading] = useState(false);
@@ -3357,9 +3360,8 @@ function Review({ onLanguageControlChange, hidePhraseRecommendation = true, deta
       auxiliarySegments: cardSecondarySegments(block).length
         ? cardSecondarySegments(block)
         : image?.descriptionAuxiliarySegments ?? [],
-      auxiliaryLanguageCode: block.contentType === "rewrite"
-        ? block.alignedOriginalLanguageCode ?? null
-        : block.auxiliaryLanguageCode ?? image?.descriptionAuxiliaryLanguageCode ?? null,
+      auxiliaryLanguageCode: resolveCardSecondaryContent(block, detail.isSample).languageCode
+        ?? image?.descriptionAuxiliaryLanguageCode ?? null,
       practice: block.practice,
     };
   };
@@ -3901,14 +3903,6 @@ function cardDisplayModeLabel(mode: ContentDisplayMode, target: string, auxiliar
     ? `${compactLanguageLabel(auxiliary)}${compactLanguageLabel(target)}`
     : `${name(auxiliary)} / ${name(target)}`;
   return tf("card_detail.display.both_languages", { languages });
-}
-
-function cardSecondarySegments(
-  block: CardRecordDetail["contentBlocks"][number],
-): Array<{ ordinal: number; text: string }> {
-  return block.contentType === "rewrite"
-    ? block.alignedOriginalSegments ?? []
-    : block.auxiliarySegments ?? [];
 }
 
 function compactLanguageLabel(languageCode: string): string {
