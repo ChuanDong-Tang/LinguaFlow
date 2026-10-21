@@ -11,7 +11,7 @@ import {
   View,
 } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
-import Constants from "expo-constants";
+import * as Application from "expo-application";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { getLanguage, t } from "../i18n";
 import { submitFeedback, type FeedbackCategory } from "../services/api/meApi";
@@ -44,8 +44,8 @@ export function FeedbackScreen({ onBack }: FeedbackScreenProps) {
         category,
         content: normalizedContent,
         platform: Platform.OS,
-        appVersion: Constants.nativeAppVersion ?? Constants.expoConfig?.version ?? null,
-        buildNumber: Constants.nativeBuildVersion ?? null,
+        appVersion: Application.nativeApplicationVersion,
+        buildNumber: Application.nativeBuildVersion,
         osVersion: String(Platform.Version),
         appLocale: getLanguage(),
       });

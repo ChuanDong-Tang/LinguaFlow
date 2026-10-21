@@ -9,6 +9,9 @@ const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const projectDirectory = path.resolve(scriptDirectory, "..");
 const repositoryDirectory = path.resolve(projectDirectory, "../..");
 const options = parseArguments(process.argv.slice(2));
+if (options.channel !== "preview" && !/^\d+\.\d+\.\d+$/.test(process.env.OIO_APP_VERSION ?? "")) {
+  throw new Error("Production OTA requires an explicit OIO_APP_VERSION matching the intended app release.");
+}
 const secretId = process.env.LF_EXPO_UPDATES_COS_SECRET_ID ?? process.env.TENCENT_COS_SECRET_ID ?? process.env.COS_SECRET_ID ?? "";
 const secretKey = process.env.LF_EXPO_UPDATES_COS_SECRET_KEY ?? process.env.TENCENT_COS_SECRET_KEY ?? process.env.COS_SECRET_KEY ?? "";
 const bucket = process.env.LF_EXPO_UPDATES_COS_BUCKET ?? process.env.TENCENT_COS_BUCKET ?? process.env.COS_BUCKET ?? "";
@@ -39,6 +42,10 @@ try {
   // payment flags.
   runExpo(["export", "--clear", "--platform", options.platform, "--output-dir", exportDirectory, "--dump-assetmap"], commandEnvironment);
   const expoConfig = JSON.parse(runExpo(["config", "--type", "public", "--json"], commandEnvironment, true));
+  if (options.channel !== "preview" && expoConfig.version !== process.env.OIO_APP_VERSION) {
+    throw new Error("Exported App version differs from OIO_APP_VERSION; refusing publication.");
+  }
+  process.stdout.write(`OTA appVersion=${expoConfig.version} runtimeVersion=${expoConfig.runtimeVersion} channel=${options.channel} platform=${options.platform}\n`);
   const metadata = JSON.parse(await readFile(path.join(exportDirectory, "metadata.json"), "utf8"));
   const runtimeVersion = options.runtimeVersion || expoConfig.runtimeVersion;
   if (!runtimeVersion || typeof runtimeVersion !== "string") {

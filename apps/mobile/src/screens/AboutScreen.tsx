@@ -4,7 +4,7 @@ import { Alert, Image, Linking, Pressable, ScrollView, StyleSheet, Text, View } 
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { PRIVACY_URL, TERMS_URL } from "../constants/legalUrls";
-import Constants from "expo-constants";
+import * as Application from "expo-application";
 import { t } from "../i18n";
 import { getAvailableAppUpdate, type AvailableAppUpdate } from "../services/api/appVersionApi";
 
@@ -12,11 +12,9 @@ const CHANGELOG_URL = "https://yueyantech.com/wiki/changelog.html";
 
 export function getAppVersionText() {
   const version =
-    Constants.nativeAppVersion ??
-    Constants.expoConfig?.version ??
+    Application.nativeApplicationVersion ??
     "unknown";
 
-  //const build = Constants.nativeBuildVersion;
   return version;
 }
 

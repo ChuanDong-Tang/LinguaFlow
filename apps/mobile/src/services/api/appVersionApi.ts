@@ -1,4 +1,4 @@
-import Constants from "expo-constants";
+import * as Application from "expo-application";
 import { Platform } from "react-native";
 import { fetchWithTimeout } from "./fetchWithTimeout";
 
@@ -23,7 +23,8 @@ export type AvailableAppUpdate = {
 
 export async function getAvailableAppUpdate(): Promise<AvailableAppUpdate | null> {
   if (Platform.OS !== "ios" && Platform.OS !== "android") return null;
-  const currentVersion = Constants.nativeAppVersion ?? Constants.expoConfig?.version;
+  // Store updates compare the installed binary, never OTA manifest metadata.
+  const currentVersion = Application.nativeApplicationVersion;
   if (!currentVersion) return null;
 
   const mockVersion = __DEV__ ? process.env.EXPO_PUBLIC_MOCK_APP_UPDATE_VERSION?.trim() : null;
