@@ -176,6 +176,7 @@ export class PrismaCardRepository implements CardRepository {
     dateKey?: string;
     fromDateKey?: string;
     sortDirection?: "asc" | "desc";
+    shuffleSeed?: string;
     includeLegacySamples?: boolean;
     limit: number;
     cursor?: { createdAt: Date; id: string };
@@ -200,6 +201,31 @@ export class PrismaCardRepository implements CardRepository {
         }
       }
       collectionWhere = { collectionId: { in: [...included] } };
+    }
+    if (input.shuffleSeed) {
+      const collectionIds = "collectionId" in collectionWhere && collectionWhere.collectionId
+        ? collectionWhere.collectionId.in : null;
+      // All values are bound parameters. Hash + id is a stable, unique order
+      // within a shuffle round, independent of page size and recorded date.
+      const ids = await this.prisma.$queryRawUnsafe<Array<{ id: string }>>(`
+        SELECT id FROM cards
+        WHERE "userId" = $1 AND "deletedAt" IS NULL
+          AND status NOT IN ('failed', 'deleted')
+          AND ("isSample" = false OR ($3::boolean AND "clientId" IN ('sample:v1:1', 'sample:v1:2')))
+          AND ($4::boolean = false OR "collectionId" IS NULL)
+          AND ($5::text[] IS NULL OR "collectionId" = ANY($5::text[]))
+          AND ($6::text IS NULL OR "dateKey" = $6)
+          AND ($7::text IS NULL OR "dateKey" >= $7)
+          AND ($8::text IS NULL OR (md5($2 || id), id) > (md5($2 || $8), $8))
+        ORDER BY md5($2 || id), id LIMIT $9`,
+        input.userId, input.shuffleSeed, Boolean(input.includeLegacySamples),
+        input.collectionId === null, collectionIds, input.dateKey ?? null,
+        input.fromDateKey ?? null, input.cursor?.id ?? null, input.limit);
+      const rows = await this.prisma.card.findMany({
+        where: { userId: input.userId, deletedAt: null, id: { in: ids.map(row => row.id) } }, include: includeSegments,
+      });
+      const byId = new Map(rows.map(row => [row.id, row]));
+      return ids.flatMap(({ id }) => byId.has(id) ? [toEntry(byId.get(id))] : []);
     }
     const rows = await this.prisma.card.findMany({
       where: {

@@ -1637,8 +1637,10 @@ export class CardService {
     limit?: number;
     cursor?: string;
     sort?: "newest" | "oldest";
+    shuffleSeed?: string;
     tutorial?: boolean;
   }) {
+    if (input.shuffleSeed && !/^[a-zA-Z0-9-]{1,64}$/.test(input.shuffleSeed)) throw new CardValidationError("Invalid shuffle seed");
     if (input.dateKey) assertDateKey(input.dateKey);
     if (input.fromDateKey) assertDateKey(input.fromDateKey);
     if (input.dateKey && input.fromDateKey) throw new CardValidationError("Conflicting Card date filters");
@@ -1648,12 +1650,14 @@ export class CardService {
     const tutorial = input.tutorial && !input.cursor && input.collectionId === undefined && !input.dateKey && !input.fromDateKey
       ? await this.bootstrap(userId, true) : [];
     const cursor = input.cursor ? decodeCardCursor(input.cursor) : undefined;
+    if (cursor && cursor.shuffleSeed !== input.shuffleSeed) throw new CardValidationError("Card cursor belongs to a different shuffle round");
     const entries = await this.repository.listPageByUser({
       userId,
       collectionId: input.collectionId,
       dateKey: input.dateKey,
       fromDateKey: input.fromDateKey,
       sortDirection: input.sort === "oldest" ? "asc" : "desc",
+      shuffleSeed: input.shuffleSeed,
       includeLegacySamples: !input.tutorial,
       limit: limit + 1,
       cursor,
@@ -1662,7 +1666,7 @@ export class CardService {
     const pageEntries = entries.slice(0, limit);
     const items = await Promise.all(pageEntries.map((entry) => this.summaryWithImage(entry)));
     const last = hasMore ? pageEntries[pageEntries.length - 1] : undefined;
-    return { items: [...tutorial, ...items], nextCursor: last ? encodeCardCursor(last.recordedAt, last.id) : null };
+    return { items: [...tutorial, ...items], nextCursor: last ? encodeCardCursor(last.recordedAt, last.id, input.shuffleSeed) : null, shuffleSeed: input.shuffleSeed ?? null };
   }
 
   async listDateKeys(userId: string, fromDateKey: string, toDateKey: string): Promise<string[]> {
@@ -3050,17 +3054,17 @@ function dateRangeDays(fromDateKey: string, toDateKey: string): number {
   return Math.floor((to - from) / 86_400_000) + 1;
 }
 
-function encodeCardCursor(createdAt: Date, id: string): string {
-  return Buffer.from(JSON.stringify({ v: 1, createdAt: createdAt.toISOString(), id }), "utf8").toString("base64url");
+function encodeCardCursor(createdAt: Date, id: string, shuffleSeed?: string): string {
+  return Buffer.from(JSON.stringify({ v: 1, createdAt: createdAt.toISOString(), id, shuffleSeed }), "utf8").toString("base64url");
 }
 
-function decodeCardCursor(value: string): { createdAt: Date; id: string } {
+function decodeCardCursor(value: string): { createdAt: Date; id: string; shuffleSeed?: string } {
   try {
     const parsed = JSON.parse(Buffer.from(value, "base64url").toString("utf8")) as Record<string, unknown>;
     const createdAt = new Date(String(parsed.createdAt ?? ""));
     const id = typeof parsed.id === "string" ? parsed.id : "";
     if (parsed.v !== 1 || !id || !Number.isFinite(createdAt.getTime())) throw new Error("invalid");
-    return { createdAt, id };
+    return { createdAt, id, shuffleSeed: typeof parsed.shuffleSeed === "string" ? parsed.shuffleSeed : undefined };
   } catch {
     throw new CardValidationError("Invalid Card cursor");
   }

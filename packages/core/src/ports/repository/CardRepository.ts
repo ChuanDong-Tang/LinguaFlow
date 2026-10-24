@@ -367,6 +367,7 @@ export interface CardRepository {
     dateKey?: string;
     fromDateKey?: string;
     sortDirection?: "asc" | "desc";
+    shuffleSeed?: string;
     includeLegacySamples?: boolean;
     limit: number;
     cursor?: { createdAt: Date; id: string };

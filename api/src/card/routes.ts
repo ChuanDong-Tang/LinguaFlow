@@ -850,6 +850,7 @@ export function registerCardRoutes(app: FastifyInstance, deps: CardRouteDeps): v
       cursor?: unknown;
       fromDateKey?: unknown;
       sort?: unknown;
+      shuffleSeed?: unknown;
       tutorial?: unknown;
     };
     try {
@@ -861,6 +862,7 @@ export function registerCardRoutes(app: FastifyInstance, deps: CardRouteDeps): v
         cursor: typeof query.cursor === "string" && query.cursor ? query.cursor : undefined,
         tutorial: query.tutorial === "v1",
         sort: query.sort === "oldest" ? "oldest" : "newest",
+        shuffleSeed: typeof query.shuffleSeed === "string" ? query.shuffleSeed : undefined,
       });
       return reply.status(200).send({ ok: true, request_id: requestId, data });
     } catch (error) {
