@@ -1,5 +1,6 @@
 import React from "react";
-import { ActivityIndicator, Alert, Image, Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Alert, Image, Pressable, StyleSheet, View } from "react-native";
+import { Text } from "../../components/Typography";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { getDictionaryTermAudio, type DictionaryLookupResult } from "../../services/api/dictionaryApi";
 import { playTtsAudio } from "../../services/tts/ttsPlayback";

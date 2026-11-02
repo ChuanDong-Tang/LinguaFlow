@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Alert, Image, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from "react-native";
+import { ActivityIndicator, Alert, Image, Modal, Platform, Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from "react-native";
+import { Text, TextInput } from "../components/Typography";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import * as Updates from "expo-updates";
 import * as ImagePicker from "expo-image-picker";
@@ -38,6 +39,8 @@ import { SubscriptionManagementScreen } from "./ProScreen";
 import { stabilizeProfileAvatar } from "../services/image/signedImageCache";
 import { MembershipSummaryCard } from "./membership/MembershipSummaryCard";
 import { FeedbackScreen } from "./FeedbackScreen";
+import { fontSizePreference, useFontSize } from "../services/preferences/fontSizePreference";
+import { FONT_SIZES } from "../services/preferences/fontSizeState";
 
 type MeScreenProps = {
   isActive: boolean;
@@ -55,6 +58,7 @@ const UPDATE_LOG_KEYWORDS = ["error", "fail", "exception", "crash", "rollback", 
 const UPDATE_ID_PATTERN = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi;
 
 export function MeScreen({ isActive, onOpenAbout, onApplyAppLocale, sessionRevision, onBindEmail, onLogout, onDeleteAccount, onClose }: MeScreenProps) {
+  const { size: fontSize } = useFontSize();
   const { isMounted } = useMountedGuard();
   const appLocaleSyncSeqRef = useRef(0);
   const [session, setSession] = useState<AuthSession | null>(null);
@@ -276,6 +280,14 @@ export function MeScreen({ isActive, onOpenAbout, onApplyAppLocale, sessionRevis
             ].join(" · ") : undefined}
             onPress={() => setLanguageSettingsVisible(true)}
           />
+          <View style={fontStyles.row}>
+            <View style={fontStyles.label}><Ionicons name="text-outline" size={20} color={theme.colors.textSecondary} /><Text>{t("me.font_size")}</Text></View>
+            <View style={fontStyles.options}>
+              {FONT_SIZES.map(size => <Pressable key={size} accessibilityRole="radio" accessibilityLabel={`${t("me.font_size")}: ${t(`me.font_size.${size}`)}`} accessibilityState={{ checked: fontSize === size }} onPress={() => {
+                void fontSizePreference.set(size).catch(() => Alert.alert(t("me.language.save_failed_title"), t("me.language.save_failed_message")));
+              }} style={[fontStyles.option, size === fontSize && fontStyles.selected]}><Text style={{ color: size === fontSize ? "#FFFFFF" : theme.colors.text }}>{t(`me.font_size.${size}`)}</Text></Pressable>)}
+            </View>
+          </View>
           <SettingsRow icon="chatbox-ellipses-outline" label={t("feedback.title")} onPress={() => setFeedbackVisible(true)} />
           <SettingsRow icon="information-circle-outline" label={t("me.about")} onPress={onOpenAbout} />
           <SettingsRow icon="log-out-outline" label={t("me.logout")} onPress={onLogout} />
@@ -1307,6 +1319,13 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
+const fontStyles = StyleSheet.create({
+  row: { paddingHorizontal: 16, paddingVertical: 10, flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 12 },
+  label: { flexDirection: "row", alignItems: "center", gap: 12, flexGrow: 1 },
+  options: { flexDirection: "row", gap: 4 },
+  option: { minWidth: 44, minHeight: 44, paddingHorizontal: 12, paddingVertical: 8, alignItems: "center", justifyContent: "center", borderRadius: 8 },
+  selected: { backgroundColor: "#171717" },
+});
 const styles = StyleSheet.create({
   container: {
     flex: 1,

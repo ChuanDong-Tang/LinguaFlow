@@ -383,6 +383,7 @@ export async function getCardRecordPage(input?: {
   cursor?: string;
   fromDateKey?: string;
   sort?: "newest" | "oldest";
+  shuffleSeed?: string;
 }): Promise<CardRecordPage> {
   const params = new URLSearchParams();
   params.set("tutorial", "v1");
@@ -392,6 +393,7 @@ export async function getCardRecordPage(input?: {
   if (input?.cursor) params.set("cursor", input.cursor);
   if (input?.fromDateKey) params.set("fromDateKey", input.fromDateKey);
   if (input?.sort) params.set("sort", input.sort);
+  if (input?.shuffleSeed) params.set("shuffleSeed", input.shuffleSeed);
   params.set("limit", String(input?.limit ?? 50));
   return request(`/cards/page?${params.toString()}`);
 }

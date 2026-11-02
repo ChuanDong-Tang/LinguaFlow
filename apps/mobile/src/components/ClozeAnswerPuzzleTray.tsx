@@ -1,5 +1,6 @@
 import React from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, View } from "react-native";
+import { Text } from "./Typography";
 import type { ClozeAnswerPuzzle, ClozeAnswerPuzzleToken } from "../domain/cloze/clozeAnswerPuzzle";
 import { playSelectionFeedbackSound } from "../services/audio/gameFeedbackAudio";
 import { theme } from "../theme";

@@ -1,5 +1,6 @@
 import React, { useMemo } from "react";
-import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
+import { Modal, Pressable, StyleSheet, View } from "react-native";
+import { Text } from "../../components/Typography";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { t, tf } from "../../i18n";
 

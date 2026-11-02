@@ -1,5 +1,6 @@
 import React, { useState } from "react";
-import { Pressable, StyleSheet, Text } from "react-native";
+import { Pressable, StyleSheet } from "react-native";
+import { Text } from "./Typography";
 import { t } from "../i18n";
 
 /** Mounted per lookup so translations start hidden, including cached results. */

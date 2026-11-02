@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
-import { Modal, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { Modal, Pressable, StyleSheet, View } from "react-native";
+import { Text, TextInput } from "../../components/Typography";
 import { loadDebugSettings, saveDebugSettings } from "../../services/preferences/debugSettingsStorage";
 import { getAiOptions, type AiProviderOption } from "../../services/api/aiOptionsApi";
 import { useMountedGuard } from "../../hooks/useMountedGuard";

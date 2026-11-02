@@ -1,6 +1,8 @@
 const isPreview = process.env.EAS_BUILD_PROFILE === "preview";
-const appVersion = process.env.OIO_APP_VERSION?.trim() || "1.1.8";
-const runtimeVersion = process.env.OIO_RUNTIME_VERSION?.trim() || "1.1.8";
+const appVersion = process.env.OIO_APP_VERSION?.trim() || "1.2.0";
+// Photo-library browsing requires the new native permission configuration.
+const runtimeVersion = process.env.OIO_RUNTIME_VERSION?.trim() || "1.2.0";
+const photosPermission = "OIO 需要读取你允许的照片，用于浏览生活照片和选择回忆素材。浏览不会上传，确认生成后才会上传所选照片；不会删除原照片。";
 
 const scheme = isPreview ? "oio-preview" : "oio";
 const updateChannelByBuildProfile = {
@@ -33,7 +35,7 @@ module.exports = {
       icon: "./assets/app/logo_main_apple.png",
       infoPlist: {
         NSMicrophoneUsageDescription: "OIO 需要使用麦克风把你说的话转成文字。",
-        NSPhotoLibraryUsageDescription: "OIO 需要访问相册，让你为生活记录选择图片。",
+        NSPhotoLibraryUsageDescription: photosPermission,
         NSCameraUsageDescription: "OIO 需要使用相机，让你为生活记录拍摄图片。",
       },
       config: {
@@ -46,10 +48,8 @@ module.exports = {
       allowBackup: false,
       permissions: ["RECORD_AUDIO"],
       blockedPermissions: [
-        "android.permission.READ_MEDIA_IMAGES",
         "android.permission.READ_MEDIA_VIDEO",
-        "android.permission.READ_MEDIA_VISUAL_USER_SELECTED",
-        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.READ_MEDIA_AUDIO",
         "android.permission.WRITE_EXTERNAL_STORAGE",
       ],
       adaptiveIcon: {
@@ -93,18 +93,19 @@ module.exports = {
       [
         "expo-image-picker",
         {
-          photosPermission: "OIO 需要访问相册，让你为生活记录选择图片。",
+          photosPermission,
           cameraPermission: "OIO 需要使用相机，让你为生活记录拍摄图片。",
         },
       ],
       [
         "expo-media-library",
         {
-          photosPermission: "OIO 需要访问相册，让你选择和管理图片。",
+          photosPermission,
           savePhotosPermission: "OIO 需要将图片保存到你的相册。",
           granularPermissions: ["photo"],
         },
       ],
+      "./plugins/with-memory-photo-permissions",
       "./plugins/with-android-audio-playback-policy",
       "expo-secure-store",
       "./plugins/with-chat-selectable-text",

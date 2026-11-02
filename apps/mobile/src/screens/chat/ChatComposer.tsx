@@ -1,15 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import {
-  NativeSyntheticEvent,
-  Platform,
-  Pressable,
-  StyleSheet,
-  Text,
-  TextInput,
-  TextInputSelectionChangeEventData,
-  View,
-  useWindowDimensions,
-} from "react-native";
+import { NativeSyntheticEvent, Platform, Pressable, StyleSheet, TextInputSelectionChangeEventData, View, useWindowDimensions } from "react-native";
+import { Text, TextInput } from "../../components/Typography";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import * as Clipboard from "expo-clipboard";
 import { t } from "../../i18n";

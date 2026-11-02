@@ -1,5 +1,6 @@
 import React from "react";
-import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
+import { Modal, Pressable, StyleSheet, View } from "react-native";
+import { Text } from "../../components/Typography";
 import type { ChatMessage } from "../../domain/chat/types";
 import type { ChatContact } from "../../domain/chat/contacts";
 import { normalizeClozeState, tokenizeForCloze } from "../../domain/cloze/clozeUtils";

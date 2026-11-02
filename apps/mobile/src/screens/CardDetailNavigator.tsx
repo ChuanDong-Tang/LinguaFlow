@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Alert, Platform } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import {
@@ -29,6 +29,7 @@ import { getCardGenerationState, isCardGenerationInProgress, setCardGenerationSt
 import { CardDetailModal } from "./CardDetailModal";
 import { t, tf } from "../i18n";
 import { stabilizeSignedImage } from "../services/image/signedImageCache";
+import { memoryBrowsePosition } from "./home/memoryBrowse";
 
 const DETAIL_IMAGE_REFRESH_LEAD_MS = 60_000;
 
@@ -40,6 +41,8 @@ export type CardDetailRequest = {
   closeAfterEditing?: boolean;
   origin?: { x: number; y: number; width: number; height: number };
   returnLabel?: string;
+  browseRecordIds?: string[];
+  onBrowseSetFinished?: () => void;
 };
 
 type DetailImage = NonNullable<CardRecordDetail["images"]>[number];
@@ -101,13 +104,16 @@ export function CardDetailNavigator({
   prefetchRecordId,
   onClose,
   onChanged,
+  onBrowseRecord,
 }: {
   request: CardDetailRequest | null;
   prefetchRecordId?: string | null;
   onClose: () => void;
   onChanged: () => void;
+  onBrowseRecord?: (recordId: string) => void;
 }) {
   const [detail, setDetail] = useState<CardRecordDetail | null>(null);
+  const [activeRequestKey, setActiveRequestKey] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [imageAdding, setImageAdding] = useState(false);
   const [history, setHistory] = useState<string[]>([]);
@@ -119,8 +125,25 @@ export function CardDetailNavigator({
   const [retryingGenerationTarget, setRetryingGenerationTarget] = useState<CardGenerationTarget | null>(null);
   const cardLimits = cardCapabilities.limits;
   const requestSequenceRef = useRef(0);
+  const browseLoadingRef = useRef(false);
   const detailCacheRef = useRef(new Map<string, CachedCardDetail>());
   const detailLoadsRef = useRef(new Map<string, Promise<CardDetailSnapshot>>());
+  const [browseNeighbors, setBrowseNeighbors] = useState<{ previous?: CardRecordDetail; next?: CardRecordDetail }>({});
+  const browsePosition = request && detail?.id === request.recordId
+    ? memoryBrowsePosition(request.browseRecordIds, request.recordId)
+    : null;
+  useEffect(() => {
+    let active = true;
+    setBrowseNeighbors({});
+    const position = request ? memoryBrowsePosition(request.browseRecordIds, request.recordId) : null;
+    for (const direction of ["previous", "next"] as const) {
+      const id = position?.[direction];
+      if (id) void fetchDetailSnapshot(id).then((snapshot) => {
+        if (active) setBrowseNeighbors((current) => ({ ...current, [direction]: snapshot.detail }));
+      }).catch(() => undefined);
+    }
+    return () => { active = false; };
+  }, [request?.key, request?.recordId]);
 
   useEffect(() => {
     let active = true;
@@ -137,8 +160,11 @@ export function CardDetailNavigator({
     void fetchDetailSnapshot(prefetchRecordId).catch(() => undefined);
   }, [prefetchRecordId]);
 
-  useEffect(() => {
+  // Install the next snapshot before paint, not one frame after the request.
+  // This keeps the detail layer and browse controls present during handoff.
+  useLayoutEffect(() => {
     if (!request) {
+      setActiveRequestKey(null);
       requestSequenceRef.current += 1;
       setDetail(null);
       setHistory([]);
@@ -148,7 +174,8 @@ export function CardDetailNavigator({
       setPendingGenerationTargets([]);
       return;
     }
-    if (detailCacheRef.current.get(request.recordId)?.detail.isSample) detailCacheRef.current.delete(request.recordId);
+    setActiveRequestKey(request.key);
+    if (activeRequestKey !== request.key && detailCacheRef.current.get(request.recordId)?.detail.isSample) detailCacheRef.current.delete(request.recordId);
     const cached = detailCacheRef.current.get(request.recordId);
     setDetail(cached?.detail ?? null);
     setPendingGenerationTargets(cached?.pendingTargets ?? []);
@@ -157,7 +184,25 @@ export function CardDetailNavigator({
     setHistoryIndex(0);
     setRelationFocusSentence(null);
     void loadDetail(request.recordId);
-  }, [request?.key]);
+  }, [request?.key, request?.recordId]);
+
+  async function browseTo(recordId: string): Promise<void> {
+    if (loading || browseLoadingRef.current || !onBrowseRecord) return;
+    browseLoadingRef.current = true;
+    const sequence = requestSequenceRef.current;
+    setLoading(true);
+    try {
+      // Keep the current reader visible until the target is actually ready.
+      const cached = detailCacheRef.current.get(recordId);
+      if (!cached || Date.now() - cached.loadedAt >= CARD_DETAIL_PREFETCH_FRESH_MS) await fetchDetailSnapshot(recordId);
+      if (sequence === requestSequenceRef.current) onBrowseRecord(recordId);
+    } catch {
+      if (sequence === requestSequenceRef.current) Alert.alert(t("card_practice.error.open"), t("card_detail.error.try_again"));
+    } finally {
+      browseLoadingRef.current = false;
+      if (sequence === requestSequenceRef.current) setLoading(false);
+    }
+  }
 
   async function loadDetail(recordId: string): Promise<CardRecordDetail | null> {
     const cached = detailCacheRef.current.get(recordId);
@@ -208,7 +253,7 @@ export function CardDetailNavigator({
     setPendingGenerationTargets(state?.pendingTargets ?? []);
     setFailedGenerationTargets(state?.failedTargets ?? []);
     if (!state?.pendingTargets.length) void loadDetail(recordId);
-  }), [request?.key]);
+  }), [request?.key, request?.recordId]);
 
   useEffect(() => {
     const recordId = request?.recordId;
@@ -409,7 +454,9 @@ export function CardDetailNavigator({
     ]);
   }
 
-  if (!request || (!detail && request.returnLabel)) return null;
+  // A new keyed reader must not mount with the previous request's detail.
+  // Wait until its request effect has installed the matching cache/loading state.
+  if (!request || activeRequestKey !== request.key || (!detail && request.returnLabel)) return null;
   return (
       <CardDetailModal
         key={request.key}
@@ -431,6 +478,12 @@ export function CardDetailNavigator({
         returnLabel={request?.returnLabel}
       canGoBack={false}
       canGoForward={false}
+      recallPosition={browsePosition ? { ...browsePosition, kind: "browse" } : undefined}
+      recallPreviousDetail={browseNeighbors.previous}
+      recallNextDetail={browseNeighbors.next}
+      onRecallPrevious={browsePosition?.previous && onBrowseRecord ? () => { void browseTo(browsePosition.previous!); } : undefined}
+      onRecallNext={browsePosition?.next && onBrowseRecord ? () => { void browseTo(browsePosition.next!); } : undefined}
+      onRecallFinish={request.onBrowseSetFinished && browsePosition && browsePosition.index === browsePosition.total - 1 ? request.onBrowseSetFinished : undefined}
       onOpenRelated={(recordId, reasons) => void openRelated(recordId, reasons)}
       relationFocusSentence={relationFocusSentence}
       hideRelations={false}

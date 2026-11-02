@@ -1,5 +1,6 @@
 import React from "react";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { Pressable, StyleSheet, View } from "react-native";
+import { Text } from "../../components/Typography";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { getChatContactDescription, getChatContactName, type ChatContact } from "../../domain/chat/contacts";
 import { t } from "../../i18n";

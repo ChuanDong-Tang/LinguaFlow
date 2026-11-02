@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { restoreTutorialCard } from "../services/api/cardApi";
-import { Alert, Image, Linking, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Alert, Image, Linking, Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { Text } from "../components/Typography";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { PRIVACY_URL, TERMS_URL } from "../constants/legalUrls";

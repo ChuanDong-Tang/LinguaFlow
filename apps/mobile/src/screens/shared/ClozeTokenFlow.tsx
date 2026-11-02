@@ -1,5 +1,6 @@
 import React, { useRef } from "react";
-import { StyleSheet, Text, TextInput } from "react-native";
+import { StyleSheet } from "react-native";
+import { Text, TextInput } from "../../components/Typography";
 import type { ClozeToken } from "../../domain/cloze/clozeUtils";
 
 export type ClozeFlowSegment =

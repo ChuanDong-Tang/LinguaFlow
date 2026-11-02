@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, AppState, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, AppState, Modal, Platform, Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { Text } from "../components/Typography";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { getCardCalendarSummary, getCardRecordPage, type CardCalendarSummary, type CardRecordSummary } from "../services/api/cardApi";

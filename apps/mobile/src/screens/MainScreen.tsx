@@ -1,29 +1,15 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  ActivityIndicator,
-  Alert,
-  Animated,
-  AppState,
-  Easing,
-  FlatList,
-  Image,
-  Keyboard,
-  Modal,
-  PanResponder,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  useWindowDimensions,
-  View,
-} from "react-native";
+import { ActivityIndicator, Alert, Animated, AppState, Easing, FlatList, Image, Keyboard, Modal, PanResponder, Platform, Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from "react-native";
+import { Text, TextInput } from "../components/Typography";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Crypto from "expo-crypto";
 import * as Haptics from "expo-haptics";
 import * as ImagePicker from "expo-image-picker";
+import * as MediaLibrary from "expo-media-library/legacy";
+import { MemoryPhotoBrowser } from "./home/MemoryPhotoBrowser";
+import { MemoryArchiveDeck } from "./home/MemoryArchiveDeck";
+import { MemoryCollectionFilters } from "./home/MemoryCollectionFilters";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { KeyboardAwareScrollView, useReanimatedKeyboardAnimation } from "react-native-keyboard-controller";
 import Reanimated, { useAnimatedRef, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
@@ -96,13 +82,16 @@ import { RealtimeSttButton } from "../components/RealtimeSttButton";
 import { extractTargetLanguageCorpus } from "@lf/core/text/corpusText";
 import { dictionaryLookupErrorKey, lookupDictionary, type DictionaryLookupResult } from "../services/api/dictionaryApi";
 import { DictionarySearchResultCard } from "./search/DictionarySearchResultCard";
+import { homeDateKey, homeLibraryView, memoryHomeCopy, swipedMemoryTab, type MemoryHomeTab } from "./home/memoryHome";
+import { MemoryDayControl } from "./home/MemoryDayControl";
+import { memoryBrowseIds, memoryBrowseRound } from "./home/memoryBrowse";
 
 type MainScreenProps = {
   isActive: boolean;
   refreshRevision: number;
   incomingCardDraft?: { id: number; draft: CardDraft } | null;
   onIncomingCardDraftHandled?: (id: number) => void;
-  onOpenCard: (recordId: string, initialTab?: CardDetailRequest["initialTab"], origin?: CardDetailRequest["origin"]) => void;
+  onOpenCard: (recordId: string, initialTab?: CardDetailRequest["initialTab"], origin?: CardDetailRequest["origin"], options?: { browseRecordIds?: string[]; onBrowseSetFinished?: () => void }) => void;
   onOpenRecall: (mode?: "today" | "yesterday" | "recent" | "blind") => void;
   onOpenMemoryRound: () => void;
   memoryRoundResumeAvailable: boolean;
@@ -136,11 +125,33 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
   const screenInsets = useSafeAreaInsets();
   const windowSize = useWindowDimensions();
   const appLocale = getLanguage();
-  const [libraryView, setLibraryView] = useState<LibraryView>("all");
+  const homeCopy = memoryHomeCopy(appLocale);
+  const [homeTab, setHomeTab] = useState<MemoryHomeTab>("memory");
+  const touchingCollectionFilters = useRef(false);
+  const [photoBrowser, setPhotoBrowser] = useState<"today" | "random" | null>(null);
+  const photoConfirmLock = useRef(false);
+  const [homeLayout, setHomeLayout] = useState<"grid" | "list">("grid");
+  const [localDay, setLocalDay] = useState(() => toDateKey(new Date()));
+  const [selectedMemoryDay, setSelectedMemoryDay] = useState<string | null>(null);
+  const browsingDay = selectedMemoryDay && selectedMemoryDay < localDay ? selectedMemoryDay : localDay;
+  useEffect(() => {
+    const updateDay = () => setLocalDay(toDateKey(new Date()));
+    const timer = setInterval(updateDay, 30_000);
+    const subscription = AppState.addEventListener("change", (state) => { if (state === "active") updateDay(); });
+    return () => { clearInterval(timer); subscription.remove(); };
+  }, []);
+  const [rememberedLibraryView, setLibraryView] = useState<LibraryView>("all");
+  const libraryView = homeLibraryView(homeTab, rememberedLibraryView);
+  const dateScope = homeDateKey(homeTab, libraryView === TRASH_VIEW, new Date(`${browsingDay}T12:00:00`));
+  const queryScope = JSON.stringify([libraryView, dateScope]);
+  const [recordsScope, setRecordsScope] = useState(queryScope);
+  const previousDateScopeRef = useRef(dateScope);
   const [sortMode, setSortMode] = useState<"newest" | "oldest">("newest");
+  const shuffleSeed = useRef(Crypto.randomUUID());
   const [libraryMenuVisible, setLibraryMenuVisible] = useState(false);
   const [libraryMenuPage, setLibraryMenuPage] = useState<"main" | "sort">("main");
   const [selectingRecords, setSelectingRecords] = useState(false);
+  const gridLayout = homeLayout === "grid" && libraryView !== TRASH_VIEW;
   const [selectedRecordIds, setSelectedRecordIds] = useState<Set<string>>(new Set());
   const [batchMoveVisible, setBatchMoveVisible] = useState(false);
   const [cardCapabilities, setCardCapabilities] = useState<CardCapabilities>(DEFAULT_CARD_CAPABILITIES);
@@ -150,6 +161,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
   const [collections, setCollections] = useState<CardCollection[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [loadMoreError, setLoadMoreError] = useState(false);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchVisible, setSearchVisible] = useState(false);
@@ -159,6 +171,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
   const [searchDictionaryHintVisible, setSearchDictionaryHintVisible] = useState(false);
   const [searchCollectionId, setSearchCollectionId] = useState<string | null | undefined>(undefined);
   const [composerVisible, setComposerVisible] = useState(false);
+  const [quickNoteExpanded, setQuickNoteExpanded] = useState(false);
   const composerTransition = useRef(new Animated.Value(0)).current;
   const composerClosingRef = useRef(false);
   const [quickNoteCreating, setQuickNoteCreating] = useState(false);
@@ -341,20 +354,23 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
     return () => { active = false; };
   }, []);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (requestedShuffleSeed = shuffleSeed.current) => {
     const sequence = ++refreshSequenceRef.current;
     loadMoreSequenceRef.current += 1;
     loadingMoreRef.current = false;
     setLoadingMore(false);
+    setLoadMoreError(false);
     setLoading(true);
     try {
       const collectionId = libraryView === "all" || libraryView === UNCLASSIFIED_VIEW || libraryView === TRASH_VIEW ? undefined : libraryView;
       const [rows, collectionResult] = await Promise.all([
         libraryView === TRASH_VIEW ? getCardTrash().then((items) => ({ items, nextCursor: null })) : getCardRecordPage({
+          dateKey: dateScope,
           collectionId,
           unclassified: libraryView === UNCLASSIFIED_VIEW,
           limit: LIBRARY_PAGE_SIZE,
           sort: sortMode,
+          shuffleSeed: dateScope ? undefined : requestedShuffleSeed,
         }),
         getCardCollections(),
       ]);
@@ -362,7 +378,11 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
       const incomingRecords = rows.items.map((record) => isCardRecordGenerationInProgress(record.id) ? { ...record, status: "processing" as const } : record);
       const stableRecords = await stabilizeRecordThumbnails(recordsRef.current, incomingRecords);
       if (sequence !== refreshSequenceRef.current) return;
+      // Commit the round with its cards/cursor, never before a request succeeds.
+      // A failed refresh must leave the previous page usable for load-more.
+      shuffleSeed.current = requestedShuffleSeed;
       setRecords(stableRecords);
+      setRecordsScope(queryScope);
       setCollections(collectionResult.collections);
       setNextCursor(rows.nextCursor);
       hasLoadedRef.current = true;
@@ -376,7 +396,18 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
     } finally {
       if (sequence === refreshSequenceRef.current) setLoading(false);
     }
-  }, [libraryView, sortMode]);
+  }, [libraryView, sortMode, dateScope, queryScope]);
+
+  useEffect(() => {
+    if (previousDateScopeRef.current === dateScope) return;
+    previousDateScopeRef.current = dateScope;
+    // Invalidate the previous tab's in-flight pages before loading its new scope.
+    refreshSequenceRef.current += 1;
+    loadMoreSequenceRef.current += 1;
+    setRecords([]);
+    setNextCursor(null);
+    void refresh();
+  }, [dateScope]);
 
   useEffect(() => subscribeTutorialRestored(() => { void refresh(); }), [refresh]);
 
@@ -418,20 +449,23 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
   }), [refresh]);
 
   const loadMore = useCallback(async () => {
-    if (loading || loadingMoreRef.current || !nextCursor || searchResults) return;
+    if (recordsScope !== queryScope || loading || loadingMoreRef.current || !nextCursor || searchResults) return;
     const loadSequence = ++loadMoreSequenceRef.current;
     const refreshSequence = refreshSequenceRef.current;
     const requestedView = libraryView;
     loadingMoreRef.current = true;
     setLoadingMore(true);
+    setLoadMoreError(false);
     try {
       const collectionId = libraryView === "all" || libraryView === UNCLASSIFIED_VIEW ? undefined : libraryView;
       const page = await getCardRecordPage({
+        dateKey: dateScope,
         collectionId,
         unclassified: libraryView === UNCLASSIFIED_VIEW,
         limit: LIBRARY_PAGE_SIZE,
         cursor: nextCursor,
         sort: sortMode,
+        shuffleSeed: dateScope ? undefined : shuffleSeed.current,
       });
       if (
         loadSequence !== loadMoreSequenceRef.current
@@ -441,14 +475,15 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
       setRecords((current) => [...current, ...page.items.filter((row) => !current.some((item) => item.id === row.id))]);
       setNextCursor(page.nextCursor);
     } catch {
-      // Keep the current archive visible; the next scroll can retry.
+      // Retain cards and cursor, with an explicit retry instead of a silent end.
+      if (loadSequence === loadMoreSequenceRef.current && refreshSequence === refreshSequenceRef.current) setLoadMoreError(true);
     } finally {
       if (loadSequence === loadMoreSequenceRef.current) {
         loadingMoreRef.current = false;
         setLoadingMore(false);
       }
     }
-  }, [libraryView, loading, nextCursor, searchResults, sortMode]);
+  }, [libraryView, loading, nextCursor, searchResults, sortMode, dateScope, recordsScope, queryScope]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1122,6 +1157,36 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
     for (const asset of selected.slice(0, remaining)) await applyDraftImage(asset);
   }
 
+  async function confirmMemoryPhoto(asset: MediaLibrary.Asset, text: string): Promise<void> {
+    if (photoConfirmLock.current) return;
+    const current = draftRef.current;
+    const revision = draftRevisionRef.current;
+    if (current.mode !== "rewrite" || current.text.trim() || current.title.trim() || current.images.length || current.recordId || sending || isCardGenerationInProgress()) {
+      Alert.alert(t("card_detail.error.cannot_save"), getLanguage().startsWith("zh") ? "请先保存或处理已有草稿，再生成照片回忆。" : "Please finish your existing draft before creating a photo memory.");
+      throw new Error("Existing draft must be preserved");
+    }
+    photoConfirmLock.current = true;
+    try {
+      // The caller has explicitly confirmed upload and generation. Never invoke
+      // this path from photo browsing, paging, or the initial selection action.
+      const info = await MediaLibrary.getAssetInfoAsync(asset);
+      const prepared = await prepareCardDraftImage({ uri: info.localUri || info.uri, width: info.width, height: info.height });
+      if (draftRevisionRef.current !== revision) throw new Error("Draft changed while preparing photo");
+      await commitDraft({ ...EMPTY_DRAFT, collectionId: current.collectionId, text, generateImageDescription: true, images: [prepared] });
+      try {
+        const ready = await uploadCardDraftImage(prepared, persistDraftImage);
+        await updateCommittedDraft((value) => ({ ...value, images: [ready] }));
+      } catch (error) {
+        await updateCommittedDraft((value) => ({ ...value, images: value.images.map((image) => ({ ...image, status: "failed" as const })) }));
+        setPhotoBrowser(null);
+        showCardComposer();
+        throw error;
+      }
+      setPhotoBrowser(null);
+      await submit("review");
+    } finally { photoConfirmLock.current = false; }
+  }
+
   async function applyDraftImage(selected: { uri: string; width: number; height: number }): Promise<void> {
     if (draft.images.length >= cardLimits.imagesPerCard) {
       Alert.alert(t("card_detail.photo.limit_title"));
@@ -1159,7 +1224,23 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
       Alert.alert(t("card_detail.processing"), t("main.card.processing_message"));
       return;
     }
-    onOpenCard(record.id, "review", origin);
+    if (searchVisible) { onOpenCard(record.id, "review", origin); return; }
+    const pool = memoryBrowseIds(records, dateScope);
+    // Today follows the loaded day's order, without random rounds or a redeal action.
+    if (homeTab === "today") {
+      onOpenCard(record.id, "review", origin, { browseRecordIds: pool });
+      return;
+    }
+    function openRound(first: string, openingOrigin?: CardDetailRequest["origin"], candidates = pool) {
+      const ids = memoryBrowseRound(candidates, first);
+      onOpenCard(first, "review", openingOrigin, { browseRecordIds: ids, onBrowseSetFinished: () => {
+            const unseen = pool.filter(id => !ids.includes(id));
+            const available = unseen.length >= Math.min(10, pool.length) ? unseen : pool;
+            const next = available[Math.floor(Math.random() * available.length)];
+            if (next) openRound(next, undefined, available);
+      } });
+    }
+    openRound(record.id, origin);
   }
 
   async function submitSearch(): Promise<void> {
@@ -1252,6 +1333,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
 
   function selectLibraryView(view: LibraryView): void {
     clearSearch();
+    setHomeTab("memory");
     setLibraryView(view);
   }
 
@@ -1469,6 +1551,18 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
     Alert.alert(t("sidebar.assistant_members_only_title"), t("sidebar.assistant_members_only_message"));
   };
 
+  const homeTabsResponder = useMemo(() => PanResponder.create({
+    onMoveShouldSetPanResponder: (_event, gesture) => Boolean(
+      isActive && !sidebarVisible && !searchVisible && !composerVisible && !quickNoteExpanded
+      && !photoBrowser && !selectingRecords && !touchingCollectionFilters.current && libraryView !== TRASH_VIEW && homeTab !== "blind"
+      && gesture.x0 > 28 && Math.abs(gesture.dx) > 20
+      && Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.8
+    ),
+    onPanResponderRelease: (_event, gesture) => {
+      setHomeTab(current => swipedMemoryTab(current, gesture.dx, gesture.dy));
+    },
+  }), [isActive, sidebarVisible, searchVisible, composerVisible, quickNoteExpanded, photoBrowser, selectingRecords, libraryView, homeTab]);
+
   const edgeSidebarResponder = useMemo(() => PanResponder.create({
     onMoveShouldSetPanResponderCapture: (_event, gesture) => Boolean(
       !sidebarVisible
@@ -1505,9 +1599,10 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
     if (Platform.OS === "android" && draft.text.length === 0) setAndroidQuickNoteContentHeight(44);
   }, [draft.text.length]);
   const updateQuickNoteText = quickNoteStt.onChangeText;
+  const editorialHome = homeTab === "memory" && libraryView !== TRASH_VIEW;
 
   return (
-    <SafeAreaView style={styles.container} {...edgeSidebarResponder.panHandlers}>
+    <SafeAreaView style={[styles.container, libraryView !== TRASH_VIEW && styles.editorialCanvas]} {...edgeSidebarResponder.panHandlers}>
       <View style={styles.brandRow}>
         <Pressable accessibilityLabel={selectingRecords ? t("common.cancel") : t("quick_note.a11y.open_nav")} style={styles.headerIconButton} onPress={() => {
           if (selectingRecords) {
@@ -1524,7 +1619,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
           : <Pressable style={styles.homeSectionTabs} onPress={chooseLibraryAction}><Text numberOfLines={1} style={styles.homeHeaderTitle}>{headerTitle}</Text><Ionicons name="chevron-down" size={15} color={theme.colors.textSecondary} /></Pressable>}
         <View style={styles.headerActions}>
           {!selectingRecords ? <Pressable accessibilityRole="button" accessibilityLabel={t("contact.curious_companion.name")} hitSlop={8} style={({ pressed }) => [styles.headerCharacter, pressed && { opacity: 0.55 }]} onPress={() => void openAssistant()}><OioCharacter width={27} height={26} /></Pressable> : null}
-          {selectingRecords ? <View style={styles.headerIconButton} /> : <Pressable
+          {selectingRecords ? <Pressable accessibilityRole="button" accessibilityLabel={gridLayout ? homeCopy.list : homeCopy.grid} style={styles.headerIconButton} onPress={() => setHomeLayout(gridLayout ? "list" : "grid")}><Ionicons name={gridLayout ? "list-outline" : "grid-outline"} size={22} color={theme.colors.text} /></Pressable> : <Pressable
             accessibilityLabel={t("quick_note.a11y.search")}
             style={styles.headerIconButton}
             onPress={openSearch}
@@ -1538,18 +1633,31 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
         </View>
       </View>
 
-      <View style={styles.recallShortcuts}><Pressable style={styles.recallShortcut} onPress={() => onOpenRecall("recent")}><Text style={styles.recallShortcutTitle}>{t("recall.recent_shortcut")}</Text></Pressable><Pressable style={styles.recallShortcut} onPress={() => onOpenRecall("blind")}><Text style={styles.recallShortcutTitle}>{t("recall.blind_box")}</Text></Pressable><MemoryRoundShortcut active={isActive} resume={memoryRoundResumeAvailable} onPress={onOpenMemoryRound} /></View>
+      <View style={{ flex: 1 }} {...homeTabsResponder.panHandlers}>
+      {!selectingRecords && libraryView !== TRASH_VIEW ? <View style={styles.memoryTabs}>
+        {(["memory", "today", "blind"] as const).map((tab) => <Pressable key={tab} accessibilityRole="tab" accessibilityState={{ selected: homeTab === tab }} style={[styles.memoryTab, homeTab === tab && styles.memoryTabActive]} onPress={() => setHomeTab(tab)}><Text style={[styles.memoryTabText, homeTab === tab && styles.memoryTabSelected]}>{homeCopy[tab]}</Text></Pressable>)}
+      </View> : null}
+      {!selectingRecords && editorialHome ? <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 16 }}><View style={{ flex: 1, minWidth: 0 }}><MemoryCollectionFilters editorial={editorialHome} collections={collections} selected={libraryView} onSelect={selectLibraryView} onTouching={value => { touchingCollectionFilters.current = value; }} /></View>{editorialHome ? <Pressable accessibilityRole="button" accessibilityLabel={gridLayout ? homeCopy.list : homeCopy.grid} style={[styles.headerIconButton, { marginRight: 14, marginBottom: 8 }]} onPress={() => setHomeLayout(gridLayout ? "list" : "grid")}><Ionicons name={gridLayout ? "list-outline" : "grid-outline"} size={19} color={theme.colors.textSecondary} /></Pressable> : null}</View> : null}
+      {homeTab === "blind" && libraryView !== TRASH_VIEW && !selectingRecords ? <ScrollView style={{ flex: 1, minHeight: 0 }} contentContainerStyle={styles.memoryLanding}>
+        <MemoryArchiveDeck key={`${libraryView}:${sortMode}`} records={recordsScope === queryScope ? records : []} loading={loading || loadingMore} hasMore={recordsScope === queryScope && Boolean(nextCursor)} onThumbnailError={recoverFailedThumbnail} onLoadMore={() => void loadMore()} onOpen={(ids, onBrowseSetFinished) => { if (ids[0]) onOpenCard(ids[0], "review", undefined, { browseRecordIds: ids, onBrowseSetFinished }); }} />
+      </ScrollView> : <>
+      {!selectingRecords && libraryView !== TRASH_VIEW && !editorialHome ? <View style={styles.memoryToolbar}>{homeTab === "today" ? <MemoryDayControl day={browsingDay} today={localDay} onChange={setSelectedMemoryDay} /> : <View />}<Pressable accessibilityRole="button" accessibilityLabel={gridLayout ? homeCopy.list : homeCopy.grid} style={styles.headerIconButton} onPress={() => setHomeLayout(gridLayout ? "list" : "grid")}><Ionicons name={gridLayout ? "list-outline" : "grid-outline"} size={22} color={theme.colors.text} /></Pressable></View> : null}
 
       <FlatList
+        key={`${gridLayout ? "grid" : "list"}:${dateScope ?? "all"}`}
+        numColumns={gridLayout ? 2 : 1}
+        columnWrapperStyle={gridLayout ? styles.memoryGridRow : undefined}
+        refreshing={loading && records.length > 0}
+        onRefresh={() => { void refresh(Crypto.randomUUID()); }}
         style={styles.libraryList}
-        data={[...records].filter((record) => !selectingRecords || !record.isSample).sort((a, b) => Number(b.isSample) - Number(a.isSample))}
+        data={[...(recordsScope === queryScope ? records : [])].filter((record) => (!selectingRecords || !record.isSample) && (!dateScope || record.dateKey === dateScope)).sort((a, b) => Number(b.isSample) - Number(a.isSample))}
         keyExtractor={(record) => record.id}
         renderItem={({ item: record }) => (
-          <CardCard record={record} collectionName={record.collectionId ? collections.find((collection) => collection.id === record.collectionId)?.name : undefined} selecting={selectingRecords} selected={selectedRecordIds.has(record.id)} onPress={(origin) => selectingRecords ? toggleRecordSelection(record.id) : libraryView === TRASH_VIEW ? undefined : void openDetail(record, origin)} onOpenActions={(anchor) => openRecordActions(record, anchor)} onHideTutorial={() => hideTutorial(record.id)} onThumbnailError={recoverFailedThumbnail} />
+          <CardCard grid={gridLayout} record={record} collectionName={record.collectionId ? collections.find((collection) => collection.id === record.collectionId)?.name : undefined} selecting={selectingRecords} selected={selectedRecordIds.has(record.id)} onPress={(origin) => selectingRecords ? toggleRecordSelection(record.id) : libraryView === TRASH_VIEW ? undefined : void openDetail(record, origin)} onOpenActions={(anchor) => openRecordActions(record, anchor)} onHideTutorial={() => hideTutorial(record.id)} onThumbnailError={recoverFailedThumbnail} />
         )}
         contentContainerStyle={styles.list}
-        alwaysBounceVertical={false}
-        bounces={false}
+        alwaysBounceVertical
+        bounces
         showsVerticalScrollIndicator
         initialNumToRender={8}
         maxToRenderPerBatch={8}
@@ -1559,17 +1667,19 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
         onEndReached={() => void loadMore()}
         ListEmptyComponent={loading ? <ActivityIndicator color={theme.colors.accentStrong} style={styles.loader} /> : (
           <View style={styles.emptyCard}>
-            {libraryView === "all" ? <>
-              <Text style={styles.emptyTitle}>{t("quick_note.empty_cards")}</Text>
-              <Text style={styles.emptyText}>{t("quick_note.empty_cards_hint")}</Text>
+            {libraryView === "all" || homeTab === "today" ? <>
+              <Text style={styles.emptyTitle}>{homeTab === "today" ? browsingDay === localDay ? homeCopy.todayEmpty : homeCopy.dayEmpty : t("quick_note.empty_cards")}</Text>
+              <Text style={styles.emptyText}>{homeTab === "today" ? browsingDay === localDay ? homeCopy.todayHint : homeCopy.dayHint : t("quick_note.empty_cards_hint")}</Text>
             </> : null}
             {libraryView !== TRASH_VIEW ? <Pressable style={styles.emptyAction} onPress={openCardComposer}>
-              <Text style={styles.emptyActionText}>{t("quick_note.first_card")}</Text>
+              <Text style={styles.emptyActionText}>{homeCopy.create}</Text>
             </Pressable> : <Text style={styles.emptyText}>回收站是空的</Text>}
           </View>
         )}
-        ListFooterComponent={loadingMore ? <ActivityIndicator color={theme.colors.accentStrong} style={styles.loadMoreIndicator} /> : null}
+        ListFooterComponent={loadingMore ? <ActivityIndicator color={theme.colors.accentStrong} style={styles.loadMoreIndicator} /> : loadMoreError ? <Pressable accessibilityRole="button" onPress={() => void loadMore()} style={{ minHeight: 44, padding: 16, alignItems: "center" }}><Text style={{ color: theme.colors.textMuted }}>{t("main.error.network_retry")}</Text><Text style={{ color: theme.colors.accentStrong }}>{t("common.retry")}</Text></Pressable> : null}
       />
+      </>}
+      </View>
       {recordActionMenu ? <View style={styles.recordActionLayer}>
         <Pressable style={StyleSheet.absoluteFill} onPress={() => setRecordActionMenu(null)} />
         <View style={[
@@ -1607,7 +1717,22 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
           </Pressable>
         </View>
       </View> : null}
-      {!selectingRecords && libraryView !== TRASH_VIEW ? <Reanimated.View style={[styles.unifiedComposerDock, { bottom: Math.max(screenInsets.bottom + 10, 14) }, quickNoteKeyboardDockStyle]}>
+      {!selectingRecords && libraryView !== TRASH_VIEW && !quickNoteExpanded ? <View style={[styles.memoryEntryDock, { bottom: Math.max(screenInsets.bottom + 10, 14) }]}>
+        <Pressable accessibilityRole="button" accessibilityLabel={homeCopy.todayPhotos} style={styles.memoryPhotoShortcut} onPress={() => { Keyboard.dismiss(); setPhotoBrowser("today"); }}>
+          <Ionicons name="today-outline" size={23} color={theme.colors.text} />
+          <Text style={styles.memoryEntryLabel}>{homeCopy.todayPhotos}</Text>
+        </Pressable>
+        <Pressable accessibilityRole="button" accessibilityLabel={t("quick_note.expand_editor")} style={[styles.memoryEntryButton, styles.memoryPhotoEntry]} onPress={() => setQuickNoteExpanded(true)}>
+          <Ionicons name="add" size={29} color={theme.colors.surface} />
+          {draft.text || draft.images.length ? <View style={styles.memoryDraftDot} /> : null}
+        </Pressable>
+        <Pressable accessibilityRole="button" accessibilityLabel={homeCopy.randomPhotos} style={styles.memoryPhotoShortcut} onPress={() => { Keyboard.dismiss(); setPhotoBrowser("random"); }}>
+          <Ionicons name="images-outline" size={23} color={theme.colors.text} />
+          <Text style={styles.memoryEntryLabel}>{homeCopy.randomPhotos}</Text>
+        </Pressable>
+      </View> : null}
+      {!selectingRecords && libraryView !== TRASH_VIEW && quickNoteExpanded ? <Reanimated.View style={[styles.unifiedComposerDock, { bottom: Math.max(screenInsets.bottom + 10, 14) }, quickNoteKeyboardDockStyle]}>
+        <Pressable accessibilityRole="button" accessibilityLabel={t("card_detail.a11y.close")} disabled={quickNoteStt.status !== "idle" || quickNoteCreating || preparingDraftImageCount > 0} style={styles.memoryCollapseInput} onPress={() => { Keyboard.dismiss(); setQuickNoteAddMenuVisible(false); setQuickNoteExpanded(false); }}><Ionicons name="chevron-down" size={20} color={theme.colors.textSecondary} /></Pressable>
         <View style={styles.unifiedComposerBar}>
           {draft.images.length || preparingDraftImageCount > 0 ? <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={styles.quickNoteAttachmentRow}>
             {draft.images.map((image) => <View key={image.localUri} style={styles.quickNoteAttachment}>
@@ -1725,15 +1850,6 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
                 <View style={styles.libraryMenuTextBlock}><Text style={styles.libraryMenuTitle}>{t("library.multi_select")}</Text></View>
                 <Ionicons name="chevron-forward" size={18} color={theme.colors.textMuted} />
               </Pressable>
-              <View style={styles.libraryMenuDivider} />
-              <Pressable style={styles.libraryMenuRow} onPress={() => setLibraryMenuPage("sort")}>
-                <View style={styles.libraryMenuLeadingIcon}><Ionicons name="swap-vertical" size={24} color={theme.colors.text} /></View>
-                <View style={styles.libraryMenuTextBlock}>
-                  <Text style={styles.libraryMenuTitle}>{t("library.sort_title")}</Text>
-                  <Text style={styles.libraryMenuSubtitle}>{sortMode === "newest" ? t("library.sort_newest") : t("library.sort_oldest")}</Text>
-                </View>
-                <Ionicons name="chevron-forward" size={18} color={theme.colors.textMuted} />
-              </Pressable>
             </> : <>
               <Pressable style={styles.libraryMenuRow} onPress={() => setLibraryMenuPage("main")}>
                 <View style={styles.libraryMenuLeadingIcon}><Ionicons name="chevron-back" size={22} color={theme.colors.text} /></View>
@@ -1773,6 +1889,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
         />
       </AnimatedSearchOverlay>
 
+      {photoBrowser ? <MemoryPhotoBrowser day={photoBrowser === "today" ? new Date(`${localDay}T12:00:00`) : undefined} random={photoBrowser === "random"} maxTextLength={cardLimits.contentChars} onClose={() => setPhotoBrowser(null)} onConfirm={confirmMemoryPhoto} /> : null}
       {composerVisible ? (
         <Modal visible transparent animationType="none" presentationStyle="overFullScreen" onRequestClose={closeCardComposer}>
           <Animated.View style={[styles.composerTransitionPage, {
@@ -3055,7 +3172,8 @@ async function stabilizeRecordThumbnails(
   }));
 }
 
-function CardCard({ record, collectionName, selecting = false, selected = false, onPress, onOpenActions, onThumbnailError, onHideTutorial }: {
+function CardCard({ record, grid = false, collectionName, selecting = false, selected = false, onPress, onOpenActions, onThumbnailError, onHideTutorial }: {
+  grid?: boolean;
   record: CardRecordSummary;
   collectionName?: string;
   selecting?: boolean;
@@ -3086,26 +3204,26 @@ function CardCard({ record, collectionName, selecting = false, selected = false,
     measureOrigin(onPress);
   }
   return (
-    <Pressable ref={cardRef} style={[styles.card, selected && styles.cardSelected]} disabled={processing} accessibilityState={{ disabled: processing, selected }} onPress={open}>
-      <View style={styles.cardContent}>
-        {selecting ? <View style={styles.cardSelectionIcon}><Ionicons name={selected ? "checkmark-circle" : "ellipse-outline"} size={23} color={selected ? theme.colors.text : theme.colors.textMuted} /></View> : null}
-        {record.thumbnail ? <View ref={thumbnailRef} collapsable={false} style={styles.thumbnailFrame}><FocusedCardThumbnail thumbnail={record.thumbnail} onError={onThumbnailError} /></View> : null}
+    <Pressable ref={cardRef} style={[styles.card, grid && styles.memoryGridCard, selected && styles.cardSelected]} disabled={processing} accessibilityState={{ disabled: processing, selected }} onPress={open}>
+      <View style={[styles.cardContent, grid && styles.memoryGridContent]}>
+        {selecting ? <View style={[styles.cardSelectionIcon, grid && { position: "absolute", top: 8, right: 8, zIndex: 2, borderRadius: 18, backgroundColor: theme.colors.surface, padding: 3 }]}><Ionicons name={selected ? "checkmark-circle" : "ellipse-outline"} size={23} color={selected ? theme.colors.text : theme.colors.textMuted} /></View> : null}
+        {record.thumbnail ? <View ref={thumbnailRef} collapsable={false} style={grid ? [styles.memoryGridCover, { aspectRatio: Math.max(0.75, Math.min(1.25, record.thumbnail.width / Math.max(1, record.thumbnail.height))) }] : styles.thumbnailFrame}>{grid ? <Image source={{ uri: record.thumbnail.url }} style={StyleSheet.absoluteFill} resizeMode="cover" onError={onThumbnailError} /> : <FocusedCardThumbnail thumbnail={record.thumbnail} onError={onThumbnailError} />}</View> : grid ? <View style={[styles.memoryGridCover, styles.memoryTextCover]}><Text style={styles.memoryTextCoverTitle} numberOfLines={6}>{record.originalPreview || record.displayTitle}</Text></View> : null}
         <View style={styles.cardTextColumn}>
           {processing ? (
             <>
-              {record.displayTitle.trim() ? <Text numberOfLines={1} ellipsizeMode="tail" style={styles.cardTitle}>{record.displayTitle}</Text> : null}
-              <Text numberOfLines={record.thumbnail ? 2 : 3} ellipsizeMode="tail" style={styles.originalText}>{previewText}</Text>
+              {record.displayTitle.trim() ? <Text numberOfLines={grid ? 2 : 1} ellipsizeMode="tail" style={[styles.cardTitle, grid && styles.memoryGridTitle]}>{record.displayTitle}</Text> : null}
+              {!grid ? <Text numberOfLines={record.thumbnail ? 2 : 3} ellipsizeMode="tail" style={styles.originalText}>{previewText}</Text> : null}
               <Text style={styles.processingText}>{t("main.card.processing")}</Text>
             </>
           ) : (
             <>
-              {record.displayTitle.trim() ? <Text numberOfLines={1} ellipsizeMode="tail" style={styles.cardTitle}>{record.displayTitle}</Text> : null}
-              <Text numberOfLines={record.thumbnail ? 2 : 3} ellipsizeMode="tail" style={styles.originalText}>{previewText}</Text>
+              {record.displayTitle.trim() ? <Text numberOfLines={grid ? 2 : 1} ellipsizeMode="tail" style={[styles.cardTitle, grid && styles.memoryGridTitle]}>{record.displayTitle}</Text> : null}
+              {!grid ? <Text numberOfLines={record.thumbnail ? 2 : 3} ellipsizeMode="tail" style={styles.originalText}>{previewText}</Text> : null}
             </>
           )}
-          <View style={styles.cardFooter}>
-            <Text numberOfLines={1} style={styles.cardTime}>{formatCardDateLabel(record.dateKey)} · {formatTime(record.recordedAt ?? record.createdAt)}</Text>
-            {collectionName ? <Text numberOfLines={1} style={styles.cardCollection}>{collectionName}</Text> : null}
+          <View style={[styles.cardFooter, grid && styles.memoryGridFooter]}>
+            <Text numberOfLines={1} style={[styles.cardTime, grid && styles.memoryGridDate]}>{formatCardDateLabel(record.dateKey)}{!grid ? ` · ${formatTime(record.recordedAt ?? record.createdAt)}` : ""}</Text>
+            {collectionName && !grid ? <Text numberOfLines={1} style={styles.cardCollection}>{collectionName}</Text> : null}
             {record.isSample ? <>
               <Text style={styles.sampleBadge}>{t("main.card.sample")}</Text>
               <Pressable accessibilityLabel={t("tutorial.hide")} hitSlop={8} onPress={(event) => { event.stopPropagation(); onHideTutorial?.(); }}>
@@ -3227,6 +3345,24 @@ function formatTime(value: string): string {
 const editorialFont = Platform.select({ ios: "STSongti-SC-Regular", android: "serif", default: "serif" });
 
 const styles = StyleSheet.create({
+  editorialCanvas: { backgroundColor: "#FFFFFF" },
+  memoryTabs: { flexDirection: "row", marginHorizontal: 22, gap: 22, marginBottom: 4 },
+  memoryTab: { minHeight: 48, justifyContent: "center", borderBottomWidth: 2, borderBottomColor: "transparent" },
+  memoryTabActive: { borderBottomColor: theme.colors.text },
+  memoryTabText: { fontSize: 19, color: theme.colors.textMuted, fontWeight: "500" },
+  memoryTabSelected: { color: theme.colors.text },
+  memoryToolbar: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 22 },
+  memoryGridRow: { gap: 16, alignItems: "flex-start" },
+  memoryGridCard: { width: "auto", flex: 1, maxWidth: "50%", borderBottomWidth: 0, paddingTop: 0, paddingBottom: 26 },
+  memoryGridContent: { flexDirection: "column", alignItems: "stretch", gap: 10 },
+  memoryGridCover: { width: "100%", aspectRatio: 0.85, borderRadius: 4, overflow: "hidden", backgroundColor: "#F5F5F5" },
+  memoryGridTitle: { fontSize: 15, lineHeight: 22, fontWeight: "500", marginTop: 1, color: "#222222" },
+  memoryTextCover: { justifyContent: "center", paddingHorizontal: 17, paddingVertical: 20, backgroundColor: "#FAFAFA" },
+  memoryTextCoverTitle: { fontSize: 16, lineHeight: 26, color: "#333333", fontWeight: "400" },
+  memoryGridFooter: { flexWrap: "nowrap", gap: 4, marginTop: 3 },
+  memoryGridDate: { color: "#888888", fontSize: 11 },
+  memoryLanding: { flexGrow: 1, alignItems: "center", justifyContent: "flex-start", gap: 20, padding: 24, paddingBottom: 140 },
+  memoryLandingTitle: { fontSize: 19, color: theme.colors.text, textAlign: "center" },
   container: { flex: 1, backgroundColor: theme.colors.canvas },
   brandRow: { minHeight: 52, paddingHorizontal: 16, paddingTop: 3, flexDirection: "row", alignItems: "center" },
   brand: { flex: 1, marginLeft: 10, color: theme.colors.text, fontSize: 20, lineHeight: 27, fontWeight: "500", letterSpacing: -0.2 },
@@ -3342,6 +3478,13 @@ const styles = StyleSheet.create({
   cardDate: { marginTop: 9, color: theme.colors.textMuted, fontSize: 11 },
   processingText: { marginTop: 6, color: "#999999", fontSize: 11, lineHeight: 17 },
   unifiedComposerDock: { position: "absolute", left: 18, right: 18 },
+  memoryEntryDock: { position: "absolute", left: 22, right: 22, flexDirection: "row", alignItems: "center", justifyContent: "space-around", paddingVertical: 8, paddingHorizontal: 12, borderRadius: 34, backgroundColor: theme.colors.surface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.border, shadowColor: "#000", shadowOpacity: 0.08, shadowRadius: 16, shadowOffset: { width: 0, height: 4 }, elevation: 4 },
+  memoryPhotoShortcut: { flex: 1, minHeight: 52, alignItems: "center", justifyContent: "center", gap: 4 },
+  memoryEntryLabel: { fontSize: 11, color: theme.colors.textSecondary, textAlign: "center" },
+  memoryEntryButton: { width: 56, height: 56, borderRadius: 28, alignItems: "center", justifyContent: "center", backgroundColor: theme.colors.surface, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.border, shadowColor: "#000", shadowOpacity: 0.1, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 4 },
+  memoryPhotoEntry: { backgroundColor: theme.colors.text },
+  memoryDraftDot: { position: "absolute", top: 9, right: 10, width: 7, height: 7, borderRadius: 4, backgroundColor: theme.colors.accentStrong },
+  memoryCollapseInput: { alignSelf: "center", width: 44, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center", backgroundColor: theme.colors.surface, marginBottom: 6 },
   inspirationCard: { position: "absolute", left: 0, right: 0, bottom: 62, zIndex: 4, minHeight: 64, paddingLeft: 12, paddingRight: 10, paddingVertical: 9, borderWidth: StyleSheet.hairlineWidth, borderColor: "#D5E4DF", borderRadius: 18, backgroundColor: "rgba(255,255,255,0.98)", flexDirection: "row", alignItems: "center", gap: 9, shadowColor: "#000000", shadowOpacity: 0.07, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 6 },
   inspirationOrb: { position: "absolute", right: 8, bottom: 62, zIndex: 3, width: 40, height: 40, borderWidth: StyleSheet.hairlineWidth, borderColor: "#CFE4DC", borderRadius: 20, backgroundColor: "rgba(234,246,241,0.98)", alignItems: "center", justifyContent: "center", shadowColor: "#000000", shadowOpacity: 0.07, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 5 },
   inspirationPrompt: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 9 },

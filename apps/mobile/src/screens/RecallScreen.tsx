@@ -1,7 +1,8 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Alert, Animated, AppState, Easing, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Alert, Animated, AppState, Easing, Modal, Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { Text, TextInput } from "../components/Typography";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { getLanguage, t, tf } from "../i18n";
 import { logEvent } from "../services/logger";

@@ -1,5 +1,6 @@
 import React from "react";
-import { ActivityIndicator, Animated, Easing, PanResponder, Pressable, StyleSheet, Text, View, useWindowDimensions } from "react-native";
+import { ActivityIndicator, Animated, Easing, PanResponder, Pressable, StyleSheet, View, useWindowDimensions } from "react-native";
+import { Text } from "./Typography";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import {

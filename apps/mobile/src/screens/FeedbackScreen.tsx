@@ -1,15 +1,6 @@
 import React, { useState } from "react";
-import {
-  ActivityIndicator,
-  Alert,
-  KeyboardAvoidingView,
-  Platform,
-  Pressable,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
-} from "react-native";
+import { ActivityIndicator, Alert, KeyboardAvoidingView, Platform, Pressable, StyleSheet, View } from "react-native";
+import { Text, TextInput } from "../components/Typography";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import * as Application from "expo-application";
 import { SafeAreaView } from "react-native-safe-area-context";

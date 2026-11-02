@@ -1,5 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { Animated, Pressable, StyleSheet, Text, View, useWindowDimensions } from "react-native";
+import { Animated, Pressable, StyleSheet, View, useWindowDimensions } from "react-native";
+import { Text } from "../../components/Typography";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 

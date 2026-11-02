@@ -1,5 +1,6 @@
 import React from "react";
-import { Animated, FlatList, Keyboard, Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { Animated, FlatList, Keyboard, Platform, Pressable, StyleSheet, View } from "react-native";
+import { Text } from "../../components/Typography";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import type { ChatMessage } from "../../domain/chat/types";
 import { getChatContact, type ChatContact } from "../../domain/chat/contacts";

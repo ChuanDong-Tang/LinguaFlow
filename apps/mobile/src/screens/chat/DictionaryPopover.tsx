@@ -1,5 +1,6 @@
 import React from "react";
-import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from "react-native";
+import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from "react-native";
+import { Text } from "../../components/Typography";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { TtsPlayButton } from "../../components/TtsPlayButton";
 import { DictionaryTranslation } from "../../components/DictionaryTranslation";

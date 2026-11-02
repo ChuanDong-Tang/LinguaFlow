@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { Text, TextInput } from "../../components/Typography";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { SafeAreaView } from "react-native-safe-area-context";
 import type { CardCollection } from "../../services/api/cardApi";

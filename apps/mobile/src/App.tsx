@@ -1,5 +1,6 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Alert, Animated, AppState, DevSettings, Image, Linking, Modal, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { Alert, Animated, AppState, DevSettings, Image, Linking, Modal, Pressable, StyleSheet, View } from "react-native";
+import { Text, TextInput } from "./components/Typography";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import * as AuthSession from "expo-auth-session";
 import * as SplashScreen from "expo-splash-screen";
@@ -8,6 +9,7 @@ import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaProvider, initialWindowMetrics } from "react-native-safe-area-context";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { LoginScreen } from "./screens/LoginScreen";
+import { fontSizePreference } from "./services/preferences/fontSizePreference";
 import { PreLoginOnboardingScreen } from "./screens/PreLoginOnboardingScreen";
 import { getLanguage, getSavedLanguage, initI18n, useSystemLanguage, setLanguage, t, tf } from "./i18n";
 import {
@@ -90,6 +92,7 @@ type Screen =
 const PRELOAD_IMAGES = [require("../assets/app/logo.png")];
 
 export default function App() {
+  useEffect(() => { void fontSizePreference.load(); }, []);
   const otaUpdate = Updates.useUpdates();
   const [screen, setScreen] = useState<Screen>("booting");
   const [selectedTab, setSelectedTab] = useState<"main" | "practice" | "me">("main");
@@ -389,7 +392,7 @@ export default function App() {
     recordId: string,
     initialTab: CardDetailRequest["initialTab"] = "review",
     origin?: CardDetailRequest["origin"],
-    options?: { returnLabel?: string },
+    options?: { returnLabel?: string; browseRecordIds?: string[]; onBrowseSetFinished?: () => void },
   ): void {
     cardDetailRequestKeyRef.current += 1;
     setCardDetailRequest({
@@ -398,6 +401,8 @@ export default function App() {
       initialTab,
       origin,
       returnLabel: options?.returnLabel,
+      browseRecordIds: options?.browseRecordIds,
+      onBrowseSetFinished: options?.onBrowseSetFinished,
     });
   }
 
@@ -1025,6 +1030,13 @@ export default function App() {
         {overlay ? <View style={styles.overlayScreen}>{overlay}</View> : null}
         <CardDetailNavigator
           request={cardDetailRequest}
+          onBrowseRecord={(recordId) => {
+            if (!cardDetailRequest?.browseRecordIds?.includes(recordId)) return;
+            // Intra-round navigation changes content, not the reader session.
+            setCardDetailRequest(current => current?.browseRecordIds?.includes(recordId)
+              ? { ...current, recordId, origin: undefined, initialTab: "review" }
+              : current);
+          }}
           prefetchRecordId={memoryRoundVisible ? memoryRoundCurrentRecordId : null}
           onClose={() => {
             const returningToMemoryRound = memoryRoundVisible && Boolean(cardDetailRequest?.returnLabel);
@@ -1358,7 +1370,7 @@ function TabScreens({
   cardDataRevision: number;
   incomingCardDraft: { id: number; draft: CardDraft } | null;
   onIncomingCardDraftHandled: (id: number) => void;
-  onOpenCard: (recordId: string, initialTab?: CardDetailRequest["initialTab"], origin?: CardDetailRequest["origin"], options?: { returnLabel?: string }) => void;
+  onOpenCard: (recordId: string, initialTab?: CardDetailRequest["initialTab"], origin?: CardDetailRequest["origin"], options?: { returnLabel?: string; browseRecordIds?: string[] }) => void;
   onEditRecallCard: (recordId: string) => void;
   onCardChanged: () => void;
   onOpenLibrary: () => void;

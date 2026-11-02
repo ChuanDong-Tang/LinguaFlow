@@ -1,15 +1,6 @@
 import React from "react";
-import {
-  Keyboard,
-  Platform,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-  type StyleProp,
-  type TextStyle,
-  type ViewStyle,
-} from "react-native";
+import { Keyboard, Platform, Pressable, StyleSheet, View, type StyleProp, type TextStyle, type ViewStyle } from "react-native";
+import { Text } from "../../components/Typography";
 import { t } from "../../i18n";
 import { buildSelectableTextFallbackSegments } from "../../domain/cloze/selectableTextFallback";
 import {
@@ -24,6 +15,7 @@ import {
   type ChatSelectableTextSelectionEvent,
 } from "./ChatSelectableTextView";
 import { useFloatingNotice } from "../shared/FloatingNotice";
+import { useFontSize } from "../../services/preferences/fontSizePreference";
 
 export type NativeTextSelectionPayload = {
   start: number;
@@ -279,8 +271,10 @@ export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, 
       }),
       [answerRanges, answersVisible, blanks, correct, highlights, text],
     );
+    const { scale: appFontScale } = useFontSize();
     const nativeTextRef = React.useRef<ChatSelectableTextViewInstance | null>(null);
     const [nativeContentHeight, setNativeContentHeight] = React.useState(0);
+    React.useEffect(() => { setNativeContentHeight(0); }, [appFontScale]);
 
     const clearSelection = React.useCallback(() => {
       clearChatSelectableTextSelection(nativeTextRef);
@@ -449,8 +443,8 @@ export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, 
           answersVisible={answersVisible}
           visualsHidden={visualsHidden}
           textColor={typeof flattenedTextStyle.color === "string" ? flattenedTextStyle.color : "#111111"}
-          fontSize={typeof flattenedTextStyle.fontSize === "number" ? flattenedTextStyle.fontSize : 17}
-          lineHeight={typeof flattenedTextStyle.lineHeight === "number" ? flattenedTextStyle.lineHeight : 25}
+          fontSize={(typeof flattenedTextStyle.fontSize === "number" ? flattenedTextStyle.fontSize : 17) * appFontScale}
+          lineHeight={(typeof flattenedTextStyle.lineHeight === "number" ? flattenedTextStyle.lineHeight : 25) * appFontScale}
           fontWeight={
             typeof flattenedTextStyle.fontWeight === "string"
               ? flattenedTextStyle.fontWeight

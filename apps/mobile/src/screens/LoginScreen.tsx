@@ -1,19 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
-import {
-  ActivityIndicator,
-  Animated,
-  Image,
-  Keyboard,
-  KeyboardAvoidingView,
-  Linking,
-  Platform,
-  Pressable,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableWithoutFeedback,
-  View,
-} from "react-native";
+import { ActivityIndicator, Animated, Image, Keyboard, KeyboardAvoidingView, Linking, Platform, Pressable, StyleSheet, TouchableWithoutFeedback, View } from "react-native";
+import { Text, TextInput } from "../components/Typography";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { t, tf } from "../i18n";
 import {

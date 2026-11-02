@@ -1,5 +1,6 @@
 import React from "react";
-import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { Text, TextInput } from "../components/Typography";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { SafeAreaView } from "react-native-safe-area-context";
 import type { AcquisitionSource } from "@lf/core/ports/repository/UserPreferenceRepository";

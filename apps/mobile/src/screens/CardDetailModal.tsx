@@ -1,27 +1,14 @@
 import { resolveCardPlaybackProgress } from "../services/tts/cardPlaybackProgress";
+import { canSwipeMemoryCard } from "./home/memoryBrowse";
+import { MemoryBrowseControl } from "./home/MemoryBrowseControl";
+import { memoryReaderCopy, memoryReaderExpanded, shouldExpandMemorySwipe } from "./home/memoryReader";
 import { saveTutorialPractice } from "../services/card/tutorialPracticeStorage";
 import { resolveCardSecondaryContent } from "../services/card/cardSecondaryContent";
 import { alignCardSpeechMarks } from "@lf/core/text/cardSpeechText";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import {
-  ActivityIndicator,
-  Alert,
-  Animated,
-  Easing,
-  FlatList,
-  Image,
-  Keyboard,
-  Modal,
-  PanResponder,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  useWindowDimensions,
-  View,
-} from "react-native";
+import { ActivityIndicator, Alert, Animated, Easing, FlatList, Image, Keyboard, Modal, PanResponder, Platform, Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from "react-native";
+import { Text, TextInput } from "../components/Typography";
+import { useFontSize } from "../services/preferences/fontSizePreference";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import * as Haptics from "expo-haptics";
 import * as MediaLibrary from "expo-media-library/legacy";
@@ -187,7 +174,7 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
   onRetryGeneration?: (target: CardGenerationTarget) => void;
   onGeneratePhraseRecommendation?: (contentType?: CardLearningContentType) => Promise<CardRecordDetail>;
   onActivateLearningContent?: (contentType: CardLearningContentType) => Promise<CardRecordDetail>;
-  recallPosition?: { index: number; total: number };
+  recallPosition?: { index: number; total: number; kind?: "browse" };
   recallContextLabel?: string;
   recallPreviousContextLabel?: string;
   recallNextContextLabel?: string;
@@ -290,8 +277,12 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
   } | null>(null);
   const recallPanResponder = useMemo(() => PanResponder.create({
     onMoveShouldSetPanResponderCapture: (_, gesture) => Boolean(
-      recallPosition
-      && !recallInteractionLocked
+      canSwipeMemoryCard({
+        hasPosition: Boolean(recallPosition), tab, playback: playbackMode,
+        editing, loading, imageAdding,
+        imageGesture: imageSwipeContextRef.current.active,
+        interactionLocked: recallInteractionLocked,
+      })
       && Math.abs(gesture.dx) > 24
       && Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.5,
     ),
@@ -305,6 +296,21 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
       const action = direction === "next" ? onRecallNext : onRecallPrevious;
       if (Math.abs(gesture.dx) < 72 || !action) {
         Animated.spring(recallTranslateX, { toValue: 0, useNativeDriver: true, speed: 24, bounciness: 4 }).start();
+        return;
+      }
+      if (pendingClozeCheckRef.current?.()) {
+        Animated.spring(recallTranslateX, { toValue: 0, useNativeDriver: true, speed: 24, bounciness: 4 }).start();
+        leaveCard(action, false);
+        return;
+      }
+      // Browsing keeps the reader mounted while its next record loads. Do not
+      // slide the old content offscreen before the asynchronous handoff finishes.
+      if (recallPosition?.kind === "browse") {
+        recallNavigatingRef.current = true;
+        Animated.spring(recallTranslateX, { toValue: 0, useNativeDriver: true, speed: 24, bounciness: 0 }).start(({ finished }) => {
+          recallNavigatingRef.current = false;
+          if (finished) { Keyboard.dismiss(); action(); }
+        });
         return;
       }
       recallNavigatingRef.current = true;
@@ -336,7 +342,7 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
     onPanResponderTerminate: () => {
       Animated.spring(recallTranslateX, { toValue: 0, useNativeDriver: true }).start();
     },
-  }), [onRecallNext, onRecallPrevious, recallInteractionLocked, recallNextContextLabel, recallNextDetail, recallPosition, recallPreviousContextLabel, recallPreviousDetail, recallTranslateX, windowWidth]);
+  }), [onRecallNext, onRecallPrevious, tab, playbackMode, editing, loading, imageAdding, recallInteractionLocked, recallNextContextLabel, recallNextDetail, recallPosition, recallPreviousContextLabel, recallPreviousDetail, recallTranslateX, windowWidth]);
   const detailBackSwipeResponder = useMemo(() => PanResponder.create({
     onMoveShouldSetPanResponderCapture: (_, gesture) => Boolean(
       !recallPosition
@@ -396,7 +402,13 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
     if (hasProAccess === false && tab === "dictation") setTab("review");
   }, [hasProAccess, tab]);
   useEffect(() => {
-    if (!detail || enteredRef.current) return;
+    if (!detail) return;
+    if (enteredRef.current) {
+      // A rapid detail replacement can cancel the first entry animation before
+      // it becomes visible. The replacement is already on this page: reveal it.
+      exitProgress.setValue(0);
+      return;
+    }
     enteredRef.current = true;
     if (!mountedWithDetailRef.current && !transitionOrigin) {
       exitProgress.setValue(0);
@@ -610,7 +622,7 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
             <Pressable accessibilityLabel={returnLabel ?? (recallPosition && tab === "review" ? t("recall.exit") : tab === "dictation" || canGoBack && onBack ? t("card_detail.a11y.back") : t("card_detail.a11y.close"))} style={styles.historyButton} onPress={recallPosition && tab === "review" ? () => leaveCard(onClose, false) : tab === "dictation" ? () => setTab("review") : canGoBack && onBack ? () => leaveCard(onBack, false) : () => leaveCard(onClose, true)}><Ionicons name="chevron-back" size={22} color={theme.colors.text} /></Pressable>
             {practiceMode && canGoForward && onForward ? <Pressable accessibilityLabel={t("card_detail.a11y.forward")} style={styles.historyButton} onPress={onForward}><Ionicons name="chevron-forward" size={22} color={theme.colors.text} /></Pressable> : null}
           </View>
-          {tab === "review" && detail && !recallPosition ? <View style={styles.cardModeSwitch}>
+          {tab === "review" && detail && (!recallPosition || recallPosition.kind === "browse") ? <View style={styles.cardModeSwitch}>
             <Pressable accessibilityRole="button" accessibilityState={{ selected: !playbackMode }} style={styles.cardModeOption} onPress={() => changePlaybackMode(false)}>
               <Text style={[styles.cardModeOptionText, !playbackMode && styles.cardModeOptionTextActive]}>{t("card_detail.mode.read")}</Text>
             </Pressable>
@@ -623,10 +635,12 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
             {tab === "review" && (onUpdateContent || onEditCard) ? <Pressable accessibilityLabel="卡片操作" style={styles.iconHeaderButton} onPress={() => setDetailActionMenuVisible(true)}><Ionicons name="ellipsis-horizontal" size={23} color={theme.colors.text} /></Pressable> : null}
           </View>
         </View>
-        {recallPosition ? <Text numberOfLines={1} style={[styles.recallContextLabel, !recallContextLabel && styles.recallContextLabelHidden]}>{recallContextLabel ?? " "}</Text> : null}
+        {recallPosition && tab === "review" ? recallPosition.kind === "browse"
+          ? <MemoryBrowseControl hasNextSet={Boolean(onRecallFinish)} index={recallPosition.index} total={recallPosition.total} disabled={loading || editing || imageAdding || recallInteractionLocked || playbackMode} onPrevious={onRecallPrevious ? () => leaveCard(onRecallPrevious, false) : undefined} onNext={onRecallNext ? () => leaveCard(onRecallNext, false) : undefined} onExit={() => leaveCard(onRecallFinish ?? onClose, false)} />
+          : <Text numberOfLines={1} style={[styles.recallContextLabel, !recallContextLabel && styles.recallContextLabelHidden]}>{recallContextLabel ?? " "}</Text> : null}
         {detailActionMenuVisible ? <View style={styles.detailActionLayer}><Pressable style={StyleSheet.absoluteFill} onPress={() => setDetailActionMenuVisible(false)} /><View style={styles.detailActionMenu}><Pressable style={styles.detailActionItem} onPress={() => { setDetailActionMenuVisible(false); (onEditCard ?? (() => setEditing(true)))(); }}><Ionicons name="create-outline" size={17} color={theme.colors.textSecondary} /><Text style={styles.detailActionText}>编辑</Text></Pressable><View style={styles.detailActionDivider} /><Pressable style={styles.detailActionItem} onPress={() => { setDetailActionMenuVisible(false); Alert.alert("移入回收站？", "卡片将在回收站保留 30 天，期间可以随时恢复。", [{ text: t("common.cancel"), style: "cancel" }, { text: "移入回收站", style: "destructive", onPress: () => { if (detail) void deleteCardRecord(detail.id).then(onClose); } }]); }}><Ionicons name="trash-outline" size={17} color={theme.colors.danger} /><Text style={[styles.detailActionText, { color: theme.colors.danger }]}>删除</Text></Pressable></View></View> : null}
         {loading && !detail ? <ActivityIndicator color={theme.colors.accentStrong} style={styles.loader} /> : null}
-        {practiceDetail && contentBinding && tab === "review" ? <Review onLanguageControlChange={updateLanguageControl} hidePhraseRecommendation={hidePhraseRecommendation} key={practiceDetail.id} detail={practiceDetail} imageAdding={imageAdding} contentBinding={contentBinding} playbackMode={playbackMode} practiceEnabled={canPracticeActiveBlock} canUseDictation={!detail?.isSample && hasProAccess === true} autoStartClozePractice={clozeEntryModeRef.current.autoStart} clozeState={resolvedClozeState} clozeVersion={resolvedClozeVersion} onClozeChange={updateCloze} onLearningContentClozeChange={updateLearningContentCloze} onSelectLearningContent={setSelectedLearningContentType} onActivateLearningContent={onActivateLearningContent} onSaveOriginal={onUpdateContent ? async (originalText) => { const accepted = await onUpdateContent({ title: practiceDetail.title ?? null, originalText, collectionId: practiceDetail.collectionId ?? null, selectedTargets: practiceDetail.mode === "corpus" ? [] : practiceDetail.replyText ? ["expression", "reply"] : ["expression"] }); if (accepted === false) throw new Error(t("card_detail.error.try_again")); } : undefined} onUpdateMetadata={onUpdateMetadata} onRemoveImage={onRemoveImage} onCoverPositionChange={onCoverPositionChange} relations={relations} onOpenRelated={onOpenRelated} relationFocusSentence={relationFocusSentence} onOpenDictation={() => setTab("dictation")} pendingGenerationTargets={pendingGenerationTargets} failedGenerationTargets={failedGenerationTargets} retryingGenerationTarget={retryingGenerationTarget} onRetryGeneration={onRetryGeneration} onGeneratePhraseRecommendation={onGeneratePhraseRecommendation} onRecallFinish={onRecallFinish} onClozeAttempt={onClozeAttempt} onPendingClozeCheckHandlerChange={registerPendingClozeCheck} onInteractionLockChange={(locked) => { setDetailInteractionLocked(locked); if (recallPosition) setRecallInteractionLocked(locked); }} onImageSwipeContextChange={(active, index) => { imageSwipeContextRef.current = { active, index }; }} focusLearningContent={clozeTipEligible && clozeGuideStep === 1} onLearningTargetReady={handleClozeLearningTargetReady} focusActionBar={clozeTipEligible && clozeGuideStep === 2} onActionBarTargetReady={handleClozeActionBarTargetReady} /> : null}
+        {practiceDetail && contentBinding && tab === "review" ? <Review onLanguageControlChange={updateLanguageControl} hidePhraseRecommendation={hidePhraseRecommendation} key={practiceDetail.id} detail={practiceDetail} imageAdding={imageAdding} contentBinding={contentBinding} playbackMode={playbackMode} practiceEnabled={canPracticeActiveBlock} canUseDictation={!detail?.isSample && hasProAccess === true} autoStartClozePractice={clozeEntryModeRef.current.autoStart} clozeState={resolvedClozeState} clozeVersion={resolvedClozeVersion} onClozeChange={updateCloze} onLearningContentClozeChange={updateLearningContentCloze} onSelectLearningContent={setSelectedLearningContentType} onActivateLearningContent={onActivateLearningContent} onSaveOriginal={onUpdateContent ? async (originalText) => { const accepted = await onUpdateContent({ title: practiceDetail.title ?? null, originalText, collectionId: practiceDetail.collectionId ?? null, selectedTargets: practiceDetail.mode === "corpus" ? [] : practiceDetail.replyText ? ["expression", "reply"] : ["expression"] }); if (accepted === false) throw new Error(t("card_detail.error.try_again")); } : undefined} onUpdateMetadata={onUpdateMetadata} onRemoveImage={onRemoveImage} onCoverPositionChange={onCoverPositionChange} relations={relations} onOpenRelated={onOpenRelated} relationFocusSentence={relationFocusSentence} onOpenDictation={() => setTab("dictation")} pendingGenerationTargets={pendingGenerationTargets} failedGenerationTargets={failedGenerationTargets} retryingGenerationTarget={retryingGenerationTarget} onRetryGeneration={onRetryGeneration} onGeneratePhraseRecommendation={onGeneratePhraseRecommendation} onRecallFinish={recallPosition?.kind === "browse" ? undefined : onRecallFinish} onClozeAttempt={onClozeAttempt} onPendingClozeCheckHandlerChange={registerPendingClozeCheck} onInteractionLockChange={(locked) => { setDetailInteractionLocked(locked); if (recallPosition) setRecallInteractionLocked(locked); }} onImageSwipeContextChange={(active, index) => { imageSwipeContextRef.current = { active, index }; }} focusLearningContent={clozeTipEligible && clozeGuideStep === 1} onLearningTargetReady={handleClozeLearningTargetReady} focusActionBar={clozeTipEligible && clozeGuideStep === 2} onActionBarTargetReady={handleClozeActionBarTargetReady} /> : null}
         {practiceDetail && contentBinding && tab === "dictation" && hasProAccess === true ? <Dictation detail={practiceDetail} contentBinding={contentBinding} /> : null}
       </SafeAreaView>
       {recallPosition && (recallHandoff?.direction === "next" ? recallHandoff.detail : recallNextDetail) ? <View pointerEvents="none" style={[styles.recallAdjacentPage, { left: windowWidth }]}><RecallAdjacentCard detail={(recallHandoff?.direction === "next" ? recallHandoff.detail : recallNextDetail)!} position={recallHandoff?.direction === "next" ? recallHandoff.position : { index: recallPosition.index + 1, total: recallPosition.total }} contextLabel={recallHandoff?.direction === "next" ? recallHandoff.contextLabel : recallNextContextLabel} canUseDictation={!detail?.isSample && hasProAccess === true} /></View> : null}
@@ -1445,7 +1459,8 @@ function DraftAiOptionsRow({ selected, disabled, onToggle }: {
   onToggle: (key: "expression" | "translation" | "reply") => void;
 }) {
   const { width, fontScale } = useWindowDimensions();
-  const stacked = width < 360 || fontScale > 1.15;
+  const { scale: appFontScale } = useFontSize();
+  const stacked = width < 360 || fontScale * appFontScale >= 1.15;
   const items = [
     { key: "reply" as const, label: t("card_detail.module.reply_description") },
     { key: "expression" as const, label: t("card_detail.module.expression_description") },
@@ -1475,7 +1490,8 @@ function DraftComposerToolbar({ imageCount, hideMedia = false, actionLabel, sttS
   onSave?: () => void;
 }) {
   const { width, fontScale } = useWindowDimensions();
-  const compact = width < 360 || fontScale > 1.15;
+  const { scale: appFontScale } = useFontSize();
+  const compact = width < 360 || fontScale * appFontScale >= 1.15;
   const progress = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     Animated.timing(progress, { toValue: 1, duration: 170, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
@@ -1567,11 +1583,11 @@ function clampUnit(value: number): number {
   return Math.max(0, Math.min(1, Number.isFinite(value) ? value : 0.5));
 }
 
-function FocusedCoverImage({ image, frameWidth }: { image: GalleryImage; frameWidth: number }) {
-  const frameHeight = frameWidth / CARD_IMAGE_ASPECT_RATIO;
+function FocusedCoverImage({ image, frameWidth, aspectRatio = CARD_IMAGE_ASPECT_RATIO }: { image: GalleryImage; frameWidth: number; aspectRatio?: number }) {
+  const frameHeight = frameWidth / aspectRatio;
   const sourceRatio = Math.max(0.01, (image.width ?? frameWidth) / Math.max(1, image.height ?? frameHeight));
-  const renderedWidth = sourceRatio >= CARD_IMAGE_ASPECT_RATIO ? frameHeight * sourceRatio : frameWidth;
-  const renderedHeight = sourceRatio >= CARD_IMAGE_ASPECT_RATIO ? frameHeight : frameWidth / sourceRatio;
+  const renderedWidth = sourceRatio >= aspectRatio ? frameHeight * sourceRatio : frameWidth;
+  const renderedHeight = sourceRatio >= aspectRatio ? frameHeight : frameWidth / sourceRatio;
   const left = -clampUnit(image.focusX ?? 0.5) * Math.max(0, renderedWidth - frameWidth);
   const top = -clampUnit(image.focusY ?? 0.5) * Math.max(0, renderedHeight - frameHeight);
   return <Image source={{ uri: image.thumbnailUrl }} resizeMode="stretch" fadeDuration={0} progressiveRenderingEnabled style={{ position: "absolute", left, top, width: renderedWidth, height: renderedHeight }} />;
@@ -1630,8 +1646,9 @@ function PreviewCoverCropOverlay({ image, width, height, onCommit }: {
   </View>;
 }
 
-const CardImageGallery = React.memo(function CardImageGallery({ images, loading = false, dateLabel, onRemove, onCoverPositionChange, onIndexChange, onSwipeContextChange, renderBottomRightAction }: {
+const CardImageGallery = React.memo(function CardImageGallery({ images, loading = false, dateLabel, onRemove, onCoverPositionChange, onIndexChange, onSwipeContextChange, renderBottomRightAction, readingPresentation }: {
   images: GalleryImage[];
+  readingPresentation?: "photo" | "compact";
   loading?: boolean;
   dateLabel?: string;
   onRemove?: (imageKey: string) => void;
@@ -1641,7 +1658,9 @@ const CardImageGallery = React.memo(function CardImageGallery({ images, loading 
   renderBottomRightAction?: (image: GalleryImage, index: number) => React.ReactNode;
 }) {
   const { width: windowWidth } = useWindowDimensions();
-  const pageWidth = windowWidth - 44;
+  const [measuredWidth, setMeasuredWidth] = useState(0);
+  const pageWidth = measuredWidth || windowWidth - 44;
+  const aspectRatio = readingPresentation === "compact" ? pageWidth / 128 : readingPresentation === "photo" ? 1.1 : CARD_IMAGE_ASPECT_RATIO;
   const displayImages = loading
     ? [...images, { key: "__adding_image__", url: "", thumbnailUrl: "", placeholder: true }]
     : images;
@@ -1669,7 +1688,7 @@ const CardImageGallery = React.memo(function CardImageGallery({ images, loading 
   if (!displayImages.length) return null;
 
   return (
-    <View>
+    <View onLayout={(event) => { const width = event.nativeEvent.layout.width; if (width > 0) setMeasuredWidth(width); }}>
       <FlatList
         ref={galleryRef}
         horizontal
@@ -1683,7 +1702,7 @@ const CardImageGallery = React.memo(function CardImageGallery({ images, loading 
             }}
             accessibilityRole="imagebutton"
             accessibilityLabel={tf("card_detail.a11y.preview_image", { index: index + 1 })}
-            style={[styles.carouselImagePage, { width: pageWidth, aspectRatio: CARD_IMAGE_ASPECT_RATIO }]}
+            style={[styles.carouselImagePage, { width: pageWidth, aspectRatio }]}
             disabled={image.placeholder}
             onPress={() => {
               const node = thumbnailRefs.current.get(image.key);
@@ -1698,7 +1717,7 @@ const CardImageGallery = React.memo(function CardImageGallery({ images, loading 
               });
             }}
           >
-            {image.placeholder ? <View style={styles.imageAddingPlaceholder}><ActivityIndicator color={theme.colors.textMuted} /><Text style={styles.imageAddingText}>{t("card_detail.photo.adding")}</Text></View> : index === 0 ? <FocusedCoverImage image={image} frameWidth={pageWidth} /> : <Image
+            {image.placeholder ? <View style={styles.imageAddingPlaceholder}><ActivityIndicator color={theme.colors.textMuted} /><Text style={styles.imageAddingText}>{t("card_detail.photo.adding")}</Text></View> : index === 0 ? <FocusedCoverImage image={image} frameWidth={pageWidth} aspectRatio={aspectRatio} /> : <Image
               source={{ uri: image.thumbnailUrl }}
               style={styles.carouselImageLayer}
               resizeMode="cover"
@@ -1995,6 +2014,10 @@ function Review({ onLanguageControlChange, hidePhraseRecommendation = true, deta
   const learningTargetContentYRef = useRef(0);
   const flipCardScrollRef = useRef<React.ComponentRef<typeof KeyboardAwareScrollView>>(null);
   const flipCardScrollYRef = useRef(0);
+  const readingBodyYRef = useRef(0);
+  const learningTargetLocalYRef = useRef(0);
+  const [readingExpanded, setReadingExpanded] = useState(false);
+  const readingTouchRef = useRef<{ x: number; y: number } | null>(null);
   const actionBarRef = useRef<View>(null);
   const [relationsVisible, setRelationsVisible] = useState(false);
   const cardSecondarySegments = (block: CardRecordDetail["contentBlocks"][number]) =>
@@ -2113,6 +2136,18 @@ function Review({ onLanguageControlChange, hidePhraseRecommendation = true, deta
     return () => { active = false; };
   }, []);
   const [answersVisible, setAnswersVisible] = useState(false);
+  const showReadingBody = memoryReaderExpanded({
+    hasPhoto: images.length > 0,
+    requested: readingExpanded,
+    sample: Boolean(detail.isSample),
+    practice: fillMode || answersVisible || autoStartClozePractice,
+    guided: focusLearningContent || focusActionBar,
+    relation: Boolean(relationFocusSentence),
+  });
+  useEffect(() => {
+    // Once opened (including by a practice action), do not hide the text again.
+    if (showReadingBody) setReadingExpanded(true);
+  }, [showReadingBody]);
   const activeDisplayBlock = wholeCardPracticeBlocks.find((block) => (
     block.contentType === contentBinding.contentType && block.contentVersion === contentBinding.contentVersion
   ));
@@ -2126,7 +2161,7 @@ function Review({ onLanguageControlChange, hidePhraseRecommendation = true, deta
     ? resolveCardSecondaryContent(playbackPrimaryBlock, detail.isSample).languageCode
     : null) ?? getLanguage();
   const displayModeLabel = cardDisplayModeLabel(displayMode, detail.languageCode, auxiliaryDisplayLanguage);
-  const [collapsedSections, setCollapsedSections] = useState<Record<"imageDescription" | "learning" | "reply" | "translation", boolean>>({ imageDescription: false, learning: false, reply: false, translation: false });
+  const [collapsedSections, setCollapsedSections] = useState<Record<"imageDescription" | "learning" | "reply" | "translation", boolean>>({ imageDescription: true, learning: false, reply: false, translation: false });
   const [articleAudioLoading, setArticleAudioLoading] = useState(false);
   const [sentenceAudioLoadingKey, setSentenceAudioLoadingKey] = useState<string | null>(null);
   const { showNotice } = useFloatingNotice();
@@ -3447,6 +3482,19 @@ function Review({ onLanguageControlChange, hidePhraseRecommendation = true, deta
           extraKeyboardSpace={16}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode={keyboardTray ? "none" : "interactive"}
+          onTouchStart={(event) => {
+            readingTouchRef.current = !showReadingBody && event.nativeEvent.touches.length === 1
+              ? { x: event.nativeEvent.pageX, y: event.nativeEvent.pageY } : null;
+          }}
+          onTouchCancel={() => { readingTouchRef.current = null; }}
+          onTouchEnd={(event) => {
+            const start = readingTouchRef.current;
+            readingTouchRef.current = null;
+            if (!showReadingBody && start && shouldExpandMemorySwipe(event.nativeEvent.pageX - start.x, event.nativeEvent.pageY - start.y)) {
+              setReadingExpanded(true);
+              flipCardScrollRef.current?.scrollTo({ y: 0, animated: false });
+            }
+          }}
           onScroll={(event) => { flipCardScrollYRef.current = event.nativeEvent.contentOffset.y; }}
           scrollEventThrottle={16}
           contentContainerStyle={[
@@ -3454,31 +3502,41 @@ function Review({ onLanguageControlChange, hidePhraseRecommendation = true, deta
           ]}
           alwaysBounceVertical={false}
         >
-          {titleEditing ? <View style={styles.inlineTitleEditor}>
-            <TextInput autoFocus value={titleDraft} editable={!metadataSaving} maxLength={80} placeholder={t("card_detail.title_optional")} placeholderTextColor={theme.colors.textMuted} style={styles.inlineTitleInput} onChangeText={setTitleDraft} onSubmitEditing={() => void saveInlineTitle()} />
-            <Pressable disabled={metadataSaving} style={styles.inlineTitleAction} onPress={() => { setTitleDraft(detail.title ?? detail.displayTitle); setTitleEditing(false); }}><Ionicons name="close" size={19} color={theme.colors.textMuted} /></Pressable>
-            <Pressable disabled={metadataSaving} style={styles.inlineTitleAction} onPress={() => void saveInlineTitle()}>{metadataSaving ? <ActivityIndicator size="small" color={theme.colors.accentStrong} /> : <Ionicons name="checkmark" size={21} color={theme.colors.accentStrong} />}</Pressable>
-          </View> : detail.displayTitle.trim() ? <Pressable disabled={!onUpdateMetadata} style={({ pressed }) => [styles.cardTitleRow, pressed && styles.metadataPressed]} onPress={() => setTitleEditing(true)}>
-            <Text numberOfLines={2} style={[styles.cardDisplayTitle, styles.cardDisplayTitleInRow]}>{detail.displayTitle}</Text>
-            {onUpdateMetadata ? <Ionicons name="create-outline" size={17} color={theme.colors.textMuted} /> : null}
-          </Pressable> : null}
-          <View style={styles.cardMetadataRow}>
-            <Pressable disabled={!onUpdateMetadata} style={({ pressed }) => [styles.recordTimeButton, pressed && styles.metadataPressed]} onPress={() => setRecordTimeEditorVisible(true)}>
-              <Text style={styles.date}>{formatDate(detail.dateKey)} · {formatTime(recordedAt)}</Text>
-            </Pressable>
-            <Pressable disabled={!onUpdateMetadata || metadataSaving} style={({ pressed }) => [styles.collectionMetaButton, pressed && styles.metadataPressed]} onPress={() => setCollectionPickerVisible(true)}>
-              <Ionicons name="folder-outline" size={14} color={theme.colors.textMuted} />
-              <Text numberOfLines={1} style={styles.collectionMetaText}>{collectionLabel}</Text>
-              {onUpdateMetadata ? <Ionicons name="chevron-down" size={13} color={theme.colors.textMuted} /> : null}
-            </Pressable>
-          </View>
-          {contentRelations[0] ? <RelationChip onPress={() => setRelationsVisible(true)} /> : null}
-          <CardImageGallery images={detailGalleryImages(images, detail.thumbnail?.url)} loading={imageAdding} dateLabel={`${formatDate(detail.dateKey)} · ${formatTime(recordedAt)}`} onRemove={onRemoveImage} onCoverPositionChange={onCoverPositionChange} onSwipeContextChange={onImageSwipeContextChange} onIndexChange={(index) => {
+          <View collapsable={false} style={{ backgroundColor: theme.colors.surface }}>
+          <CardImageGallery readingPresentation={detail.isSample ? undefined : showReadingBody ? "photo" : "compact"} images={detailGalleryImages(images, detail.thumbnail?.url)} loading={imageAdding} dateLabel={`${formatDate(detail.dateKey)} · ${formatTime(recordedAt)}`} onRemove={showReadingBody ? onRemoveImage : undefined} onCoverPositionChange={showReadingBody ? onCoverPositionChange : undefined} onSwipeContextChange={onImageSwipeContextChange} onIndexChange={(index) => {
             setImageIndex(index);
             const image = images[index];
             if (image) onSelectLearningContent?.(`image:${image.id}`);
           }} />
-          {currentImage ? <View ref={currentImageIsLearningContent ? learningTargetRef : undefined} onLayout={currentImageIsLearningContent ? (event) => { learningTargetContentYRef.current = event.nativeEvent.layout.y; } : undefined}>
+          </View>
+          {titleEditing ? <View style={styles.inlineTitleEditor}>
+            <TextInput autoFocus value={titleDraft} editable={!metadataSaving} maxLength={80} placeholder={t("card_detail.title_optional")} placeholderTextColor={theme.colors.textMuted} style={styles.inlineTitleInput} onChangeText={setTitleDraft} onSubmitEditing={() => void saveInlineTitle()} />
+            <Pressable disabled={metadataSaving} style={styles.inlineTitleAction} onPress={() => { setTitleDraft(detail.title ?? detail.displayTitle); setTitleEditing(false); }}><Ionicons name="close" size={19} color={theme.colors.textMuted} /></Pressable>
+            <Pressable disabled={metadataSaving} style={styles.inlineTitleAction} onPress={() => void saveInlineTitle()}>{metadataSaving ? <ActivityIndicator size="small" color={theme.colors.accentStrong} /> : <Ionicons name="checkmark" size={21} color={theme.colors.accentStrong} />}</Pressable>
+          </View> : detail.displayTitle.trim() ? <Pressable disabled={!showReadingBody || !onUpdateMetadata} style={({ pressed }) => [styles.cardTitleRow, pressed && styles.metadataPressed]} onPress={() => setTitleEditing(true)}>
+            <Text numberOfLines={2} style={[styles.cardDisplayTitle, styles.cardDisplayTitleInRow]}>{detail.displayTitle}</Text>
+            {showReadingBody && onUpdateMetadata ? <Ionicons name="create-outline" size={17} color={theme.colors.textMuted} /> : null}
+          </Pressable> : null}
+          <View style={styles.cardMetadataRow}>
+            <Pressable disabled={!showReadingBody || !onUpdateMetadata} style={({ pressed }) => [styles.recordTimeButton, pressed && styles.metadataPressed]} onPress={() => setRecordTimeEditorVisible(true)}>
+              <Text style={styles.date}>{formatDate(detail.dateKey)} · {formatTime(recordedAt)}</Text>
+            </Pressable>
+            <Pressable disabled={!showReadingBody || !onUpdateMetadata || metadataSaving} style={({ pressed }) => [styles.collectionMetaButton, pressed && styles.metadataPressed]} onPress={() => setCollectionPickerVisible(true)}>
+              <Ionicons name="folder-outline" size={14} color={theme.colors.textMuted} />
+              <Text numberOfLines={1} style={styles.collectionMetaText}>{collectionLabel}</Text>
+              {showReadingBody && onUpdateMetadata ? <Ionicons name="chevron-down" size={13} color={theme.colors.textMuted} /> : null}
+            </Pressable>
+          </View>
+          {showReadingBody && contentRelations[0] ? <RelationChip onPress={() => setRelationsVisible(true)} /> : null}
+          {!showReadingBody ? <View style={{ paddingTop: 20, gap: 18 }}>
+            <Pressable accessibilityRole="button" accessibilityState={{ expanded: false }} onPress={() => setReadingExpanded(true)} style={{ minHeight: 48, flexDirection: "row", alignItems: "center", justifyContent: "flex-start", gap: 8 }}>
+              <Text style={{ color: theme.colors.accentStrong, fontSize: 15 }}>{memoryReaderCopy(getLanguage())}</Text>
+              <Ionicons name="chevron-down" size={18} color={theme.colors.accentStrong} />
+            </Pressable>
+            {detail.originalText.trim() ? <Text numberOfLines={3} style={{ color: theme.colors.textSecondary, fontSize: 16, lineHeight: 25 }}>{detail.originalText.trim()}</Text> : null}
+          </View> : null}
+          <View style={!showReadingBody ? { display: "none" } : undefined} onLayout={(event) => { readingBodyYRef.current = event.nativeEvent.layout.y; learningTargetContentYRef.current = readingBodyYRef.current + learningTargetLocalYRef.current; }}>
+          {currentImage ? <View ref={currentImageIsLearningContent ? learningTargetRef : undefined} onLayout={currentImageIsLearningContent ? (event) => { learningTargetLocalYRef.current = event.nativeEvent.layout.y; learningTargetContentYRef.current = readingBodyYRef.current + learningTargetLocalYRef.current; } : undefined}>
             <CollapsibleCardSection
               label={t("card_detail.image_description")}
               tone="image"
@@ -3548,7 +3606,7 @@ function Review({ onLanguageControlChange, hidePhraseRecommendation = true, deta
               <Pressable disabled={!originalDraft.trim() || originalSaving || originalStt.status !== "idle"} style={[styles.moduleComposerSend, (!originalDraft.trim() || originalSaving || originalStt.status !== "idle") && styles.moduleComposerSendDisabled]} onPress={() => void saveOriginalModule()}>{originalSaving ? <ActivityIndicator size="small" color={theme.colors.surface} /> : <Ionicons name="arrow-up" size={18} color={theme.colors.surface} />}</Pressable>
             </View>
           </View> : null}
-          {rewriteBlock || originalBlock || expressionPending || expressionFailed ? <View ref={contentBinding.contentType === "rewrite" || contentBinding.contentType === "original" ? learningTargetRef : undefined} style={styles.flipCardTextBlock} onLayout={contentBinding.contentType === "rewrite" || contentBinding.contentType === "original" ? (event) => { learningTargetContentYRef.current = event.nativeEvent.layout.y; } : undefined}>
+          {rewriteBlock || originalBlock || expressionPending || expressionFailed ? <View ref={contentBinding.contentType === "rewrite" || contentBinding.contentType === "original" ? learningTargetRef : undefined} style={styles.flipCardTextBlock} onLayout={contentBinding.contentType === "rewrite" || contentBinding.contentType === "original" ? (event) => { learningTargetLocalYRef.current = event.nativeEvent.layout.y; learningTargetContentYRef.current = readingBodyYRef.current + learningTargetLocalYRef.current; } : undefined}>
             {rewriteBlock || frontLearningReady ? <CollapsibleCardSection label={t(detail.mode === "corpus" ? "card_detail.input_corpus" : "card_detail.module.expression_description")} tone={detail.mode === "corpus" ? "default" : "rewrite"} collapsed={collapsedSections.learning} onToggle={() => toggleSection("learning")} compact>
                 {primaryTextBlock ? renderLearningBlock(primaryTextBlock) : <Text selectable style={styles.rewrite}>{detail.originalText}</Text>}
                 {primaryText.trim() ? <View style={styles.rewriteModuleActions}>
@@ -3574,12 +3632,13 @@ function Review({ onLanguageControlChange, hidePhraseRecommendation = true, deta
             {renderLearningBlock(replyBlock)}
             <CardSectionCopyButton onPress={() => void copySection(replyBlock.text)} />
           </CollapsibleCardSection> : null}
+          </View>
         </KeyboardAwareScrollView>
       </View>
       </View>
     </View>
-    {onRecallFinish ? <Pressable style={styles.recallFinishButton} onPress={onRecallFinish}><Text style={styles.recallFinishButtonText}>{t("recall.end_node")}</Text><Ionicons name="checkmark" size={18} color={theme.colors.surface} /></Pressable> : null}
-    {clozeMode === "choice" && choiceTrayState ? <View style={styles.detailChoiceTray}>
+    {showReadingBody && onRecallFinish ? <Pressable style={styles.recallFinishButton} onPress={onRecallFinish}><Text style={styles.recallFinishButtonText}>{t("recall.end_node")}</Text><Ionicons name="checkmark" size={18} color={theme.colors.surface} /></Pressable> : null}
+    {showReadingBody && clozeMode === "choice" && choiceTrayState ? <View style={styles.detailChoiceTray}>
       <ClozeAnswerPuzzleTray
         puzzle={choiceTrayState.puzzle}
         selectedIds={choiceTrayState.selectedIds}
@@ -3590,12 +3649,12 @@ function Review({ onLanguageControlChange, hidePhraseRecommendation = true, deta
         }}
       />
     </View> : null}
-    <View ref={actionBarRef} style={styles.detailActionBar}>
+    {showReadingBody ? <View ref={actionBarRef} style={styles.detailActionBar}>
       {!detail.isSample ? <DetailActionButton label={t("card_detail.tab.dictation")} icon="headset-outline" disabled={!practiceEnabled || !canUseDictation || !frontLearningReady} onPress={onOpenDictation} /> : null}
       <DetailActionButton label={answersVisible ? t("card_detail.dictation.hide_answer") : t("card_detail.dictation.show_answer")} icon={answersVisible ? "eye-off-outline" : "eye-outline"} active={answersVisible} disabled={!wholeCardPracticeBlocks.length || !hasBlanks} onPress={() => setAnswersVisible((current) => !current)} />
       <DetailActionButton label={t("card_detail.cloze.keyboard_mode")} textIcon={t("card_detail.tab.cloze_short")} active={fillMode && clozeInputMode === "keyboard"} disabled={!wholeCardPracticeBlocks.length || !hasBlanks} onPress={() => toggleClozeMode("keyboard")} />
       <DetailActionButton label={t("card_detail.cloze.choice_mode")} textIcon={t("card_detail.tab.choice_short")} active={fillMode && clozeInputMode === "choice"} disabled={!wholeCardPracticeBlocks.length || !hasBlanks} onPress={() => toggleClozeMode("choice")} />
-    </View>
+    </View> : null}
     <RelationSheet
       visible={relationsVisible}
       relations={contentRelations}

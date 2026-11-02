@@ -1,5 +1,6 @@
 import React from "react";
-import { Modal, Pressable, StyleSheet, Switch, Text, View } from "react-native";
+import { Modal, Pressable, StyleSheet, Switch, View } from "react-native";
+import { Text } from "../../components/Typography";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { t } from "../../i18n";
 import { theme } from "../../theme";
