@@ -1,3 +1,4 @@
+import { reportGoogleBillingError } from "../services/payment/googleBillingDiagnostics";
 import { PointsUsageSheet } from "./shared/PointsUsageSheet";
 import React, { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Alert, AppState, Linking, Platform, Pressable, ScrollView, StyleSheet, View } from "react-native";
@@ -153,6 +154,7 @@ export function ProScreen({
   const appleAppAccountTokenRef = useRef<string | null>(null);
   const appleAppAccountTokenPromiseRef = useRef<Promise<string | null> | null>(null);
   const googlePlayPurchaseIntentRef = useRef(false);
+  const googleDiagnosticProductRef = useRef<string | undefined>(undefined);
   const googlePlayPurchaseFinishingRef = useRef(false);
   const googlePlayStalePurchaseSessionRef = useRef(false);
   const googlePlayPurchaseSessionRecoveryRef = useRef(false);
@@ -869,6 +871,7 @@ export function ProScreen({
     assertGooglePlayBillingAvailable(productCode);
     if (!(await ensureStoreConnected()) || !appleIap) return;
     const productId = getGooglePlayProductId(productCode);
+    googleDiagnosticProductRef.current = productId;
     const product = appleIap.subscriptions.find((item) => item.id === productId);
     if (!product) {
       safeAlert(t("pro.alert.google_product_loading_title"), storeError ?? t("pro.alert.google_product_loading_message"));
@@ -1008,6 +1011,7 @@ export function ProScreen({
         setIsAutoRenewLoading(false);
       }
     } catch (error) {
+      void reportGoogleBillingError(error, "request", productId);
       googlePlayPurchaseIntentRef.current = false;
       await abandonPendingPlanChange();
       if (!isScreenAlive()) return;
@@ -1731,7 +1735,10 @@ export function ProScreen({
   const iapBridge = Platform.OS === "ios" || (Platform.OS === "android" && !IS_CHINA_ANDROID) ? (
     <AppleIapBridge
       onReady={setAppleIap}
-      onStoreError={(error) => setStoreError(formatStoreErrorMessage(error))}
+      onStoreError={(error) => {
+        if (Platform.OS === "android") void reportGoogleBillingError(error, "products");
+        setStoreError(formatStoreErrorMessage(error));
+      }}
       onPurchaseSuccess={(purchase) => {
         if (Platform.OS === "android") {
           void handleGooglePlayPurchaseSuccess(purchase);
@@ -1742,6 +1749,7 @@ export function ProScreen({
       onPurchaseError={(error) => {
         if (!isScreenAlive()) return;
         if (Platform.OS === "android") {
+          void reportGoogleBillingError(error, "callback", googleDiagnosticProductRef.current);
           console.warn(
             "[GooglePlayBilling] purchase_error",
             JSON.stringify(readGooglePlayPurchaseErrorDiagnostics(error)),

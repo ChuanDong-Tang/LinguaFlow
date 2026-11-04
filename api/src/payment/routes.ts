@@ -1,3 +1,4 @@
+import { registerGoogleBillingDiagnostics } from "./clientDiagnostics.js";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import type { AutoRenewProductCode } from "@lf/core/ports/repository/AutoRenewRepository.js";
 import { timingSafeEqual } from "node:crypto";
@@ -197,6 +198,16 @@ function isChangeAutoRenewPlanRequest(value: unknown): value is {
 const isAbandonAutoRenewPlanChangeRequest = isChangeAutoRenewPlanRequest;
 
 export function registerPaymentRoutes(app: FastifyInstance, deps: PaymentRouteDeps): void {
+  registerGoogleBillingDiagnostics(app, {
+    writer: deps.systemEventLogRepository,
+    authorize: (req, reply) => resolvePaymentUserContext(req, reply, req.id, deps),
+    allowed: (req, reply) => checkIpPathRateLimit({
+      req, reply, module: "payment", routeKey: "google_client_error", path: "/payment/google-play/client-error",
+      limit: 30, windowSec: 60, keyPrefix: "payment:diagnostics",
+      exceededEvent: "payment.diagnostics.rate_limited", redisUnavailableEvent: "payment.diagnostics.redis_unavailable",
+      onExceeded: async () => { void reply.status(429).send({ ok: false }); },
+    }),
+  });
   const config = getRuntimeConfig();
   app.get("/payment/health", async (_req, reply) => {
     const appleIap = { ok: deps.appleIapService.isConfigured() };
