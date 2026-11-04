@@ -155,7 +155,7 @@ export function CollectionPickerModal({ visible, title, collections, value, incl
                 onPress={() => void saveEditor()}
               >
                 {creating
-                  ? <ActivityIndicator size="small" color="#FFFFFF" />
+                  ? <ActivityIndicator size="small" color={theme.colors.onAccent} />
                   : <Text style={styles.createButtonText}>{t(editor.kind === "rename" ? "common.save" : "collection_picker.create")}</Text>}
               </Pressable>
             </View>
@@ -225,6 +225,6 @@ const styles = StyleSheet.create({
   editorCancelButton: { width: 34, height: 34, alignItems: "center", justifyContent: "center" },
   createButton: { minWidth: 60, height: 34, paddingHorizontal: 12, borderRadius: 8, backgroundColor: theme.colors.text, alignItems: "center", justifyContent: "center" },
   createButtonDisabled: { opacity: 0.4 },
-  createButtonText: { color: "#FFFFFF", fontSize: 13, fontWeight: "600" },
+  createButtonText: { color: theme.colors.onAccent, fontSize: 13, fontWeight: "600" },
   moreButton: { width: 42, alignItems: "center", justifyContent: "center" },
 });

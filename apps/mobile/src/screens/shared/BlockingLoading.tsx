@@ -3,6 +3,7 @@ import { ActivityIndicator, Pressable, StyleSheet, View } from "react-native";
 import { Text } from "../../components/Typography";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { t } from "../../i18n";
+import { theme } from "../../theme";
 
 export type BlockingLoadingOptions = {
   text?: string;
@@ -47,10 +48,10 @@ export function BlockingLoading({
       <View style={styles.panel}>
         {canCancel ? (
           <Pressable style={styles.closeButton} onPress={options.onCancel} hitSlop={8}>
-            <Ionicons name="close" size={18} color="#5B6070" />
+            <Ionicons name="close" size={18} color={theme.colors.textSecondary} />
           </Pressable>
         ) : null}
-        <ActivityIndicator size="large" color="#7C6CFF" />
+        <ActivityIndicator size="large" color={theme.colors.accent} />
         {options.text ? <Text style={styles.text}>{options.text}</Text> : null}
       </View>
     </View>
@@ -124,9 +125,9 @@ const styles = StyleSheet.create({
     minWidth: 128,
     minHeight: 112,
     borderRadius: 18,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: theme.colors.surface,
     borderWidth: 1,
-    borderColor: "#E4E6EE",
+    borderColor: theme.colors.border,
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: 18,
@@ -145,11 +146,11 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#F4F5F8",
+    backgroundColor: theme.colors.surfaceSunken,
   },
   text: {
     marginTop: 12,
-    color: "#313541",
+    color: theme.colors.textStrong,
     fontSize: 14,
     fontWeight: "600",
   },

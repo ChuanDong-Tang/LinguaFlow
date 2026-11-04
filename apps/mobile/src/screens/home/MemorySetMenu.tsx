@@ -23,8 +23,8 @@ const styles = StyleSheet.create({
   pill: { alignSelf: "flex-start", paddingHorizontal: 8, minHeight: 44, flexDirection: "row", alignItems: "center", gap: 6, justifyContent: "center" },
   label: { color: theme.colors.text, fontSize: 15, fontWeight: "400" },
   overlay: { flex: 1, justifyContent: "center", alignItems: "center", padding: 24, backgroundColor: "rgba(0,0,0,0.12)" },
-  sheet: { width: 260, maxWidth: "100%", flexDirection: "row", gap: 6, borderRadius: 12, padding: 10, backgroundColor: "#FFFFFF", alignItems: "center", shadowColor: "#000000", shadowOpacity: 0.08, shadowRadius: 16, shadowOffset: { width: 0, height: 4 }, elevation: 4 },
+  sheet: { width: 260, maxWidth: "100%", flexDirection: "row", gap: 6, borderRadius: 12, padding: 10, backgroundColor: theme.colors.surface, alignItems: "center", shadowColor: "#000000", shadowOpacity: 0.08, shadowRadius: 16, shadowOffset: { width: 0, height: 4 }, elevation: 4 },
   option: { minHeight: 48, flex: 1, borderRadius: 6, justifyContent: "center", alignItems: "center" },
-  selectedOption: { backgroundColor: "#EFEFEF" },
+  selectedOption: { backgroundColor: theme.colors.surfaceMuted },
   selectedLabel: { fontWeight: "600" },
 });

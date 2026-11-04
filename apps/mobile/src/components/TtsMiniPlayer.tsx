@@ -12,6 +12,7 @@ import {
   toggleTtsLoop,
   toggleTtsPlayback,
 } from "../services/tts/ttsPlayback";
+import { theme } from "../theme";
 
 type TtsMiniPlayerProps = {
   storageKey: string;
@@ -203,8 +204,8 @@ export function TtsMiniPlayer({ storageKey }: TtsMiniPlayerProps) {
           onPress={toggleTtsPlayback}
         >
           {isLoading
-            ? <ActivityIndicator size="small" color="#FFFFFF" />
-            : <Ionicons name={isPlaying ? "pause" : "play"} size={18} color="#FFFFFF" />}
+            ? <ActivityIndicator size="small" color={theme.colors.onAccent} />
+            : <Ionicons name={isPlaying ? "pause" : "play"} size={18} color={theme.colors.onAccent} />}
         </Pressable>
       );
     }
@@ -356,7 +357,7 @@ const styles = StyleSheet.create({
   collapsedHandleButton: {
     width: COLLAPSED_HANDLE_WIDTH,
     height: 42,
-    backgroundColor: "#2C2C2E",
+    backgroundColor: theme.colors.ink,
     shadowColor: "#111111",
     shadowOpacity: 0.16,
     shadowRadius: 8,
@@ -385,7 +386,7 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: "#111111",
+    backgroundColor: theme.colors.ink,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -394,8 +395,8 @@ const styles = StyleSheet.create({
     height: 36,
     borderRadius: 18,
     borderWidth: 1,
-    borderColor: "#E3E6ED",
-    backgroundColor: "#FFFFFF",
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -405,26 +406,26 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     borderRadius: 18,
     borderWidth: 1,
-    borderColor: "#E3E6ED",
-    backgroundColor: "#FFFFFF",
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface,
     alignItems: "center",
     justifyContent: "center",
   },
   rateText: {
-    color: "#111111",
+    color: theme.colors.text,
     fontSize: 14,
     fontWeight: "500",
     letterSpacing: 0,
   },
   rateTextDisabled: {
-    color: "#AEB4C0",
+    color: theme.colors.textFaint,
   },
   loopButtonActive: {
-    borderColor: "#111111",
-    backgroundColor: "#111111",
+    borderColor: theme.colors.text,
+    backgroundColor: theme.colors.ink,
   },
   loopButton: { width: 40, height: 40, borderRadius: 20 },
-  loopOne: { position: "absolute", color: "#FFFFFF", fontSize: 10, lineHeight: 12, fontWeight: "800", textAlign: "center" },
+  loopOne: { position: "absolute", color: theme.colors.onAccent, fontSize: 10, lineHeight: 12, fontWeight: "800", textAlign: "center" },
   disabled: {
     opacity: 0.58,
   },

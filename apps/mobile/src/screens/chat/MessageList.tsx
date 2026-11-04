@@ -16,6 +16,7 @@ import {
 import { t } from "../../i18n";
 import { TtsPlayButton } from "../../components/TtsPlayButton";
 import OioCharacter from "../../../assets/app/oio-character.svg";
+import { theme } from "../../theme";
 
 const TypingDots = React.memo(function TypingDots() {
   const dot1 = React.useRef(new Animated.Value(0.35)).current;
@@ -450,7 +451,7 @@ const AssistantMessageRow = React.memo(function AssistantMessageRow({
                     setAnswersVisible((value) => !value);
                   }}
                 >
-                  <Ionicons name={answersVisible ? "eye-off-outline" : "eye-outline"} size={22} color="#111111" />
+                  <Ionicons name={answersVisible ? "eye-off-outline" : "eye-outline"} size={22} color={theme.colors.text} />
                 </Pressable>
               ) : (
                 <View />
@@ -462,7 +463,7 @@ const AssistantMessageRow = React.memo(function AssistantMessageRow({
                   style={styles.convertCardButton}
                   onPress={() => onConvertMessageToCard(message)}
                 >
-                  <Ionicons name="document-text-outline" size={16} color="#111111" />
+                  <Ionicons name="document-text-outline" size={16} color={theme.colors.text} />
                   <Text style={styles.convertCardText}>{t("chat.save_card")}</Text>
                 </Pressable>
                 {canUseTts ? (
@@ -762,11 +763,11 @@ const styles = StyleSheet.create({
   dayLine: {
     width: 76,
     height: 1,
-    backgroundColor: "#E7E8EE",
+    backgroundColor: theme.colors.surfaceMuted,
   },
   dayText: {
     marginHorizontal: 12,
-    color: "#8F95A1",
+    color: theme.colors.textMuted,
     fontSize: 13,
   },
   userBlock: {
@@ -774,21 +775,21 @@ const styles = StyleSheet.create({
     marginBottom: 18,
   },
   userBubble: {
-    backgroundColor: "#EFECFD",
+    backgroundColor: theme.colors.surfaceSunken,
     borderRadius: 24,
     paddingHorizontal: 22,
     paddingVertical: 16,
     maxWidth: "78%",
   },
   userText: {
-    color: "#111111",
+    color: theme.colors.text,
     fontSize: 17,
     lineHeight: 24,
   },
   timeTextRight: {
     marginTop: 8,
     marginRight: 4,
-    color: "#9CA2B3",
+    color: theme.colors.accent,
     fontSize: 13,
   },
   assistantBlock: {
@@ -803,14 +804,14 @@ const styles = StyleSheet.create({
     height: 40,
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: "#B5ACFF",
+    borderColor: theme.colors.accent,
     marginTop: 6,
     alignItems: "center",
     justifyContent: "center",
   },
   characterAvatar: { borderWidth: 0, borderRadius: 0 },
   assistantLogo: {
-    color: "#5A5497",
+    color: theme.colors.accent,
     fontSize: 12,
     letterSpacing: 0,
   },
@@ -818,20 +819,20 @@ const styles = StyleSheet.create({
     flex: 1,
     borderRadius: 18,
     borderWidth: 1,
-    borderColor: "#DBDFE7",
-    backgroundColor: "#FFFFFF",
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface,
     paddingHorizontal: 18,
     paddingTop: 16,
     paddingBottom: 14,
     marginLeft: 10,
   },
   assistantCardText: {
-    color: "#111111",
+    color: theme.colors.text,
     fontSize: 17,
     lineHeight: 23,
   },
   inlineAiBadge: {
-    color: "#6A62B7",
+    color: theme.colors.accent,
     fontSize: 10,
     fontWeight: "700",
     letterSpacing: 0,
@@ -839,7 +840,7 @@ const styles = StyleSheet.create({
   },
   translationText: {
     marginTop: 12,
-    color: "#727988",
+    color: theme.colors.textSecondary,
     fontSize: 14,
     lineHeight: 21,
   },
@@ -847,8 +848,8 @@ const styles = StyleSheet.create({
     marginTop: 14,
     paddingTop: 12,
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: "#E2E5EC",
-    color: "#30343B",
+    borderTopColor: theme.colors.border,
+    color: theme.colors.textStrong,
     fontSize: 16,
     lineHeight: 23,
   },
@@ -862,12 +863,12 @@ const styles = StyleSheet.create({
     height: 34,
     paddingHorizontal: 14,
     borderRadius: 17,
-    backgroundColor: "#111111",
+    backgroundColor: theme.colors.ink,
     alignItems: "center",
     justifyContent: "center",
   },
   retryText: {
-    color: "#FFFFFF",
+    color: theme.colors.onAccent,
     fontSize: 14,
     fontWeight: "700",
   },
@@ -894,12 +895,12 @@ const styles = StyleSheet.create({
     minHeight: 32,
     paddingHorizontal: 9,
     borderRadius: 16,
-    backgroundColor: "#F3F3F4",
+    backgroundColor: theme.colors.surfaceMuted,
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
   },
-  convertCardText: { color: "#111111", fontSize: 12, fontWeight: "500" },
+  convertCardText: { color: theme.colors.text, fontSize: 12, fontWeight: "500" },
   ttsButton: {
     minWidth: 32,
     minHeight: 36,
@@ -912,8 +913,8 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: "#DBDFE7",
-    backgroundColor: "#F7F8FB",
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.canvas,
   },
   copyMenuOption: {
     height: 24,
@@ -924,7 +925,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   copyMenuText: {
-    color: "#111111",
+    color: theme.colors.text,
     fontSize: 12,
     fontWeight: "600",
     letterSpacing: 0,
@@ -938,7 +939,7 @@ const styles = StyleSheet.create({
   timeTextLeft: {
     marginTop: 8,
     marginLeft: 50,
-    color: "#9CA2B3",
+    color: theme.colors.accent,
     fontSize: 13,
   },
   typingDots: {
@@ -950,7 +951,7 @@ const styles = StyleSheet.create({
     width: 7,
     height: 7,
     borderRadius: 3.5,
-    backgroundColor: "#8F95A1",
+    backgroundColor: theme.colors.disabled,
     marginRight: 6,
   },
 });

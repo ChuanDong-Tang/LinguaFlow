@@ -8,6 +8,7 @@ import { PRIVACY_URL, TERMS_URL } from "../constants/legalUrls";
 import * as Application from "expo-application";
 import { t } from "../i18n";
 import { getAvailableAppUpdate, type AvailableAppUpdate } from "../services/api/appVersionApi";
+import { theme } from "../theme";
 
 const CHANGELOG_URL = "https://yueyantech.com/wiki/changelog.html";
 
@@ -53,7 +54,7 @@ export function AboutScreen({ onBack }: AboutScreenProps) {
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
         <Pressable style={styles.backButton} onPress={onBack} hitSlop={10}>
-          <Ionicons name="chevron-back" size={24} color="#111111" />
+          <Ionicons name="chevron-back" size={24} color={theme.colors.text} />
         </Pressable>
         <Text style={styles.headerTitle}>{t("about.title")}</Text>
         <View style={styles.backButton} />
@@ -125,13 +126,13 @@ function InfoRow({
       disabled={!onPress}
       accessibilityRole={onPress ? "button" : undefined}
     >
-      <Ionicons name={icon} size={19} color="#111111" />
+      <Ionicons name={icon} size={19} color={theme.colors.text} />
       <View style={styles.rowLabelWrap}>
         <Text style={styles.rowLabel}>{label}</Text>
         {showDot && <View style={styles.updateDot} />}
       </View>
       {!!value && <Text style={styles.rowValue}>{value}</Text>}
-      <Ionicons name="chevron-forward" size={17} color="#555555" />
+      <Ionicons name="chevron-forward" size={17} color={theme.colors.textStrong} />
     </Pressable>
   );
 }
@@ -141,7 +142,7 @@ function openUrl(url: string): void {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#FAFAFA" },
+  container: { flex: 1, backgroundColor: theme.colors.canvas },
   header: {
     height: 60,
     paddingHorizontal: 16,
@@ -150,21 +151,21 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
   },
   backButton: { width: 40, height: 40, alignItems: "center", justifyContent: "center" },
-  headerTitle: { color: "#111111", fontSize: 17, fontWeight: "500" },
+  headerTitle: { color: theme.colors.text, fontSize: 17, fontWeight: "500" },
   scroll: { flex: 1 },
   content: { paddingHorizontal: 20, paddingBottom: 26 },
   brandBlock: { alignItems: "center", marginTop: 14, marginBottom: 18 },
-  logo: { fontSize: 30, color: "#111111", letterSpacing: 1 },
-  brand: { marginTop: 4, fontSize: 14, color: "#111111", fontWeight: "500" },
-  tagline: { marginTop: 8, fontSize: 12, color: "#707070" },
-  slogan: { marginTop: 12, fontSize: 13, color: "#707070" },
+  logo: { fontSize: 30, color: theme.colors.text, letterSpacing: 1 },
+  brand: { marginTop: 4, fontSize: 14, color: theme.colors.text, fontWeight: "500" },
+  tagline: { marginTop: 8, fontSize: 12, color: theme.colors.textSecondary },
+  slogan: { marginTop: 12, fontSize: 13, color: theme.colors.textSecondary },
   section: { marginBottom: 14 },
-  sectionTitle: { marginBottom: 8, fontSize: 14, color: "#111111", fontWeight: "500" },
+  sectionTitle: { marginBottom: 8, fontSize: 14, color: theme.colors.text, fontWeight: "500" },
   card: {
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: "#DEDEDE",
-    backgroundColor: "#FFFFFF",
+    borderColor: theme.colors.borderStrong,
+    backgroundColor: theme.colors.surface,
     overflow: "hidden",
   },
   row: {
@@ -173,12 +174,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingHorizontal: 16,
   },
-  rowBorder: { borderBottomWidth: 1, borderBottomColor: "#E8E8E8" },
+  rowBorder: { borderBottomWidth: 1, borderBottomColor: theme.colors.border },
   rowLabelWrap: { flex: 1, marginLeft: 12, flexDirection: "row", alignItems: "center" },
-  rowLabel: { color: "#111111", fontSize: 14 },
-  updateDot: { width: 7, height: 7, marginLeft: 6, borderRadius: 4, backgroundColor: "#E5484D" },
-  rowValue: { marginRight: 8, color: "#666666", fontSize: 13 },
-  footer: { marginTop: 12, textAlign: "center", color: "#808080", fontSize: 12 },
+  rowLabel: { color: theme.colors.text, fontSize: 14 },
+  updateDot: { width: 7, height: 7, marginLeft: 6, borderRadius: 4, backgroundColor: theme.colors.danger },
+  rowValue: { marginRight: 8, color: theme.colors.textSecondary, fontSize: 13 },
+  footer: { marginTop: 12, textAlign: "center", color: theme.colors.textMuted, fontSize: 12 },
 
   logoImage: {
     width: 180,

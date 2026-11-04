@@ -7,6 +7,7 @@ import { memoryArchiveSet } from "./memoryArchiveSet";
 import { memoryDeckPages } from "./memoryDeckPages";
 import { MemoryDeckSettings } from "./MemoryDeckSettings";
 import { memoryFanLayout } from "./memoryFanLayout";
+import { theme } from "../../theme";
 
 const labels = {
   "zh-CN": ["浏览设置", "每次显示", "每组数量", "重新排列", "这一组看完了", "下一组", "上一页", "下一页", "还没有留下回忆", "载入更多回忆"],
@@ -81,7 +82,7 @@ export function MemoryArchiveDeck({ records, loading, hasMore, onLoadMore, onOpe
       <Text style={styles.muted}>{page === pages.length ? copy[4] : `${page * visible + 1}–${Math.min((page + 1) * visible, ids.length)} / ${ids.length}`}</Text>
       <Pressable accessibilityRole="button" accessibilityLabel={copy[7]} disabled={page === pages.length} style={[styles.button, page === pages.length && styles.disabled]} onPress={() => go(page + 1)}><Text style={styles.arrow}>›</Text></Pressable>
     </View> : null}</View>
-    <View style={styles.statusSlot}>{loading ? <ActivityIndicator color="#555555" /> : null}</View>
+    <View style={styles.statusSlot}>{loading ? <ActivityIndicator color={theme.colors.textStrong} /> : null}</View>
   </View>;
 }
 function ArchiveCover({ card, onError }: { card: CardRecordSummary; onError: () => void }) {
@@ -94,22 +95,22 @@ function ArchiveCover({ card, onError }: { card: CardRecordSummary; onError: () 
 const styles = StyleSheet.create({
   container: { width: "100%", alignItems: "center" }, header: { width: "100%", alignItems: "flex-start" },
   button: { minHeight: 44, minWidth: 44, padding: 10, justifyContent: "center", alignItems: "center" },
-  nextSet: { minHeight: 50, minWidth: 148, paddingHorizontal: 28, paddingVertical: 12, borderRadius: 25, backgroundColor: "#222222", alignItems: "center", justifyContent: "center" },
+  nextSet: { minHeight: 50, minWidth: 148, paddingHorizontal: 28, paddingVertical: 12, borderRadius: 25, backgroundColor: theme.colors.ink, alignItems: "center", justifyContent: "center" },
   nextSetPressed: { opacity: 0.7 },
-  nextSetText: { color: "#FFFFFF", fontSize: 16, fontWeight: "600" },
+  nextSetText: { color: theme.colors.onAccent, fontSize: 16, fontWeight: "600" },
   navigationSlot: { minHeight: 52, justifyContent: "center" },
   statusSlot: { height: 24, justifyContent: "center" },
   settingsTrigger: { flexDirection: "row", alignItems: "center", gap: 6 },
-  muted: { color: "#777777", fontSize: 13 }, viewport: { width: "100%", height: 390 },
+  muted: { color: theme.colors.textSecondary, fontSize: 13 }, viewport: { width: "100%", height: 390 },
   spread: { height: 390, flexDirection: "row", gap: 10, alignItems: "center", justifyContent: "center" },
-  card: { padding: 5, borderRadius: 12, backgroundColor: "#FFFFFF", gap: 5, shadowColor: "#000000", shadowOpacity: 0.08, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 3 },
+  card: { padding: 5, borderRadius: 12, backgroundColor: theme.colors.surface, gap: 5, shadowColor: "#000000", shadowOpacity: 0.08, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 3 },
   single: { width: "86%", height: 340 }, pair: { width: "46%", height: 265 }, fan: { position: "absolute", width: "65%", height: 285 },
-  image: { width: "100%", flex: 1, minHeight: 0, borderRadius: 8 }, textCover: { justifyContent: "center", padding: 12, backgroundColor: "#FAFAFA" },
-  title: { color: "#222222", fontSize: 14, lineHeight: 21 }, date: { color: "#888888", fontSize: 11, paddingBottom: 3 },
-  navigation: { flexDirection: "row", alignItems: "center", gap: 24 }, arrow: { color: "#222222", fontSize: 24 }, disabled: { opacity: 0.2 },
-  ending: { flex: 1, alignItems: "center", justifyContent: "center", gap: 22 }, action: { color: "#222222", fontSize: 15, fontWeight: "500" },
+  image: { width: "100%", flex: 1, minHeight: 0, borderRadius: 8 }, textCover: { justifyContent: "center", padding: 12, backgroundColor: theme.colors.canvas },
+  title: { color: theme.colors.text, fontSize: 14, lineHeight: 21 }, date: { color: theme.colors.textMuted, fontSize: 11, paddingBottom: 3 },
+  navigation: { flexDirection: "row", alignItems: "center", gap: 24 }, arrow: { color: theme.colors.text, fontSize: 24 }, disabled: { opacity: 0.2 },
+  ending: { flex: 1, alignItems: "center", justifyContent: "center", gap: 22 }, action: { color: theme.colors.text, fontSize: 15, fontWeight: "500" },
   overlay: { flex: 1, alignItems: "center", justifyContent: "center", padding: 24, backgroundColor: "rgba(0,0,0,0.12)" },
-  settings: { width: 310, maxWidth: "100%", backgroundColor: "#FFFFFF", borderRadius: 12, padding: 18, gap: 18 },
+  settings: { width: 310, maxWidth: "100%", backgroundColor: theme.colors.surface, borderRadius: 12, padding: 18, gap: 18 },
   settingRow: { gap: 8 }, options: { flexDirection: "row", gap: 8 }, option: { flex: 1, minHeight: 44, alignItems: "center", justifyContent: "center", borderRadius: 6 },
-  selected: { backgroundColor: "#EFEFEF" }, apply: { minHeight: 44, alignItems: "center", justifyContent: "center", borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "#EEEEEE" },
+  selected: { backgroundColor: theme.colors.surfaceMuted }, apply: { minHeight: 44, alignItems: "center", justifyContent: "center", borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.border },
 });

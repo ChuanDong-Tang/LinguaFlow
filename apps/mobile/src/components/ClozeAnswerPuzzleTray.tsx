@@ -49,7 +49,7 @@ export function ClozeAnswerPuzzleTray({
 const styles = StyleSheet.create({
   root: { gap: 12 },
   answer: { minHeight: 54, borderRadius: 16, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surface, padding: 9, justifyContent: "center" },
-  answerIncorrect: { borderColor: "#DFA9A3", backgroundColor: "#FFF6F4" },
+  answerIncorrect: { borderColor: theme.colors.accentSoft, backgroundColor: theme.colors.canvas },
   wrap: { flexDirection: "row", flexWrap: "wrap", gap: 8, justifyContent: "center" },
   answerWrap: { minHeight: 32, alignItems: "center" },
   characterAnswerWrap: { gap: 4 },

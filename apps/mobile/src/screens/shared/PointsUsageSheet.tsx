@@ -55,7 +55,7 @@ export function PointsUsageSheet({ visible, onClose }: { visible: boolean; onClo
 const styles = StyleSheet.create({
   overlay: { flex: 1, justifyContent: "flex-end", backgroundColor: "transparent" },
   sheet: { backgroundColor: theme.colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 22, shadowColor: "#000", shadowOpacity: 0.08, shadowRadius: 18, shadowOffset: { width: 0, height: -4 }, elevation: 8 },
-  handle: { width: 34, height: 4, borderRadius: 2, backgroundColor: "#D8D8D8", alignSelf: "center", marginTop: 10, marginBottom: 18 },
+  handle: { width: 34, height: 4, borderRadius: 2, backgroundColor: theme.colors.disabled, alignSelf: "center", marginTop: 10, marginBottom: 18 },
   header: { flexDirection: "row", alignItems: "center", gap: 16, marginBottom: 20 },
   title: { flex: 1, fontSize: 20, fontWeight: "600", color: theme.colors.text },
   content: { paddingBottom: 12, gap: 16 },
@@ -64,6 +64,6 @@ const styles = StyleSheet.create({
   featureText: { flex: 1, gap: 4 },
   label: { fontSize: 15, lineHeight: 23, fontWeight: "500", color: theme.colors.text },
   value: { fontSize: 14, fontWeight: "600", color: theme.colors.text, textAlign: "right", flexShrink: 1 },
-  free: { color: "#3F7D65" },
+  free: { color: theme.colors.success },
   divider: { height: StyleSheet.hairlineWidth, backgroundColor: theme.colors.border },
 });

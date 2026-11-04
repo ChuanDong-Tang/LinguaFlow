@@ -1191,7 +1191,7 @@ function DeleteAccountModal({
             value={passCode}
             onChangeText={onChangePassCode}
             placeholder={t("app.delete.code_placeholder")}
-            placeholderTextColor="#8A8E99"
+            placeholderTextColor={theme.colors.textMuted}
             keyboardType="number-pad"
             editable={!loading}
           />
@@ -1247,7 +1247,7 @@ function BindEmailModal({
             value={email}
             onChangeText={onChangeEmail}
             placeholder={t("app.bind_email.email_placeholder")}
-            placeholderTextColor="#8A8E99"
+            placeholderTextColor={theme.colors.textMuted}
             keyboardType="email-address"
             autoCapitalize="none"
             autoCorrect={false}
@@ -1259,7 +1259,7 @@ function BindEmailModal({
               value={passCode}
               onChangeText={onChangePassCode}
               placeholder={t("app.bind_email.code_placeholder")}
-              placeholderTextColor="#8A8E99"
+              placeholderTextColor={theme.colors.textMuted}
               keyboardType="number-pad"
               editable={!loading}
             />
@@ -1453,17 +1453,17 @@ const styles = StyleSheet.create({
   quotaDialogMembershipButton: { height: 48, marginTop: 22, borderRadius: 15, backgroundColor: theme.colors.accentStrong, alignItems: "center", justifyContent: "center" },
   quotaDialogMembershipText: { color: theme.colors.surface, fontSize: 16, fontWeight: "600" },
   quotaDialogButtonPressed: { opacity: 0.82 },
-  screen: { flex: 1, backgroundColor: "#FFFFFF" },
+  screen: { flex: 1, backgroundColor: theme.colors.surface },
   content: { flex: 1 },
   appStack: { flex: 1 },
   overlayScreen: {
     ...StyleSheet.absoluteFill,
-    backgroundColor: "#FCFCFD",
+    backgroundColor: theme.colors.canvas,
     zIndex: 1,
     elevation: 1,
   },
   memoryRoundOverlay: { zIndex: 2, elevation: 2 },
-  fadingScreen: { flex: 1, backgroundColor: "#FCFCFD" },
+  fadingScreen: { flex: 1, backgroundColor: theme.colors.canvas },
   tabHost: { flex: 1 },
   tabPage: { ...StyleSheet.absoluteFill },
   tabPageHidden: { display: "none" },
@@ -1475,7 +1475,7 @@ const styles = StyleSheet.create({
   },
   bootingScreen: {
     flex: 1,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: theme.colors.surface,
   },
   deleteBackdrop: {
     flex: 1,
@@ -1486,16 +1486,16 @@ const styles = StyleSheet.create({
   deletePanel: {
     padding: 18,
     borderRadius: 18,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: theme.colors.surface,
   },
   deleteTitle: {
-    color: "#111111",
+    color: theme.colors.text,
     fontSize: 18,
     fontWeight: "600",
   },
   deleteDesc: {
     marginTop: 8,
-    color: "#5E6573",
+    color: theme.colors.textSecondary,
     fontSize: 13,
     lineHeight: 19,
   },
@@ -1504,10 +1504,10 @@ const styles = StyleSheet.create({
     height: 48,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: "#DFE3EA",
-    backgroundColor: "#FAFBFC",
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.canvas,
     paddingHorizontal: 12,
-    color: "#111111",
+    color: theme.colors.text,
     fontSize: 15,
   },
   deleteActions: {
@@ -1520,7 +1520,7 @@ const styles = StyleSheet.create({
     height: 44,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: "#D8DAE0",
+    borderColor: theme.colors.borderStrong,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -1528,7 +1528,7 @@ const styles = StyleSheet.create({
     flex: 1,
     height: 44,
     borderRadius: 12,
-    backgroundColor: "#C43D3D",
+    backgroundColor: theme.colors.danger,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -1544,12 +1544,12 @@ const styles = StyleSheet.create({
     opacity: 0.62,
   },
   deleteCancelText: {
-    color: "#111111",
+    color: theme.colors.text,
     fontSize: 15,
     fontWeight: "500",
   },
   deleteSubmitText: {
-    color: "#FFFFFF",
+    color: theme.colors.onAccent,
     fontSize: 15,
     fontWeight: "600",
   },

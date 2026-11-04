@@ -81,6 +81,7 @@ import {
   subscriptionTier,
 } from "../domain/subscription/subscriptionPlans";
 import { payWithAlipay } from "../../modules/oio-alipay-pay";
+import { theme } from "../theme";
 
 type ProScreenProps = {
   onBack?: () => void;
@@ -1812,7 +1813,7 @@ export function ProScreen({
       <PointsUsageSheet visible={pointsUsageVisible} onClose={() => setPointsUsageVisible(false)} />
       <View style={styles.header}>
         <Pressable accessibilityLabel={t("subscription.manager.back")} style={styles.backButton} onPress={onBack} hitSlop={10}>
-          <Ionicons name="arrow-back" size={24} color="#111111" />
+          <Ionicons name="arrow-back" size={24} color={theme.colors.text} />
         </Pressable>
         <Text style={styles.headerTitle}>{t("subscription.manager.title")}</Text>
         <View style={styles.backButton} />
@@ -1883,7 +1884,7 @@ export function ProScreen({
                   [{ text: t("common.got_it") }],
                 )}
               >
-                <Ionicons name="information-circle-outline" size={18} color="#777064" />
+                <Ionicons name="information-circle-outline" size={18} color={theme.colors.textSecondary} />
               </Pressable>
             </View>
             <View style={styles.periodToggle}>
@@ -1932,7 +1933,7 @@ export function ProScreen({
                 <View style={styles.managerBenefits}>
                   {benefits.map((benefit) => (
                     <View key={benefit} style={styles.managerBenefitRow}>
-                      <Ionicons name="checkmark" size={15} color="#333333" />
+                      <Ionicons name="checkmark" size={15} color={theme.colors.textStrong} />
                       <Text style={styles.managerBenefitText}>{benefit}</Text>
                     </View>
                   ))}
@@ -2438,7 +2439,7 @@ function BenefitItem({
   return (
     <View style={[styles.benefitItem, !isLast && styles.benefitItemBorder]}>
       <View style={styles.benefitIcon}>
-        <Ionicons name={icon} size={18} color="#111111" />
+        <Ionicons name={icon} size={18} color={theme.colors.text} />
       </View>
       <View style={styles.benefitCopy}>
         <Text style={styles.benefitTitle}>{title}</Text>
@@ -2460,7 +2461,7 @@ const PAYMENT_RULE_KEYS = [
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#FCFCFD",
+    backgroundColor: theme.colors.canvas,
   },
   managerContent: {
     paddingHorizontal: 18,
@@ -2470,77 +2471,77 @@ const styles = StyleSheet.create({
   currentAccessCard: {
     padding: 18,
     borderRadius: 16,
-    backgroundColor: "#F2F0EA",
+    backgroundColor: theme.colors.surfaceMuted,
   },
-  managerEyebrow: { color: "#7B7870", fontSize: 11, letterSpacing: 0.5 },
+  managerEyebrow: { color: theme.colors.textSecondary, fontSize: 11, letterSpacing: 0.5 },
   managerCurrentRow: { marginTop: 5, flexDirection: "row", alignItems: "center", gap: 8 },
-  managerCurrentTier: { color: "#171717", fontSize: 28, fontWeight: "600" },
+  managerCurrentTier: { color: theme.colors.text, fontSize: 28, fontWeight: "600" },
   manualBadge: {
     paddingHorizontal: 7,
     paddingVertical: 3,
     borderRadius: 999,
     overflow: "hidden",
-    color: "#74571E",
-    backgroundColor: "#E9D8AD",
+    color: theme.colors.warning,
+    backgroundColor: theme.colors.warning,
     fontSize: 10,
     fontWeight: "600",
   },
-  managerMeta: { marginTop: 5, color: "#6A6863", fontSize: 12, lineHeight: 18 },
+  managerMeta: { marginTop: 5, color: theme.colors.textSecondary, fontSize: 12, lineHeight: 18 },
   currentSubscriptionCard: {
     marginTop: 12,
     padding: 16,
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "#DDDBD6",
+    borderColor: theme.colors.borderStrong,
     borderRadius: 14,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: theme.colors.surface,
   },
   managerSectionHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  managerSectionTitle: { color: "#171717", fontSize: 15, fontWeight: "600" },
-  managerLink: { color: "#5B574F", fontSize: 12, textDecorationLine: "underline" },
-  subscriptionName: { marginTop: 11, color: "#171717", fontSize: 17, fontWeight: "600" },
-  pendingPlanBox: { marginTop: 12, padding: 11, borderRadius: 10, backgroundColor: "#F6F3EA" },
-  pendingPlanTitle: { color: "#3F392C", fontSize: 12, fontWeight: "600" },
-  pendingPlanText: { marginTop: 3, color: "#777064", fontSize: 11 },
+  managerSectionTitle: { color: theme.colors.text, fontSize: 15, fontWeight: "600" },
+  managerLink: { color: theme.colors.textStrong, fontSize: 12, textDecorationLine: "underline" },
+  subscriptionName: { marginTop: 11, color: theme.colors.text, fontSize: 17, fontWeight: "600" },
+  pendingPlanBox: { marginTop: 12, padding: 11, borderRadius: 10, backgroundColor: theme.colors.surfaceMuted },
+  pendingPlanTitle: { color: theme.colors.textStrong, fontSize: 12, fontWeight: "600" },
+  pendingPlanText: { marginTop: 3, color: theme.colors.textSecondary, fontSize: 11 },
   pendingPlanActions: { marginTop: 10, flexDirection: "row", gap: 18 },
-  pendingPlanAction: { color: "#514B40", fontSize: 12, fontWeight: "600", textDecorationLine: "underline" },
+  pendingPlanAction: { color: theme.colors.textStrong, fontSize: 12, fontWeight: "600", textDecorationLine: "underline" },
   planChooserHead: { marginTop: 26 },
   planChooserControls: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   planChooserTitleRow: { flexDirection: "row", alignItems: "center", gap: 5 },
-  annualPassNote: { marginTop: 8, color: "#6A6863", fontSize: 12, lineHeight: 18 },
-  periodToggle: { flexDirection: "row", padding: 3, borderRadius: 10, backgroundColor: "#EEEEEC" },
+  annualPassNote: { marginTop: 8, color: theme.colors.textSecondary, fontSize: 12, lineHeight: 18 },
+  periodToggle: { flexDirection: "row", padding: 3, borderRadius: 10, backgroundColor: theme.colors.surfaceMuted },
   periodOption: { minWidth: 54, paddingHorizontal: 10, paddingVertical: 7, borderRadius: 8, alignItems: "center" },
-  periodOptionActive: { backgroundColor: "#FFFFFF" },
-  periodOptionText: { color: "#777777", fontSize: 12, fontWeight: "500" },
-  periodOptionTextActive: { color: "#171717", fontWeight: "600" },
+  periodOptionActive: { backgroundColor: theme.colors.surface },
+  periodOptionText: { color: theme.colors.textSecondary, fontSize: 12, fontWeight: "500" },
+  periodOptionTextActive: { color: theme.colors.text, fontWeight: "600" },
   managerPlanGrid: { marginTop: 12, flexDirection: "row", alignItems: "stretch", gap: 10 },
   managerPlanCard: {
     flex: 1,
     minWidth: 0,
     padding: 14,
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "#D8D8D5",
+    borderColor: theme.colors.borderStrong,
     borderRadius: 15,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: theme.colors.surface,
   },
-  managerPlanCardFeatured: { borderColor: "#AFA99C", backgroundColor: "#FAF8F3" },
+  managerPlanCardFeatured: { borderColor: theme.colors.borderStrong, backgroundColor: theme.colors.surfaceSunken },
   managerPlanTitleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 5 },
-  managerPlanTitle: { color: "#171717", fontSize: 18, fontWeight: "600" },
+  managerPlanTitle: { color: theme.colors.text, fontSize: 18, fontWeight: "600" },
   savingBadge: {
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 999,
     overflow: "hidden",
-    color: "#77591F",
-    backgroundColor: "#EEE1BF",
+    color: theme.colors.warning,
+    backgroundColor: theme.colors.warning,
     fontSize: 9,
     fontWeight: "600",
   },
   managerPriceRow: { marginTop: 11, flexDirection: "row", alignItems: "baseline" },
-  managerPrice: { color: "#171717", fontSize: 22, fontWeight: "600" },
-  managerPricePeriod: { marginLeft: 2, color: "#777777", fontSize: 11 },
+  managerPrice: { color: theme.colors.text, fontSize: 22, fontWeight: "600" },
+  managerPricePeriod: { marginLeft: 2, color: theme.colors.textSecondary, fontSize: 11 },
   managerBenefits: { minHeight: 112, marginTop: 14, gap: 7 },
   managerBenefitRow: { flexDirection: "row", alignItems: "flex-start", gap: 5 },
-  managerBenefitText: { flex: 1, color: "#555555", fontSize: 11, lineHeight: 16 },
+  managerBenefitText: { flex: 1, color: theme.colors.textStrong, fontSize: 11, lineHeight: 16 },
   managerPlanButton: {
     minHeight: 40,
     marginTop: 15,
@@ -2548,14 +2549,14 @@ const styles = StyleSheet.create({
     borderRadius: 9,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#171717",
+    backgroundColor: theme.colors.ink,
   },
-  managerPlanButtonSecondary: { borderWidth: 1, borderColor: "#BEBEBB", backgroundColor: "#FFFFFF" },
-  managerPlanButtonText: { color: "#FFFFFF", fontSize: 12, fontWeight: "600", textAlign: "center" },
-  managerPlanButtonTextSecondary: { color: "#171717" },
+  managerPlanButtonSecondary: { borderWidth: 1, borderColor: theme.colors.borderStrong, backgroundColor: theme.colors.surface },
+  managerPlanButtonText: { color: theme.colors.onAccent, fontSize: 12, fontWeight: "600", textAlign: "center" },
+  managerPlanButtonTextSecondary: { color: theme.colors.text },
   managerFooterActions: { marginTop: 24, flexDirection: "row", justifyContent: "center", gap: 28 },
-  managerFooterLink: { color: "#555555", fontSize: 13, textDecorationLine: "underline" },
-  managerFootnote: { marginTop: 14, color: "#929292", fontSize: 10.5, lineHeight: 16, textAlign: "center" },
+  managerFooterLink: { color: theme.colors.textStrong, fontSize: 13, textDecorationLine: "underline" },
+  managerFootnote: { marginTop: 14, color: theme.colors.textMuted, fontSize: 10.5, lineHeight: 16, textAlign: "center" },
   header: {
     height: 48,
     paddingHorizontal: 16,
@@ -2570,7 +2571,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   headerTitle: {
-    color: "#111111",
+    color: theme.colors.text,
     fontSize: 16,
     fontWeight: "500",
   },
@@ -2588,17 +2589,17 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: "#DEDEDE",
-    backgroundColor: "#F5F5F5",
+    borderColor: theme.colors.borderStrong,
+    backgroundColor: theme.colors.surfaceSunken,
   },
   heroTitle: {
-    color: "#111111",
+    color: theme.colors.text,
     fontSize: 15,
     fontWeight: "500",
   },
   heroCopy: {
     marginTop: 4,
-    color: "#5F5F5F",
+    color: theme.colors.textSecondary,
     fontSize: 12,
     lineHeight: 17,
   },
@@ -2607,8 +2608,8 @@ const styles = StyleSheet.create({
     marginTop: 10,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: "#DEDEDE",
-    backgroundColor: "#FFFFFF",
+    borderColor: theme.colors.borderStrong,
+    backgroundColor: theme.colors.surface,
     overflow: "hidden",
   },
   benefitItem: {
@@ -2620,14 +2621,14 @@ const styles = StyleSheet.create({
   },
   benefitItemBorder: {
     borderBottomWidth: 1,
-    borderBottomColor: "#ECEEF2",
+    borderBottomColor: theme.colors.border,
   },
   benefitIcon: {
     width: 30,
     height: 30,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: "#DEDEDE",
+    borderColor: theme.colors.borderStrong,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -2636,13 +2637,13 @@ const styles = StyleSheet.create({
     marginLeft: 10,
   },
   benefitTitle: {
-    color: "#111111",
+    color: theme.colors.text,
     fontSize: 13,
     fontWeight: "500",
   },
   benefitSubtitle: {
     marginTop: 2,
-    color: "#5F5F5F",
+    color: theme.colors.textSecondary,
     fontSize: 11,
     lineHeight: 15,
   },
@@ -2652,8 +2653,8 @@ const styles = StyleSheet.create({
     padding: 12,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: "#DEDEDE",
-    backgroundColor: "#FFFFFF",
+    borderColor: theme.colors.borderStrong,
+    backgroundColor: theme.colors.surface,
   },
   priceHead: {
     flexDirection: "row",
@@ -2661,12 +2662,12 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
   },
   priceTitle: {
-    color: "#111111",
+    color: theme.colors.text,
     fontSize: 14,
     fontWeight: "500",
   },
   membershipStatus: {
-    color: "#707070",
+    color: theme.colors.textSecondary,
     fontSize: 11,
     lineHeight: 16,
     marginBottom: 5,
@@ -2683,12 +2684,12 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 9,
     borderWidth: 1,
-    borderColor: "#DEDEDE",
-    backgroundColor: "#FAFAFA",
+    borderColor: theme.colors.borderStrong,
+    backgroundColor: theme.colors.canvas,
     justifyContent: "center",
   },
   planPriceName: {
-    color: "#111111",
+    color: theme.colors.text,
     fontSize: 12,
     fontWeight: "500",
   },
@@ -2698,12 +2699,12 @@ const styles = StyleSheet.create({
     alignItems: "baseline",
   },
   planPriceValue: {
-    color: "#111111",
+    color: theme.colors.text,
     fontSize: 20,
     fontWeight: "600",
   },
   planPriceUnit: {
-    color: "#686868",
+    color: theme.colors.textSecondary,
     fontSize: 11,
   },
   autoRenewBox: {
@@ -2711,8 +2712,8 @@ const styles = StyleSheet.create({
     padding: 9,
     borderRadius: 9,
     borderWidth: 1,
-    borderColor: "#DEDEDE",
-    backgroundColor: "#FAFAFA",
+    borderColor: theme.colors.borderStrong,
+    backgroundColor: theme.colors.canvas,
     flexDirection: "row",
     alignItems: "center",
   },
@@ -2720,13 +2721,13 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   autoRenewTitle: {
-    color: "#111111",
+    color: theme.colors.text,
     fontSize: 12,
     fontWeight: "500",
   },
   autoRenewText: {
     marginTop: 3,
-    color: "#686868",
+    color: theme.colors.textSecondary,
     fontSize: 11,
     lineHeight: 16,
   },
@@ -2735,13 +2736,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: "#111111",
+    borderColor: theme.colors.text,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#FFFFFF",
+    backgroundColor: theme.colors.surface,
   },
   secondaryButtonText: {
-    color: "#111111",
+    color: theme.colors.text,
     fontSize: 12,
     fontWeight: "500",
     textAlign: "center",
@@ -2750,8 +2751,8 @@ const styles = StyleSheet.create({
     minHeight: 38,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: "#111111",
-    backgroundColor: "#111111",
+    borderColor: theme.colors.text,
+    backgroundColor: theme.colors.ink,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -2759,7 +2760,7 @@ const styles = StyleSheet.create({
     opacity: 0.7,
   },
   subscribeText: {
-    color: "#FFFFFF",
+    color: theme.colors.onAccent,
     fontSize: 13,
     fontWeight: "500",
     textAlign: "center",
@@ -2783,13 +2784,13 @@ const styles = StyleSheet.create({
     minHeight: 34,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: "#DEDEDE",
-    backgroundColor: "#FAFAFA",
+    borderColor: theme.colors.borderStrong,
+    backgroundColor: theme.colors.canvas,
     alignItems: "center",
     justifyContent: "center",
   },
   redeemButtonText: {
-    color: "#111111",
+    color: theme.colors.text,
     fontSize: 12,
     fontWeight: "500",
     textAlign: "center",
@@ -2803,12 +2804,12 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   restoreHintText: {
-    color: "#707070",
+    color: theme.colors.textSecondary,
     fontSize: 11,
     fontWeight: "400",
   },
   restoreButtonText: {
-    color: "#111111",
+    color: theme.colors.text,
     fontSize: 11,
     fontWeight: "500",
     textDecorationLine: "underline",
@@ -2819,7 +2820,7 @@ const styles = StyleSheet.create({
     paddingBottom: 2,
   },
   ruleTitle: {
-    color: "#111111",
+    color: theme.colors.text,
     fontSize: 12,
     fontWeight: "500",
     marginBottom: 4,
@@ -2835,11 +2836,11 @@ const styles = StyleSheet.create({
     borderRadius: 2,
     marginTop: 6,
     marginRight: 6,
-    backgroundColor: "#9AA0AB",
+    backgroundColor: theme.colors.disabled,
   },
   ruleText: {
     flex: 1,
-    color: "#686868",
+    color: theme.colors.textSecondary,
     fontSize: 10,
     lineHeight: 14,
   },

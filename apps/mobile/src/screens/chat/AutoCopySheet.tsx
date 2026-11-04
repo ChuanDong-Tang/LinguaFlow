@@ -25,7 +25,7 @@ export function AutoCopySheet({
           <View style={styles.header}>
             <Text style={styles.title}>{t("chat.settings.title")}</Text>
             <Pressable style={styles.closeButton} hitSlop={8} onPress={onClose}>
-              <Ionicons name="close" size={20} color="#111111" />
+              <Ionicons name="close" size={20} color={theme.colors.text} />
             </Pressable>
           </View>
 
@@ -39,8 +39,8 @@ export function AutoCopySheet({
             <Switch
               pointerEvents="none"
               value={replyEnabled}
-              trackColor={{ false: "#D8DDE7", true: theme.colors.accent }}
-              thumbColor="#FFFFFF"
+              trackColor={{ false: theme.colors.textFaint, true: theme.colors.accent }}
+              thumbColor={theme.colors.surface}
             />
           </Pressable>
         </Pressable>
@@ -59,7 +59,7 @@ const styles = StyleSheet.create({
     marginHorizontal: 12,
     marginBottom: 12,
     borderRadius: 18,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: theme.colors.surface,
     paddingHorizontal: 16,
     paddingTop: 16,
     paddingBottom: 16,
@@ -71,7 +71,7 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   title: {
-    color: "#111111",
+    color: theme.colors.text,
     fontSize: 18,
     fontWeight: "800",
   },
@@ -79,7 +79,7 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: "#F1F3F7",
+    backgroundColor: theme.colors.surfaceSunken,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -90,7 +90,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
   },
   optionLabel: {
-    color: "#111111",
+    color: theme.colors.text,
     fontSize: 16,
     fontWeight: "700",
   },

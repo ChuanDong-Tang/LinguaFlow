@@ -5,6 +5,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { getChatContactDescription, getChatContactName, type ChatContact } from "../../domain/chat/contacts";
 import { t } from "../../i18n";
 import OioCharacter from "../../../assets/app/oio-character.svg";
+import { theme } from "../../theme";
 
 type ChatHeaderProps = {
   contact: ChatContact;
@@ -17,7 +18,7 @@ export function ChatHeader({ contact, onBack, onOpenCalendar, onOpenMenu }: Chat
   return (
     <View style={styles.header}>
       <Pressable onPress={onBack} style={styles.backButton} hitSlop={8}>
-        <Ionicons name="chevron-back" size={24} color="#111111" />
+        <Ionicons name="chevron-back" size={24} color={theme.colors.text} />
       </Pressable>
 
       <View style={[styles.headerAvatarWrap, contact.id === "curious_companion" && styles.characterAvatarWrap]}>
@@ -32,12 +33,12 @@ export function ChatHeader({ contact, onBack, onOpenCalendar, onOpenMenu }: Chat
       </View>
 
       <Pressable accessibilityLabel={t("chat.date.select")} style={styles.calendarButton} hitSlop={8} onPress={onOpenCalendar}>
-        <Ionicons name="calendar-outline" size={22} color="#111111" />
+        <Ionicons name="calendar-outline" size={22} color={theme.colors.text} />
       </Pressable>
 
       {onOpenMenu ? (
         <Pressable style={styles.menuButton} hitSlop={8} onPress={onOpenMenu}>
-          <Ionicons name="ellipsis-horizontal" size={22} color="#111111" />
+          <Ionicons name="ellipsis-horizontal" size={22} color={theme.colors.text} />
         </Pressable>
       ) : null}
     </View>
@@ -65,14 +66,14 @@ const styles = StyleSheet.create({
     height: 40,
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: "#B5ACFF",
+    borderColor: theme.colors.accent,
     alignItems: "center",
     justifyContent: "center",
   },
   characterAvatarWrap: { borderWidth: 0, borderRadius: 0 },
   logoText: {
     fontSize: 12,
-    color: "#5A5497",
+    color: theme.colors.accent,
     letterSpacing: 0,
   },
   headerBody: {
@@ -83,11 +84,11 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: 16,
     fontWeight: "500",
-    color: "#111111",
+    color: theme.colors.text,
   },
   headerSubTitle: {
     marginTop: 2,
-    color: "#838AA0",
+    color: theme.colors.accent,
     fontSize: 11.5,
     lineHeight: 16,
   },

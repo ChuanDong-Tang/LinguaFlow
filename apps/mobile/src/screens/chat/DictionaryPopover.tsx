@@ -8,6 +8,7 @@ import { getDictionaryTermAudio, type DictionaryLookupResult } from "../../servi
 import { t } from "../../i18n";
 import { playTtsAudio } from "../../services/tts/ttsPlayback";
 import { calculateDictionaryPopoverLayout, DICTIONARY_POPOVER_WIDTH } from "./dictionaryPopoverLayout";
+import { theme } from "../../theme";
 
 export type DictionaryPopoverAnchor = {
   pageX: number;
@@ -106,16 +107,16 @@ export function DictionaryPopover({
                 textStart={textStart}
                 textEnd={textEnd}
                 size={18}
-                color="#4D5361"
+                color={theme.colors.textStrong}
                 style={styles.ttsButton}
               />
             ) : result?.audioUrl || canUseTts ? (
               <Pressable accessibilityLabel={t("dictionary.a11y.play_pronunciation")} style={styles.ttsButton} onPress={() => void playDictionaryAudio()} disabled={playingDictionaryAudio}>
-                {playingDictionaryAudio ? <ActivityIndicator size="small" color="#4D5361" /> : <Ionicons name="volume-high-outline" size={18} color="#4D5361" />}
+                {playingDictionaryAudio ? <ActivityIndicator size="small" color={theme.colors.textStrong} /> : <Ionicons name="volume-high-outline" size={18} color={theme.colors.textStrong} />}
               </Pressable>
             ) : null}
             <Pressable accessibilityRole="button" accessibilityLabel={t("common.cancel")} style={styles.iconButton} onPress={onClose}>
-              <Ionicons name="close" size={22} color="#111111" />
+              <Ionicons name="close" size={22} color={theme.colors.text} />
             </Pressable>
           </View>
         </View>
@@ -129,7 +130,7 @@ export function DictionaryPopover({
         >
           {loading ? (
             <View style={styles.loadingRow}>
-              <ActivityIndicator size="small" color="#6F7684" />
+              <ActivityIndicator size="small" color={theme.colors.textSecondary} />
               <Text style={styles.loadingText}>{t("dictionary.loading")}</Text>
             </View>
           ) : error ? (
@@ -167,8 +168,8 @@ const styles = StyleSheet.create({
     width: DICTIONARY_POPOVER_WIDTH,
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: "#DBDFE7",
-    backgroundColor: "#FFFFFF",
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface,
     paddingHorizontal: 16,
     paddingTop: 14,
     paddingBottom: 12,
@@ -186,7 +187,7 @@ const styles = StyleSheet.create({
   },
   term: {
     flex: 1,
-    color: "#111111",
+    color: theme.colors.text,
     fontSize: 17,
     lineHeight: 23,
     fontWeight: "600",
@@ -216,7 +217,7 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   loadingText: {
-    color: "#727988",
+    color: theme.colors.textSecondary,
     fontSize: 13,
   },
   bodyScroll: {
@@ -225,20 +226,20 @@ const styles = StyleSheet.create({
   bodyContent: {
     paddingBottom: 2,
   },
-  phonetic: { marginTop: 2, color: "#727988", fontSize: 14, lineHeight: 20 },
-  sectionLabel: { marginTop: 14, color: "#767D8B", fontSize: 11, lineHeight: 16, fontWeight: "600" },
-  primaryMeaning: { marginTop: 5, color: "#17191D", fontSize: 15, lineHeight: 22, fontWeight: "500" },
-  uiMeaning: { marginTop: 4, color: "#686F7D", fontSize: 13, lineHeight: 20 },
-  exampleText: { marginTop: 5, color: "#272B32", fontSize: 14, lineHeight: 21, fontStyle: "italic" },
-  uiExample: { marginTop: 4, color: "#777E8B", fontSize: 12, lineHeight: 19 },
+  phonetic: { marginTop: 2, color: theme.colors.textSecondary, fontSize: 14, lineHeight: 20 },
+  sectionLabel: { marginTop: 14, color: theme.colors.textMuted, fontSize: 11, lineHeight: 16, fontWeight: "600" },
+  primaryMeaning: { marginTop: 5, color: theme.colors.text, fontSize: 15, lineHeight: 22, fontWeight: "500" },
+  uiMeaning: { marginTop: 4, color: theme.colors.textSecondary, fontSize: 13, lineHeight: 20 },
+  exampleText: { marginTop: 5, color: theme.colors.text, fontSize: 14, lineHeight: 21, fontStyle: "italic" },
+  uiExample: { marginTop: 4, color: theme.colors.textMuted, fontSize: 12, lineHeight: 19 },
   meaningGroup: { marginTop: 14 },
-  partOfSpeech: { color: "#5E6573", fontSize: 12, lineHeight: 18, fontStyle: "italic", fontWeight: "600" },
+  partOfSpeech: { color: theme.colors.textSecondary, fontSize: 12, lineHeight: 18, fontStyle: "italic", fontWeight: "600" },
   definitionRow: { marginTop: 8, flexDirection: "row", alignItems: "flex-start", gap: 7 },
-  definitionIndex: { width: 16, color: "#8F95A1", fontSize: 13, lineHeight: 21 },
+  definitionIndex: { width: 16, color: theme.colors.textMuted, fontSize: 13, lineHeight: 21 },
   definitionContent: { flex: 1 },
   errorText: {
     marginTop: 12,
-    color: "#B42318",
+    color: theme.colors.danger,
     fontSize: 13,
     lineHeight: 20,
   },
@@ -249,24 +250,24 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 6,
-    backgroundColor: "#F1F3F7",
-    color: "#5E6573",
+    backgroundColor: theme.colors.surfaceSunken,
+    color: theme.colors.textSecondary,
     fontSize: 11,
     fontWeight: "600",
     letterSpacing: 0,
   },
   bodyText: {
-    color: "#111111",
+    color: theme.colors.text,
     fontSize: 14,
     lineHeight: 21,
   },
   scenarioText: {
-    color: "#727988",
+    color: theme.colors.textSecondary,
     fontSize: 13,
     lineHeight: 20,
   },
   sourceText: {
-    color: "#8F95A1",
+    color: theme.colors.textMuted,
     fontSize: 12,
     lineHeight: 18,
   },
@@ -274,16 +275,16 @@ const styles = StyleSheet.create({
     marginTop: 14,
     minHeight: 40,
     borderRadius: 10,
-    backgroundColor: "#F7F8FB",
+    backgroundColor: theme.colors.canvas,
     borderWidth: 1,
-    borderColor: "#E6E9F0",
+    borderColor: theme.colors.border,
     paddingHorizontal: 12,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
   },
   uiToggleText: {
-    color: "#111111",
+    color: theme.colors.text,
     fontSize: 14,
     fontWeight: "600",
     letterSpacing: 0,

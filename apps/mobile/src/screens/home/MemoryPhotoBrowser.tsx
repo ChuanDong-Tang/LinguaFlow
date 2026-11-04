@@ -146,7 +146,7 @@ export function MemoryPhotoBrowser({ day, random = false, onClose, onConfirm, ma
       <KeyboardAwareScrollView bottomOffset={24} keyboardShouldPersistTaps="handled">
         <MemoryPhotoPreview asset={chosen} style={{ width: "100%", aspectRatio: 1.1, borderRadius: 22 }} />
         <PhotoNoteInput value={note} onChange={setNote} disabled={confirming} maxLength={maxTextLength} onBusyChange={setVoiceBusy} />
-        <Pressable accessibilityRole="button" accessibilityLabel={copy("生成回忆", "Create memory")} accessibilityState={{ disabled: confirming || voiceBusy, busy: confirming }} disabled={confirming || voiceBusy} style={({ pressed }) => [styles.createButton, (pressed || confirming || voiceBusy) && { opacity: 0.5 }]} onPress={() => void confirmPhoto()}>{confirming ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.nextSetText}>{copy("生成回忆", "Create memory")}</Text>}</Pressable>
+        <Pressable accessibilityRole="button" accessibilityLabel={copy("生成回忆", "Create memory")} accessibilityState={{ disabled: confirming || voiceBusy, busy: confirming }} disabled={confirming || voiceBusy} style={({ pressed }) => [styles.createButton, (pressed || confirming || voiceBusy) && { opacity: 0.5 }]} onPress={() => void confirmPhoto()}>{confirming ? <ActivityIndicator color={theme.colors.onAccent} /> : <Text style={styles.nextSetText}>{copy("生成回忆", "Create memory")}</Text>}</Pressable>
         {actionError ? <Text style={styles.explanation}>{copy("未能完成，请重试。", "Could not finish. Please try again.")}</Text> : null}
       </KeyboardAwareScrollView>
     </SafeAreaView>
@@ -191,7 +191,7 @@ export function MemoryPhotoBrowser({ day, random = false, onClose, onConfirm, ma
             </View>)}
             <View style={[styles.spread, stageSize]} accessibilityElementsHidden={index !== pages.length} importantForAccessibility={index === pages.length ? "auto" : "no-hide-descendants"}>
               <Pressable accessibilityRole="button" accessibilityState={{ disabled: batchBusy || state.loading, busy: batchBusy }} disabled={batchBusy || state.loading} style={({ pressed }) => [styles.nextSet, (pressed || batchBusy || state.loading) && { opacity: .7 }]} onPress={() => void nextSet()}>
-                {batchBusy ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.nextSetText}>{copy("下一组", "Next set")}</Text>}
+                {batchBusy ? <ActivityIndicator color={theme.colors.onAccent} /> : <Text style={styles.nextSetText}>{copy("下一组", "Next set")}</Text>}
               </Pressable>
             </View>
           </ScrollView> : !state.loading ? <Text style={styles.muted}>{copy("这里还没有可浏览的照片", "No accessible photos here yet")}</Text> : null}
@@ -226,7 +226,7 @@ function PhotoNoteInput({ value, onChange, disabled, maxLength, onBusyChange }: 
 }
 
 const styles = StyleSheet.create({
-  page: { flex: 1, backgroundColor: "#FFFFFF", paddingHorizontal: 22, paddingBottom: 12 },
+  page: { flex: 1, backgroundColor: theme.colors.surface, paddingHorizontal: 22, paddingBottom: 12 },
   header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", minHeight: 54 },
   headerSide: { width: "26%", flexShrink: 0 },
   headerTitle: { flex: 1, textAlign: "center" },
@@ -235,15 +235,15 @@ const styles = StyleSheet.create({
   text: { color: theme.colors.text, fontSize: 17 }, muted: { color: theme.colors.textMuted, fontSize: 13 },
   action: { color: theme.colors.accentStrong, fontSize: 15, fontWeight: "600" },
   button: { minHeight: 44, padding: 10, alignItems: "center", justifyContent: "center" },
-  noteField: { marginTop: 20, marginBottom: 16, borderWidth: 1, borderColor: "#C8C8C8", borderRadius: 16, backgroundColor: "#FFFFFF" },
-  createButton: { minHeight: 52, paddingHorizontal: 24, paddingVertical: 14, marginBottom: 20, borderRadius: 16, backgroundColor: "#222222", alignItems: "center", justifyContent: "center" },
-  nextSet: { minHeight: 50, minWidth: 148, paddingHorizontal: 28, paddingVertical: 12, borderRadius: 25, backgroundColor: "#222222", alignItems: "center", justifyContent: "center" },
-  nextSetText: { color: "#FFFFFF", fontSize: 16, fontWeight: "600" },
+  noteField: { marginTop: 20, marginBottom: 16, borderWidth: 1, borderColor: theme.colors.borderStrong, borderRadius: 16, backgroundColor: theme.colors.surface },
+  createButton: { minHeight: 52, paddingHorizontal: 24, paddingVertical: 14, marginBottom: 20, borderRadius: 16, backgroundColor: theme.colors.ink, alignItems: "center", justifyContent: "center" },
+  nextSet: { minHeight: 50, minWidth: 148, paddingHorizontal: 28, paddingVertical: 12, borderRadius: 25, backgroundColor: theme.colors.ink, alignItems: "center", justifyContent: "center" },
+  nextSetText: { color: theme.colors.onAccent, fontSize: 16, fontWeight: "600" },
   center: { flex: 1, justifyContent: "center", alignItems: "center", gap: 20 },
   explanation: { color: theme.colors.textSecondary, fontSize: 15, lineHeight: 24, textAlign: "center" },
   counts: { flexDirection: "row", justifyContent: "center", gap: 16 },
   stage: { flex: 1, minHeight: 240, marginVertical: 12, alignItems: "center", justifyContent: "center" },
   spread: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10 },
-  photo: { borderRadius: 12, padding: 4, backgroundColor: "#FFFFFF", shadowColor: "#000000", shadowOpacity: .08, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 3 },
+  photo: { borderRadius: 12, padding: 4, backgroundColor: theme.colors.surface, shadowColor: "#000000", shadowOpacity: .08, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 3 },
   image: { width: "100%", height: "100%", borderRadius: 8 },
 });

@@ -85,6 +85,7 @@ import { createPicovoiceRealtimeAudioSource } from "../services/stt/picovoiceRea
 import { calculatePcmAudioLevel } from "../services/stt/pcmAudioLevel";
 import type { PcmAudioFrame, RealtimeAudioSource } from "../services/stt/realtimeAudioSource";
 import { notifyQuotaExhaustion } from "../services/usage/quotaExhaustion";
+import { theme } from "../theme";
 
 const STT_PREBUFFER_MAX_FRAMES = 180;
 
@@ -1579,7 +1580,7 @@ export function ChatScreen({ contact, onBack, onConvertMessageToCard }: ChatScre
               revealLatestMessage();
             }}
           >
-            <Ionicons name="chevron-down" size={21} color="#111111" />
+            <Ionicons name="chevron-down" size={21} color={theme.colors.text} />
           </Pressable>
         ) : null}
 
@@ -1756,11 +1757,11 @@ function isSttInactive(status: "idle" | "connecting" | "recording" | "stopping")
 const styles = StyleSheet.create({
   transitionScreen: {
     flex: 1,
-    backgroundColor: "#FAFAFA",
+    backgroundColor: theme.colors.canvas,
   },
   container: {
     flex: 1,
-    backgroundColor: "#FAFAFA",
+    backgroundColor: theme.colors.canvas,
   },
   content: {
     flex: 1,
@@ -1773,8 +1774,8 @@ const styles = StyleSheet.create({
     height: 38,
     borderRadius: 19,
     borderWidth: 1,
-    borderColor: "#DEDEDE",
-    backgroundColor: "#FFFFFF",
+    borderColor: theme.colors.borderStrong,
+    backgroundColor: theme.colors.surface,
     alignItems: "center",
     justifyContent: "center",
     shadowColor: "#111111",

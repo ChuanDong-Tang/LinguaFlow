@@ -216,13 +216,13 @@ function calendarHeatColor(day: CardCalendarSummary["days"][number]): string {
   const correctCount = Number(day.clozeCorrectBlankCount ?? 0);
   // A recorded day must remain distinguishable even before the user creates a cloze.
   // The nullish fallbacks also keep clients readable while an older API is being deployed.
-  if (!Number.isFinite(blankCount) || blankCount <= 0) return "rgba(73, 159, 96, 0.13)";
+  if (!Number.isFinite(blankCount) || blankCount <= 0) return "rgba(224, 83, 61, 0.14)";
   const quantityWeight = Math.sqrt(Math.min(1, blankCount / 10));
   const accuracy = attemptedCount > 0
     ? Math.max(0, Math.min(1, correctCount / attemptedCount))
     : 0;
   const opacity = 0.16 + 0.72 * quantityWeight * (0.3 + 0.7 * accuracy);
-  return `rgba(73, 159, 96, ${Math.min(0.88, opacity)})`;
+  return `rgba(224, 83, 61, ${Math.min(0.88, opacity)})`;
 }
 
 const calendarSidebarStyles = StyleSheet.create({

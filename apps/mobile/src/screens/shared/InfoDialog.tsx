@@ -2,6 +2,7 @@ import React from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { Text } from "../../components/Typography";
 import { t } from "../../i18n";
+import { theme } from "../../theme";
 
 export type InfoDialogConfig = {
   message: string;
@@ -53,13 +54,13 @@ const styles = StyleSheet.create({
   panel: {
     width: "100%",
     borderRadius: 18,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: theme.colors.surface,
     paddingTop: 24,
     paddingHorizontal: 20,
     paddingBottom: 16,
   },
   message: {
-    color: "#151821",
+    color: theme.colors.text,
     fontSize: 17,
     lineHeight: 25,
     textAlign: "center",
@@ -77,18 +78,18 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   cancelButton: {
-    backgroundColor: "#F1F2F6",
+    backgroundColor: theme.colors.surfaceMuted,
   },
   confirmButton: {
-    backgroundColor: "#111111",
+    backgroundColor: theme.colors.ink,
   },
   cancelText: {
-    color: "#4D5361",
+    color: theme.colors.textStrong,
     fontSize: 15,
     fontWeight: "700",
   },
   confirmText: {
-    color: "#FFFFFF",
+    color: theme.colors.onAccent,
     fontSize: 15,
     fontWeight: "700",
   },

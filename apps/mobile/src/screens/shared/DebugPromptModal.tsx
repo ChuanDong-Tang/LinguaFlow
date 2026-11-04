@@ -4,6 +4,7 @@ import { Text, TextInput } from "../../components/Typography";
 import { loadDebugSettings, saveDebugSettings } from "../../services/preferences/debugSettingsStorage";
 import { getAiOptions, type AiProviderOption } from "../../services/api/aiOptionsApi";
 import { useMountedGuard } from "../../hooks/useMountedGuard";
+import { theme } from "../../theme";
 
 export function DebugPromptModal({
   visible,
@@ -75,7 +76,7 @@ export function DebugPromptModal({
             value={rewriteAssistantPromptDraft}
             onChangeText={setRewriteAssistantPromptDraft}
             placeholder="留空则使用服务端默认改写助手 prompt"
-            placeholderTextColor="#A5ABB5"
+            placeholderTextColor={theme.colors.textFaint}
             multiline
             textAlignVertical="top"
           />
@@ -85,7 +86,7 @@ export function DebugPromptModal({
             value={englishFriendPromptDraft}
             onChangeText={setEnglishFriendPromptDraft}
             placeholder="留空则使用服务端默认好奇宝宝 prompt"
-            placeholderTextColor="#A5ABB5"
+            placeholderTextColor={theme.colors.textFaint}
             multiline
             textAlignVertical="top"
           />
@@ -145,17 +146,17 @@ const styles = StyleSheet.create({
   debugPanel: {
     padding: 18,
     borderRadius: 18,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: theme.colors.surface,
   },
   debugTitle: {
-    color: "#111111",
+    color: theme.colors.text,
     fontSize: 20,
     fontWeight: "700",
   },
   fieldLabel: {
     marginTop: 14,
     marginBottom: 8,
-    color: "#343A45",
+    color: theme.colors.textStrong,
     fontSize: 13,
     fontWeight: "700",
   },
@@ -166,9 +167,9 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: "#DFE3EA",
-    backgroundColor: "#FAFBFC",
-    color: "#151922",
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.canvas,
+    color: theme.colors.text,
     fontSize: 14,
   },
   optionGrid: {
@@ -183,8 +184,8 @@ const styles = StyleSheet.create({
     paddingVertical: 9,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: "#DFE3EA",
-    backgroundColor: "#FFFFFF",
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -192,17 +193,17 @@ const styles = StyleSheet.create({
     alignItems: "flex-start",
   },
   optionChipActive: {
-    borderColor: "#111111",
-    backgroundColor: "#111111",
+    borderColor: theme.colors.text,
+    backgroundColor: theme.colors.ink,
   },
   optionText: {
     maxWidth: 260,
-    color: "#5D6470",
+    color: theme.colors.textSecondary,
     fontSize: 13,
     fontWeight: "700",
   },
   optionTextActive: {
-    color: "#FFFFFF",
+    color: theme.colors.onAccent,
   },
   actions: {
     marginTop: 12,
@@ -214,12 +215,12 @@ const styles = StyleSheet.create({
     height: 42,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: "#D8DAE0",
+    borderColor: theme.colors.borderStrong,
     alignItems: "center",
     justifyContent: "center",
   },
   cancelText: {
-    color: "#111111",
+    color: theme.colors.text,
     fontSize: 14,
     fontWeight: "700",
   },
@@ -227,12 +228,12 @@ const styles = StyleSheet.create({
     flex: 1,
     height: 42,
     borderRadius: 12,
-    backgroundColor: "#111111",
+    backgroundColor: theme.colors.ink,
     alignItems: "center",
     justifyContent: "center",
   },
   saveText: {
-    color: "#FFFFFF",
+    color: theme.colors.onAccent,
     fontSize: 14,
     fontWeight: "700",
   },

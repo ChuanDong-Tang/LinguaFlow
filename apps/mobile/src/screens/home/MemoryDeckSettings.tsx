@@ -3,6 +3,7 @@ import { Modal, Pressable, StyleSheet, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { Text } from "../../components/Typography";
 import { getLanguage, t } from "../../i18n";
+import { theme } from "../../theme";
 
 const labels = {
   "zh-CN": ["浏览设置", "每页显示", "每组数量", "重新排列"],
@@ -20,7 +21,7 @@ export function MemoryDeckSettings({ count, visible, disabled, onApply }: {
   return <>
     <Pressable accessibilityRole="button" accessibilityLabel={copy[0]} accessibilityState={{ expanded: open, disabled }} disabled={disabled}
       style={styles.trigger} onPress={() => { setDraft({ count, visible }); setOpen(true); }}>
-      <Text style={styles.caption}>{copy[2]} · {count}</Text><Ionicons name="chevron-down" size={14} color="#777777" />
+      <Text style={styles.caption}>{copy[2]} · {count}</Text><Ionicons name="chevron-down" size={14} color={theme.colors.textSecondary} />
     </Pressable>
     <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
       <View style={styles.overlay}>
@@ -38,11 +39,11 @@ export function MemoryDeckSettings({ count, visible, disabled, onApply }: {
 }
 const styles = StyleSheet.create({
   trigger: { alignSelf: "flex-start", minHeight: 44, paddingHorizontal: 10, flexDirection: "row", alignItems: "center", gap: 6 },
-  caption: { color: "#777777", fontSize: 13 }, value: { color: "#222222", fontSize: 15 },
+  caption: { color: theme.colors.textSecondary, fontSize: 13 }, value: { color: theme.colors.text, fontSize: 15 },
   overlay: { flex: 1, justifyContent: "center", alignItems: "center", padding: 24, backgroundColor: "rgba(0,0,0,0.12)" },
-  sheet: { width: 310, maxWidth: "100%", borderRadius: 12, backgroundColor: "#FFFFFF", padding: 18, gap: 18 },
+  sheet: { width: 310, maxWidth: "100%", borderRadius: 12, backgroundColor: theme.colors.surface, padding: 18, gap: 18 },
   row: { gap: 8 }, options: { flexDirection: "row", gap: 8 },
   option: { flex: 1, minHeight: 44, alignItems: "center", justifyContent: "center", borderRadius: 6 },
-  selected: { backgroundColor: "#EFEFEF" },
-  apply: { minHeight: 44, justifyContent: "center", alignItems: "center", borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "#EEEEEE" },
+  selected: { backgroundColor: theme.colors.surfaceMuted },
+  apply: { minHeight: 44, justifyContent: "center", alignItems: "center", borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.border },
 });

@@ -3,6 +3,7 @@ import { Animated, Pressable, StyleSheet, View, useWindowDimensions } from "reac
 import { Text } from "../../components/Typography";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { theme } from "../../theme";
 
 export type FloatingNoticeType = "info" | "success" | "warning" | "error";
 export type FloatingNoticePosition = "top-right" | "top-left" | "top-center" | "bottom-center";
@@ -237,27 +238,27 @@ const NOTICE_PALETTE: Record<
   }
 > = {
   info: {
-    background: "#FFFFFF",
-    border: "#DEE4F2",
-    iconColor: "#4965D8",
+    background: theme.colors.surface,
+    border: theme.colors.border,
+    iconColor: theme.colors.accent,
     icon: "information-circle-outline",
   },
   success: {
-    background: "#FFFFFF",
-    border: "#D7EBDD",
-    iconColor: "#248A4B",
+    background: theme.colors.surface,
+    border: theme.colors.border,
+    iconColor: theme.colors.success,
     icon: "checkmark-circle-outline",
   },
   warning: {
-    background: "#FFFFFF",
-    border: "#F0DFC2",
-    iconColor: "#A96514",
+    background: theme.colors.surface,
+    border: theme.colors.warningSoft,
+    iconColor: theme.colors.warning,
     icon: "alert-circle-outline",
   },
   error: {
-    background: "#FFFFFF",
-    border: "#F0D1D1",
-    iconColor: "#C43E3E",
+    background: theme.colors.surface,
+    border: theme.colors.danger,
+    iconColor: theme.colors.danger,
     icon: "close-circle-outline",
   },
 };
@@ -285,7 +286,7 @@ const styles = StyleSheet.create({
   },
   message: {
     marginLeft: 7,
-    color: "#20242F",
+    color: theme.colors.text,
     fontSize: 12,
     lineHeight: 16,
     fontWeight: "600",

@@ -4,6 +4,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { getMessageTtsAsset, type TtsSourceKey } from "../services/api/ttsApi";
 import { beginTtsPlaybackSession, getTtsPlaybackState, isTtsPlaybackSessionCurrent, playTtsAudio, subscribeTtsPlayback, toggleTtsPlayback } from "../services/tts/ttsPlayback";
 import { t } from "../i18n";
+import { theme } from "../theme";
 
 type TtsPlayButtonProps = {
   messageId: string | null | undefined;
@@ -23,7 +24,7 @@ export function TtsPlayButton({
   textStart,
   textEnd,
   size = 18,
-  color = "#4D5361",
+  color = theme.colors.textStrong as string,
   style,
   disabled = false,
   onError,
@@ -115,7 +116,7 @@ export function TtsPlayButton({
       {loading || isPlaybackLoading ? (
         <ActivityIndicator size="small" color={color} />
       ) : (
-        <Ionicons name={isPlaying ? "pause" : "play"} size={size} color={canPlay ? color : "#C1C5CE"} />
+        <Ionicons name={isPlaying ? "pause" : "play"} size={size} color={canPlay ? color : theme.colors.textFaint} />
       )}
     </Pressable>
   );

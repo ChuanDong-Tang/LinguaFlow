@@ -73,13 +73,13 @@ export function DictionarySearchResultCard({ term, loading, error, result, targe
               style={({ pressed }) => [styles.audioButton, pressed && styles.audioButtonPressed]}
               onPress={() => void playPronunciation()}
             >
-              {playing ? <ActivityIndicator size="small" color="#4D5361" /> : <Ionicons name="volume-high-outline" size={20} color="#4D5361" />}
+              {playing ? <ActivityIndicator size="small" color={theme.colors.textStrong} /> : <Ionicons name="volume-high-outline" size={20} color={theme.colors.textStrong} />}
             </Pressable>
           ) : null}
         </View>
         {loading ? (
           <View style={styles.loadingRow}>
-            <ActivityIndicator size="small" color="#6F7684" />
+            <ActivityIndicator size="small" color={theme.colors.textSecondary} />
             <Text style={styles.loadingText}>{t("main.search.lookup_loading")}</Text>
           </View>
         ) : error ? (
@@ -127,12 +127,12 @@ const styles = StyleSheet.create({
   sectionTitleRow: { marginBottom: 9, flexDirection: "row", alignItems: "baseline", gap: 8 },
   sectionTitle: { color: theme.colors.text, fontSize: 15, fontWeight: "600" },
   sectionHint: { color: theme.colors.textMuted, fontSize: 11 },
-  card: { paddingHorizontal: 18, paddingVertical: 18, borderWidth: StyleSheet.hairlineWidth, borderColor: "#E5E5E5", borderRadius: 16, backgroundColor: theme.colors.surface },
+  card: { paddingHorizontal: 18, paddingVertical: 18, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.border, borderRadius: 16, backgroundColor: theme.colors.surface },
   headerRow: { minHeight: 32, flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 12 },
   termBlock: { flex: 1 },
   term: { color: theme.colors.text, fontSize: 21, lineHeight: 28, fontWeight: "600" },
   sentence: { fontSize: 17, lineHeight: 26, fontWeight: "500" },
-  audioButton: { width: 34, height: 34, borderRadius: 17, backgroundColor: "#F2F3F4", alignItems: "center", justifyContent: "center" },
+  audioButton: { width: 34, height: 34, borderRadius: 17, backgroundColor: theme.colors.surfaceMuted, alignItems: "center", justifyContent: "center" },
   audioButtonPressed: { opacity: 0.58 },
   loadingRow: { minHeight: 48, flexDirection: "row", alignItems: "center", gap: 9 },
   loadingText: { color: theme.colors.textMuted, fontSize: 13 },
@@ -140,7 +140,7 @@ const styles = StyleSheet.create({
   errorText: { flex: 1, color: theme.colors.textMuted, fontSize: 13, lineHeight: 19 },
   phonetic: { marginTop: 2, marginBottom: 12, color: theme.colors.textMuted, fontSize: 13 },
   primaryMeaning: { marginTop: 8, color: theme.colors.text, fontSize: 15, lineHeight: 24, fontWeight: "400" },
-  sentenceMeaning: { marginTop: 16, paddingTop: 14, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "#EEEEEE", color: theme.colors.textSecondary },
+  sentenceMeaning: { marginTop: 16, paddingTop: 14, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.border, color: theme.colors.textSecondary },
   visualSection: { marginTop: 16 },
   visualLabel: { marginBottom: 8, color: theme.colors.textMuted, fontSize: 11, lineHeight: 16 },
   visualRow: { flexDirection: "row", gap: 8 },

@@ -2,6 +2,7 @@ import React, { useRef } from "react";
 import { StyleSheet } from "react-native";
 import { Text, TextInput } from "../../components/Typography";
 import type { ClozeToken } from "../../domain/cloze/clozeUtils";
+import { theme } from "../../theme";
 
 export type ClozeFlowSegment =
   | { type: "text"; key: string; tokenIndex: number; text: string; highlighted: boolean; correct: boolean; spacer: boolean; spacerHighlighted: boolean; textStart: number; textEnd: number }
@@ -59,9 +60,9 @@ function BlankInput({ segment, answer, onChangeAnswer, onFocus }: {
 }
 
 const styles = StyleSheet.create({
-  text: { color: "#080808", fontSize: 16, lineHeight: 24, fontWeight: "400", includeFontPadding: false },
-  phraseText: { backgroundColor: "#FFF2B8", color: "#080808" },
-  correctText: { color: "#6FAE78" },
-  incorrectText: { color: "#D64545", fontWeight: "500" },
-  blankInput: { height: 24, marginHorizontal: 0, paddingHorizontal: 1, paddingVertical: 0, backgroundColor: "#FFF2B8", borderBottomWidth: 1, borderBottomColor: "#111111", color: "#111111", fontSize: 16, lineHeight: 22, fontWeight: "400", textAlign: "center", textAlignVertical: "center", includeFontPadding: false },
+  text: { color: theme.colors.text, fontSize: 16, lineHeight: 24, fontWeight: "400", includeFontPadding: false },
+  phraseText: { backgroundColor: theme.colors.warning, color: theme.colors.text },
+  correctText: { color: theme.colors.success },
+  incorrectText: { color: theme.colors.danger, fontWeight: "500" },
+  blankInput: { height: 24, marginHorizontal: 0, paddingHorizontal: 1, paddingVertical: 0, backgroundColor: theme.colors.warning, borderBottomWidth: 1, borderBottomColor: theme.colors.text, color: theme.colors.text, fontSize: 16, lineHeight: 22, fontWeight: "400", textAlign: "center", textAlignVertical: "center", includeFontPadding: false },
 });

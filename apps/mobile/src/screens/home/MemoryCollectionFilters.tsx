@@ -15,7 +15,7 @@ export function MemoryCollectionFilters({ collections, selected, onSelect, onTou
   const options = [{ id: "all", name: all }, ...collections, { id: "unclassified", name: t("sidebar.unclassified") }];
   return <View onTouchStart={() => onTouching(true)} onTouchEnd={() => onTouching(false)} onTouchCancel={() => onTouching(false)}>
     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.row}>
-      {options.map(option => <Pressable key={option.id} accessibilityRole="button" accessibilityState={{ selected: selected === option.id }} style={styles.chip} onPress={() => onSelect(option.id)}>
+      {options.map(option => <Pressable key={option.id} accessibilityRole="button" accessibilityState={{ selected: selected === option.id }} style={[styles.chip, selected === option.id && styles.selectedChip]} onPress={() => onSelect(option.id)}>
         <Text numberOfLines={1} style={[styles.label, selected === option.id && styles.selectedLabel]}>{option.name}</Text>
       </Pressable>)}
     </ScrollView>
@@ -23,8 +23,9 @@ export function MemoryCollectionFilters({ collections, selected, onSelect, onTou
 }
 
 const styles = StyleSheet.create({
-  row: { gap: 16, paddingHorizontal: 22, paddingBottom: 4 },
-  chip: { minHeight: 44, maxWidth: 180, paddingHorizontal: 2, justifyContent: "center" },
-  label: { fontSize: 13, color: theme.colors.textMuted },
+  row: { gap: 6, paddingHorizontal: theme.gutter - 4, paddingVertical: 6 },
+  chip: { minHeight: 32, maxWidth: 180, paddingHorizontal: 12, borderRadius: theme.radius.pill, justifyContent: "center" },
+  selectedChip: { backgroundColor: theme.colors.surfaceMuted },
+  label: { fontSize: 14, color: theme.colors.textMuted },
   selectedLabel: { color: theme.colors.text, fontWeight: "600" },
 });

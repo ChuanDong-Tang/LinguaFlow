@@ -670,7 +670,7 @@ function LanguageSettingsModal({
           <View style={styles.languageHeader}>
             <Text style={styles.languageTitle}>{t("me.language_settings")}</Text>
             <Pressable onPress={onClose} hitSlop={8}>
-              <Ionicons name="close" size={22} color="#111111" />
+              <Ionicons name="close" size={22} color={theme.colors.text} />
             </Pressable>
           </View>
           <ScrollView style={styles.languageForm} contentContainerStyle={styles.languageFormContent} showsVerticalScrollIndicator alwaysBounceVertical={false}>
@@ -738,13 +738,13 @@ function LanguageSettingsModal({
               onToggle={() => setOpenSelect((current) => current === "ttsVoice" ? null : "ttsVoice")}
               onClose={() => setOpenSelect(null)}
             />
-            {voiceLoading ? <ActivityIndicator style={styles.languageInlineStatus} size="small" color="#171717" /> : null}
+            {voiceLoading ? <ActivityIndicator style={styles.languageInlineStatus} size="small" color={theme.colors.text} /> : null}
             {voiceError ? <Text style={styles.languageHint}>{t("tts.error.failed")}</Text> : null}
             <View style={styles.languageAdvancedBlock}>
               <Text style={styles.languageFieldTitle}>{t("me.language.learning_advanced")}</Text>
               <Pressable style={styles.languageToggleRow} onPress={() => setAutoClozeEnabled((value) => !value)}>
                 <View style={[styles.languageToggleBox, autoClozeEnabled && styles.languageToggleBoxActive]}>
-                  {autoClozeEnabled ? <Ionicons name="checkmark" size={16} color="#FFFFFF" /> : null}
+                  {autoClozeEnabled ? <Ionicons name="checkmark" size={16} color={theme.colors.onAccent} /> : null}
                 </View>
                 <View style={styles.languageToggleTextWrap}>
                   <Text style={styles.languageToggleTitle}>{t("me.language.auto_cloze")}</Text>
@@ -774,7 +774,7 @@ function LanguageSettingsModal({
                 onPress={() => setMultilingualRecognitionEnabled((value) => !value)}
               >
                 <View style={[styles.languageToggleBox, multilingualRecognitionEnabled && styles.languageToggleBoxActive]}>
-                  {multilingualRecognitionEnabled ? <Ionicons name="checkmark" size={16} color="#FFFFFF" /> : null}
+                  {multilingualRecognitionEnabled ? <Ionicons name="checkmark" size={16} color={theme.colors.onAccent} /> : null}
                 </View>
                 <View style={styles.languageToggleTextWrap}>
                   <Text style={styles.languageToggleTitle}>{t("me.language.stt_multilingual")}</Text>
@@ -857,7 +857,7 @@ function SelectField({
           {option.label}
         </Text>
       </View>
-      {option.active ? <Ionicons name="checkmark" size={18} color="#FFFFFF" /> : null}
+      {option.active ? <Ionicons name="checkmark" size={18} color={theme.colors.onAccent} /> : null}
     </Pressable>
   ));
 
@@ -911,7 +911,7 @@ function DeveloperDebugModal({
           <View style={styles.languageHeader}>
             <Text style={styles.languageTitle}>{t("me.debug.title")}</Text>
             <Pressable onPress={onClose} hitSlop={8}>
-              <Ionicons name="close" size={22} color="#111111" />
+              <Ionicons name="close" size={22} color={theme.colors.text} />
             </Pressable>
           </View>
           <View style={styles.settingsCard}>
@@ -958,7 +958,7 @@ function UpdatesDebugModal({
           <View style={styles.updatesDebugHeader}>
             <Text style={styles.updatesDebugTitle}>{t("me.debug.updates")}</Text>
             <Pressable onPress={onClose} hitSlop={8}>
-              <Ionicons name="close" size={22} color="#111111" />
+              <Ionicons name="close" size={22} color={theme.colors.text} />
             </Pressable>
           </View>
           <ScrollView style={styles.updatesDebugBody} contentContainerStyle={styles.updatesDebugContent} alwaysBounceVertical={false}>
@@ -1324,12 +1324,12 @@ const fontStyles = StyleSheet.create({
   label: { flexDirection: "row", alignItems: "center", gap: 12, flexGrow: 1 },
   options: { flexDirection: "row", gap: 4 },
   option: { minWidth: 44, minHeight: 44, paddingHorizontal: 12, paddingVertical: 8, alignItems: "center", justifyContent: "center", borderRadius: 8 },
-  selected: { backgroundColor: "#171717" },
+  selected: { backgroundColor: theme.colors.ink },
 });
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: theme.colors.surface,
   },
   sheetHeader: {
     minHeight: 54,
@@ -1371,7 +1371,7 @@ const styles = StyleSheet.create({
     borderRadius: 27,
     borderWidth: 1,
     borderColor: theme.colors.border,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: theme.colors.surface,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -1384,13 +1384,13 @@ const styles = StyleSheet.create({
     marginLeft: 14,
   },
   profileName: {
-    color: "#111111",
+    color: theme.colors.text,
     fontSize: 16,
     fontWeight: "500",
   },
   profilePlan: {
     marginTop: 4,
-    color: "#707070",
+    color: theme.colors.textSecondary,
     fontSize: 13,
   },
 
@@ -1400,11 +1400,11 @@ const styles = StyleSheet.create({
     borderRadius: 0,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderColor: "#E5E5E5",
-    backgroundColor: "#FFFFFF",
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface,
   },
   cardTitle: {
-    color: "#111111",
+    color: theme.colors.text,
     fontSize: 15,
     fontWeight: "500",
   },
@@ -1418,7 +1418,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
   },
   usageMeterLabel: {
-    color: "#333333",
+    color: theme.colors.textStrong,
     fontSize: 13,
   },
   usageMeterValueRow: {
@@ -1427,19 +1427,19 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   usageMeterValue: {
-    color: "#555555",
+    color: theme.colors.textStrong,
     fontSize: 12,
     fontWeight: "500",
   },
   usageProgressTrack: {
     height: 7,
     borderRadius: 999,
-    backgroundColor: "#E8E8E8",
+    backgroundColor: theme.colors.surfaceMuted,
     overflow: "hidden",
   },
   usageRefreshText: {
     marginTop: 6,
-    color: "#888888",
+    color: theme.colors.textMuted,
     fontSize: 11,
   },
   quotaRow: {
@@ -1448,7 +1448,7 @@ const styles = StyleSheet.create({
     alignItems: "baseline",
   },
   quotaLabel: {
-    color: "#666666",
+    color: theme.colors.textSecondary,
     fontSize: 12,
   },
   quotaNumber: {
@@ -1459,7 +1459,7 @@ const styles = StyleSheet.create({
   },
   quotaUnit: {
     marginLeft: 4,
-    color: "#111111",
+    color: theme.colors.text,
     fontSize: 14,
   },
   quotaLoading: {
@@ -1475,7 +1475,7 @@ const styles = StyleSheet.create({
     flex: 1,
     height: 8,
     borderRadius: 999,
-    backgroundColor: "#E8E8E8",
+    backgroundColor: theme.colors.surfaceMuted,
     overflow: "hidden",
   },
   progressFill: {
@@ -1485,13 +1485,13 @@ const styles = StyleSheet.create({
   },
   progressText: {
     minWidth: 92,
-    color: "#666666",
+    color: theme.colors.textSecondary,
     fontSize: 11,
     textAlign: "right",
   },
   resetText: {
     marginTop: 8,
-    color: "#666666",
+    color: theme.colors.textSecondary,
     fontSize: 12,
   },
 
@@ -1500,14 +1500,14 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     borderRadius: 0,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: "#E5E5E5",
-    backgroundColor: "#FFFFFF",
+    borderBottomColor: theme.colors.border,
+    backgroundColor: theme.colors.surface,
   },
   membershipLoading: {
     marginVertical: 28,
   },
   proTitle: {
-    color: "#111111",
+    color: theme.colors.text,
     fontSize: 16,
     fontWeight: "500",
   },
@@ -1518,7 +1518,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   benefitText: {
-    color: "#666666",
+    color: theme.colors.textSecondary,
     fontSize: 13,
   },
   proButton: {
@@ -1534,7 +1534,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
   },
   proButtonText: {
-    color: "#111111",
+    color: theme.colors.text,
     fontSize: 15,
     fontWeight: "400",
   },
@@ -1542,13 +1542,13 @@ const styles = StyleSheet.create({
   sectionTitle: {
     marginTop: 12,
     marginBottom: 8,
-    color: "#666666",
+    color: theme.colors.textSecondary,
     fontSize: 13,
   },
   settingsCard: {
     borderRadius: 0,
     borderWidth: 0,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: theme.colors.surface,
     overflow: "hidden",
   },
   settingsRow: {
@@ -1559,22 +1559,22 @@ const styles = StyleSheet.create({
   },
   settingsRowBorder: {
     borderBottomWidth: 1,
-    borderBottomColor: "#E8E8E8",
+    borderBottomColor: theme.colors.border,
   },
   settingsLabel: {
     flex: 1,
     marginLeft: 10,
-    color: "#111111",
+    color: theme.colors.text,
     fontSize: 15,
   },
   settingsValue: {
     maxWidth: 160,
     marginRight: 8,
-    color: "#808080",
+    color: theme.colors.textMuted,
     fontSize: 13,
   },
   settingsLabelDanger: {
-    color: "#C43D3D",
+    color: theme.colors.danger,
   },
   languageBackdrop: {
     flex: 1,
@@ -1586,12 +1586,12 @@ const styles = StyleSheet.create({
     padding: 16,
     maxHeight: "88%",
     borderRadius: 16,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: theme.colors.surface,
   },
   devDebugPanel: {
     padding: 16,
     borderRadius: 16,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: theme.colors.surface,
   },
   languageHeader: {
     minHeight: 34,
@@ -1600,18 +1600,18 @@ const styles = StyleSheet.create({
   },
   languageTitle: {
     flex: 1,
-    color: "#111111",
+    color: theme.colors.text,
     fontSize: 18,
     fontWeight: "600",
   },
   languageFieldTitle: {
-    color: "#343A45",
+    color: theme.colors.textStrong,
     fontSize: 13,
     fontWeight: "700",
   },
   languageHint: {
     marginTop: 6,
-    color: "#7E8491",
+    color: theme.colors.textMuted,
     fontSize: 12,
     lineHeight: 17,
   },
@@ -1632,31 +1632,31 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: "#DFE3EA",
-    backgroundColor: "#FFFFFF",
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.surface,
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
   },
   selectButtonDisabled: {
-    backgroundColor: "#F5F6F8",
+    backgroundColor: theme.colors.surfaceSunken,
   },
   selectButtonText: {
     flex: 1,
-    color: "#343A45",
+    color: theme.colors.textStrong,
     fontSize: 13,
     fontWeight: "700",
   },
   selectButtonTextMuted: {
-    color: "#A3A9B4",
+    color: theme.colors.textFaint,
   },
   selectMenu: {
     position: "absolute",
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: "#DFE3EA",
+    borderColor: theme.colors.border,
     overflow: "hidden",
-    backgroundColor: "#FFFFFF",
+    backgroundColor: theme.colors.surface,
     zIndex: 21,
     elevation: 8,
     shadowColor: "#000000",
@@ -1672,30 +1672,30 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 9,
     borderBottomWidth: 1,
-    borderBottomColor: "#E5E5E5",
+    borderBottomColor: theme.colors.border,
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
   },
   selectOptionActive: {
-    backgroundColor: "#111111",
+    backgroundColor: theme.colors.ink,
   },
   selectOptionTextWrap: {
     flex: 1,
   },
   selectOptionText: {
-    color: "#343A45",
+    color: theme.colors.textStrong,
     fontSize: 13,
     fontWeight: "700",
   },
   selectOptionDetail: {
     marginBottom: 2,
-    color: "#7E8491",
+    color: theme.colors.textMuted,
     fontSize: 11,
     fontWeight: "600",
   },
   selectOptionTextActive: {
-    color: "#FFFFFF",
+    color: theme.colors.onAccent,
   },
   languageInlineStatus: {
     marginTop: 10,
@@ -1712,28 +1712,28 @@ const styles = StyleSheet.create({
     padding: 12,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: "#DFE3EA",
-    backgroundColor: "#FAFBFC",
+    borderColor: theme.colors.border,
+    backgroundColor: theme.colors.canvas,
   },
   languageToggleBox: {
     width: 22,
     height: 22,
     borderRadius: 6,
     borderWidth: 1,
-    borderColor: "#B8C0CC",
-    backgroundColor: "#FFFFFF",
+    borderColor: theme.colors.borderStrong,
+    backgroundColor: theme.colors.surface,
     alignItems: "center",
     justifyContent: "center",
   },
   languageToggleBoxActive: {
-    borderColor: "#111111",
-    backgroundColor: "#111111",
+    borderColor: theme.colors.text,
+    backgroundColor: theme.colors.ink,
   },
   languageToggleTextWrap: {
     flex: 1,
   },
   languageToggleTitle: {
-    color: "#343A45",
+    color: theme.colors.textStrong,
     fontSize: 13,
     fontWeight: "700",
   },
@@ -1747,7 +1747,7 @@ const styles = StyleSheet.create({
     height: 42,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: "#D8DAE0",
+    borderColor: theme.colors.borderStrong,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -1755,7 +1755,7 @@ const styles = StyleSheet.create({
     flex: 1,
     height: 42,
     borderRadius: 12,
-    backgroundColor: "#111111",
+    backgroundColor: theme.colors.ink,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -1763,12 +1763,12 @@ const styles = StyleSheet.create({
     opacity: 0.62,
   },
   languageCancelText: {
-    color: "#111111",
+    color: theme.colors.text,
     fontSize: 14,
     fontWeight: "600",
   },
   languageSaveText: {
-    color: "#FFFFFF",
+    color: theme.colors.onAccent,
     fontSize: 14,
     fontWeight: "600",
   },
@@ -1781,20 +1781,20 @@ const styles = StyleSheet.create({
   updatesDebugPanel: {
     maxHeight: "86%",
     borderRadius: 14,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: theme.colors.surface,
     overflow: "hidden",
   },
   updatesDebugHeader: {
     minHeight: 52,
     paddingHorizontal: 14,
     borderBottomWidth: 1,
-    borderBottomColor: "#ECEEF2",
+    borderBottomColor: theme.colors.border,
     flexDirection: "row",
     alignItems: "center",
   },
   updatesDebugTitle: {
     flex: 1,
-    color: "#111111",
+    color: theme.colors.text,
     fontSize: 16,
     fontWeight: "600",
   },
@@ -1808,12 +1808,12 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   updatesDebugLabel: {
-    color: "#707070",
+    color: theme.colors.textSecondary,
     fontSize: 11,
   },
   updatesDebugValue: {
     marginTop: 2,
-    color: "#111111",
+    color: theme.colors.text,
     fontSize: 12,
   },
   updatesDebugActions: {
@@ -1833,19 +1833,19 @@ const styles = StyleSheet.create({
     opacity: 0.5,
   },
   updatesDebugButtonText: {
-    color: "#111111",
+    color: theme.colors.text,
     fontSize: 13,
     fontWeight: "600",
   },
   updatesDebugHint: {
     marginTop: 8,
-    color: "#7E8491",
+    color: theme.colors.textMuted,
     fontSize: 11,
     lineHeight: 16,
   },
   updatesDebugResultTitle: {
     marginTop: 14,
-    color: "#707070",
+    color: theme.colors.textSecondary,
     fontSize: 12,
     fontWeight: "600",
   },
@@ -1853,8 +1853,8 @@ const styles = StyleSheet.create({
     marginTop: 6,
     padding: 10,
     borderRadius: 10,
-    backgroundColor: "#F5F5F5",
-    color: "#111111",
+    backgroundColor: theme.colors.surfaceSunken,
+    color: theme.colors.text,
     fontSize: 11,
   },
   profileModalBackdrop: {

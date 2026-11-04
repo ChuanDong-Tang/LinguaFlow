@@ -33,7 +33,7 @@ export function RealtimeSttButton({ status, audioLevel = 0, disabled = false, on
 
 const styles = StyleSheet.create({
   button: { width: 38, height: 38, borderRadius: 11, alignItems: "center", justifyContent: "center" },
-  active: { backgroundColor: "#FCEAE8" },
+  active: { backgroundColor: theme.colors.surfaceMuted },
   disabled: { opacity: 0.42 },
   recordingDot: { position: "absolute", top: 4, right: 5, width: 6, height: 6, borderRadius: 3, backgroundColor: theme.colors.danger },
   waveform: { height: 22, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 2 },

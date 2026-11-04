@@ -715,14 +715,14 @@ function ClozeOnboardingOverlay({ step, target, windowWidth, windowHeight, onAdv
     <Svg pointerEvents="none" width={windowWidth} height={windowHeight} style={StyleSheet.absoluteFill}>
       <Defs>
         <Mask id="cloze-guide-mask" x="0" y="0" width={windowWidth} height={windowHeight} maskUnits="userSpaceOnUse">
-          <Rect x="0" y="0" width={windowWidth} height={windowHeight} fill="#fff" />
-          <Rect x={spotlight.x} y={spotlight.y} width={spotlight.width} height={spotlight.height} rx="18" fill="#000" />
+          <Rect x="0" y="0" width={windowWidth} height={windowHeight} fill={theme.colors.surface} />
+          <Rect x={spotlight.x} y={spotlight.y} width={spotlight.width} height={spotlight.height} rx="18" fill={theme.colors.ink} />
         </Mask>
       </Defs>
       <Rect x="0" y="0" width={windowWidth} height={windowHeight} fill="rgba(15, 16, 20, 0.78)" mask="url(#cloze-guide-mask)" />
       <Rect x={spotlight.x} y={spotlight.y} width={spotlight.width} height={spotlight.height} rx="18" fill="none" stroke="rgba(255,255,255,0.82)" strokeWidth="1.4" />
-      <Path d={`M ${arrowStartX} ${arrowStartY} Q ${controlX} ${controlY} ${targetX} ${targetY}`} fill="none" stroke="#FFFFFF" strokeWidth="2.2" strokeLinecap="round" />
-      <Path d={`M ${arrowLeftX} ${arrowLeftY} L ${targetX} ${targetY} L ${arrowRightX} ${arrowRightY}`} fill="none" stroke="#FFFFFF" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+      <Path d={`M ${arrowStartX} ${arrowStartY} Q ${controlX} ${controlY} ${targetX} ${targetY}`} fill="none" stroke={theme.colors.onAccent} strokeWidth="2.2" strokeLinecap="round" />
+      <Path d={`M ${arrowLeftX} ${arrowLeftY} L ${targetX} ${targetY} L ${arrowRightX} ${arrowRightY}`} fill="none" stroke={theme.colors.onAccent} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
     </Svg>
     <Animated.View pointerEvents="box-none" style={[styles.clozeGuideCopy, { top: messageTop, transform: [{ translateY: lift }] }]}>
       <Text style={styles.clozeGuideProgress}>{step} / 2</Text>
@@ -733,7 +733,7 @@ function ClozeOnboardingOverlay({ step, target, windowWidth, windowHeight, onAdv
         <View style={styles.clozeGuideButtonShadow} />
         <View style={styles.clozeGuideButton}>
           <Text style={styles.clozeGuideButtonText}>{step === 1 ? t("common.continue") : t("common.got_it")}</Text>
-          <Ionicons name="arrow-forward" size={17} color="#17171B" />
+          <Ionicons name="arrow-forward" size={17} color={theme.colors.text} />
         </View>
       </Pressable>
     </Animated.View>
@@ -753,7 +753,7 @@ function ClozeActionGuide() {
     <View style={styles.clozeActionGuideGrid}>
       {actions.map((action) => <View key={action.label} style={styles.clozeActionGuideItem}>
         <View style={styles.clozeActionGuideIcon}>
-          {action.icon ? <Ionicons name={action.icon} size={16} color="#FFFFFF" /> : <Text style={styles.clozeActionGuideTextIcon}>{action.textIcon}</Text>}
+          {action.icon ? <Ionicons name={action.icon} size={16} color={theme.colors.onAccent} /> : <Text style={styles.clozeActionGuideTextIcon}>{action.textIcon}</Text>}
         </View>
         <View style={styles.clozeActionGuideItemCopy}>
           <Text numberOfLines={1} style={styles.clozeActionGuideLabel}>{action.label}</Text>
@@ -3617,8 +3617,8 @@ function Review({ onLanguageControlChange, hidePhraseRecommendation = true, deta
                     onPress={() => onRetryGeneration?.("reply")}
                   >
                     {replyGenerating
-                      ? <ActivityIndicator size="small" color="#52796C" />
-                      : <Ionicons name={replyFailed ? "refresh-outline" : "chatbubble-ellipses-outline"} size={16} color="#52796C" />}
+                      ? <ActivityIndicator size="small" color={theme.colors.success} />
+                      : <Ionicons name={replyFailed ? "refresh-outline" : "chatbubble-ellipses-outline"} size={16} color={theme.colors.success} />}
                     <Text style={styles.replyGenerateButtonText}>{t(replyGenerating ? "card_detail.generating" : replyFailed ? "common.retry" : "chat.settings.generate_reply")}</Text>
                   </Pressable> : null}
                   <CardSectionCopyButton onPress={() => void copySection(primaryText)} />
@@ -5171,10 +5171,10 @@ const styles = StyleSheet.create({
   moduleComposerSend: { width: 38, height: 38, borderRadius: 19, backgroundColor: theme.colors.text, alignItems: "center", justifyContent: "center" },
   moduleComposerSendDisabled: { opacity: 0.38 },
   rewriteModuleActions: { minHeight: 38, flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 7 },
-  replyGenerateButton: { minHeight: 32, marginTop: 5, paddingHorizontal: 11, borderRadius: 16, backgroundColor: "#EAF6F1", flexDirection: "row", alignItems: "center", gap: 6 },
+  replyGenerateButton: { minHeight: 32, marginTop: 5, paddingHorizontal: 11, borderRadius: 16, backgroundColor: theme.colors.surfaceMuted, flexDirection: "row", alignItems: "center", gap: 6 },
   replyGenerateButtonDisabled: { opacity: 0.5 },
   replyGenerateButtonPressed: { opacity: 0.68 },
-  replyGenerateButtonText: { color: "#52796C", fontSize: 13, fontWeight: "600" },
+  replyGenerateButtonText: { color: theme.colors.success, fontSize: 13, fontWeight: "600" },
   collapsibleSectionHeader: { height: 36, flexDirection: "row", alignItems: "center", gap: 8 },
   collapsibleSectionHeaderPressed: { opacity: 0.66 },
   sectionGenerateAction: { minHeight: 32, paddingHorizontal: 8, flexDirection: "row", alignItems: "center", gap: 5 },
@@ -5202,12 +5202,12 @@ const styles = StyleSheet.create({
   cardModeSwitch: { flex: 1, height: 44, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 16 },
   cardModeOption: { minWidth: 42, height: 44, alignItems: "center", justifyContent: "center" },
   cardLanguageIcon: { width: 25, height: 25, position: "relative" },
-  cardLanguageLetter: { position: "absolute", color: "#C7C7C7", fontSize: 12, lineHeight: 15, fontWeight: "600", includeFontPadding: false },
+  cardLanguageLetter: { position: "absolute", color: theme.colors.textFaint, fontSize: 12, lineHeight: 15, fontWeight: "600", includeFontPadding: false },
   cardLanguageTarget: { left: 0, top: 0 },
   cardLanguageAuxiliary: { right: 0, bottom: 0 },
   cardLanguageLetterActive: { color: theme.colors.text },
-  cardLanguageSlash: { position: "absolute", left: 9, top: 3, color: "#999999", fontSize: 19, lineHeight: 21, includeFontPadding: false },
-  cardModeOptionText: { color: "#AAAAAA", fontSize: 15, lineHeight: 21, fontWeight: "500" },
+  cardLanguageSlash: { position: "absolute", left: 9, top: 3, color: theme.colors.textMuted, fontSize: 19, lineHeight: 21, includeFontPadding: false },
+  cardModeOptionText: { color: theme.colors.textFaint, fontSize: 15, lineHeight: 21, fontWeight: "500" },
   cardModeOptionTextActive: { color: theme.colors.text, fontWeight: "600" },
   historyButtons: { width: 82, flexDirection: "row", alignItems: "center" },
   historyButton: { width: 40, height: 44, alignItems: "center", justifyContent: "center" },
@@ -5221,19 +5221,19 @@ const styles = StyleSheet.create({
   clozeGuideOverlay: { ...StyleSheet.absoluteFill, zIndex: 90, elevation: 90 },
   clozeGuideCopy: { position: "absolute", left: 32, right: 32, alignItems: "center" },
   clozeGuideProgress: { marginBottom: 10, color: "rgba(255,255,255,0.7)", fontSize: 12, lineHeight: 17, fontWeight: "600", letterSpacing: 1.1 },
-  clozeGuideText: { maxWidth: 310, color: "#FFFFFF", fontSize: 19, lineHeight: 29, fontWeight: "500", letterSpacing: 0.2, textAlign: "center", textShadowColor: "rgba(0,0,0,0.24)", textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 5 },
+  clozeGuideText: { maxWidth: 310, color: theme.colors.onAccent, fontSize: 19, lineHeight: 29, fontWeight: "500", letterSpacing: 0.2, textAlign: "center", textShadowColor: "rgba(0,0,0,0.24)", textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 5 },
   clozeGuideButtonWrap: { width: 126, height: 48, marginTop: 22, transform: [{ rotate: "-1.5deg" }] },
-  clozeGuideButtonShadow: { position: "absolute", left: 4, right: -4, top: 5, bottom: -5, borderRadius: 24, backgroundColor: "#B9A7F5" },
-  clozeGuideButton: { flex: 1, borderWidth: 1, borderColor: "rgba(23,23,27,0.12)", borderRadius: 24, backgroundColor: "#FFFDF8", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
-  clozeGuideButtonText: { color: "#17171B", fontSize: 15, lineHeight: 21, fontWeight: "600", letterSpacing: 0.4 },
+  clozeGuideButtonShadow: { position: "absolute", left: 4, right: -4, top: 5, bottom: -5, borderRadius: 24, backgroundColor: theme.colors.accent },
+  clozeGuideButton: { flex: 1, borderWidth: 1, borderColor: "rgba(23,23,27,0.12)", borderRadius: 24, backgroundColor: theme.colors.canvas, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
+  clozeGuideButtonText: { color: theme.colors.text, fontSize: 15, lineHeight: 21, fontWeight: "600", letterSpacing: 0.4 },
   clozeActionGuideCard: { width: "100%", maxWidth: 340, paddingHorizontal: 15, paddingTop: 14, paddingBottom: 15, borderWidth: 1, borderColor: "rgba(255,255,255,0.2)", borderRadius: 18, backgroundColor: "rgba(255,255,255,0.1)" },
-  clozeActionGuideTitle: { marginBottom: 12, color: "#FFFFFF", fontSize: 17, lineHeight: 23, fontWeight: "600", textAlign: "center" },
+  clozeActionGuideTitle: { marginBottom: 12, color: theme.colors.onAccent, fontSize: 17, lineHeight: 23, fontWeight: "600", textAlign: "center" },
   clozeActionGuideGrid: { flexDirection: "row", flexWrap: "wrap", rowGap: 12 },
   clozeActionGuideItem: { width: "50%", paddingRight: 7, flexDirection: "row", alignItems: "center", gap: 8 },
   clozeActionGuideIcon: { width: 29, height: 29, borderRadius: 10, borderWidth: 1, borderColor: "rgba(255,255,255,0.22)", backgroundColor: "rgba(255,255,255,0.1)", alignItems: "center", justifyContent: "center" },
-  clozeActionGuideTextIcon: { color: "#FFFFFF", fontSize: 13, lineHeight: 18, fontWeight: "600" },
+  clozeActionGuideTextIcon: { color: theme.colors.onAccent, fontSize: 13, lineHeight: 18, fontWeight: "600" },
   clozeActionGuideItemCopy: { flex: 1, minWidth: 0 },
-  clozeActionGuideLabel: { color: "#FFFFFF", fontSize: 12, lineHeight: 17, fontWeight: "600" },
+  clozeActionGuideLabel: { color: theme.colors.onAccent, fontSize: 12, lineHeight: 17, fontWeight: "600" },
   clozeActionGuideDetail: { color: "rgba(255,255,255,0.64)", fontSize: 10, lineHeight: 14 },
   draftHeaderSide: { width: 82, minHeight: 44, justifyContent: "center" },
   draftCloseButton: { width: 44, height: 44, alignItems: "flex-start", justifyContent: "center" },
@@ -5249,7 +5249,7 @@ const styles = StyleSheet.create({
   collectionMetaText: { flexShrink: 1, color: theme.colors.textMuted, fontSize: 12 },
   metadataPressed: { opacity: 0.58 },
   articlePlayButton: { width: 36, height: 32, marginTop: -1, alignItems: "flex-end", justifyContent: "center" },
-  loader: { marginTop: 40 }, recallDetailPage: { flex: 1, backgroundColor: theme.colors.canvas }, recallAdjacentPage: { position: "absolute", top: 0, bottom: 0, width: "100%", backgroundColor: theme.colors.canvas }, recallAdjacentSafeArea: { flex: 1, backgroundColor: theme.colors.canvas }, reviewPage: { flex: 1, backgroundColor: theme.colors.canvas }, content: { paddingHorizontal: 22, paddingTop: 10, paddingBottom: 88 }, flipCardStage: { flex: 1, marginHorizontal: 10, marginTop: 4, marginBottom: 10 }, flipCardShell: { flex: 1, position: "relative", borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.border, borderRadius: 18, backgroundColor: theme.colors.surface, overflow: "hidden" }, flipCardFace: { ...StyleSheet.absoluteFill, backgroundColor: theme.colors.surface }, flipCardScroll: { flex: 1 }, flipCardContent: { paddingHorizontal: 18, paddingTop: 18, paddingBottom: 30 }, flipCardTextBlock: { marginTop: 2 }, flipCardSection: { marginTop: 24, paddingTop: 18, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.border }, cardSectionCopyButton: { width: 34, height: 32, marginTop: 5, marginRight: -5, alignSelf: "flex-end", alignItems: "center", justifyContent: "center", borderRadius: 16 }, cardDisplayTitle: { marginBottom: 6, color: theme.colors.text, fontSize: 23, lineHeight: 30, fontWeight: "600" }, date: { color: theme.colors.textMuted, fontSize: 12, fontWeight: "400" }, imageCarousel: { marginTop: 18, borderRadius: 10, backgroundColor: theme.colors.surfaceMuted }, image: { width: "100%", aspectRatio: CARD_IMAGE_ASPECT_RATIO, borderRadius: 10, backgroundColor: theme.colors.surfaceMuted }, carouselImagePage: { borderRadius: 10, overflow: "hidden", backgroundColor: theme.colors.surfaceMuted }, carouselImageLayer: { ...StyleSheet.absoluteFill, width: "100%", height: "100%" }, coverMoveHint: { position: "absolute", left: 10, bottom: 10, width: 30, height: 30, borderRadius: 15, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(20,28,24,0.56)" }, imageDots: { height: 18, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 }, imageDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: "#D2D2D2" }, imageDotActive: { backgroundColor: theme.colors.text }, reviewImageActions: { minHeight: 30, flexDirection: "row", justifyContent: "flex-end", alignItems: "center" }, reviewAddImage: { minHeight: 30, flexDirection: "row", alignItems: "center", gap: 3, paddingLeft: 10 }, reviewAddImageText: { color: theme.colors.accentStrong, fontSize: 14 }, sectionLabel: { marginTop: 22, color: theme.colors.textMuted, fontSize: 12, fontWeight: "500" }, original: { marginTop: 8, color: theme.colors.textMuted, fontSize: 17, lineHeight: 28, fontWeight: "400" }, secondaryContent: { marginTop: 8, color: theme.colors.textSecondary, fontSize: 17, lineHeight: 28, fontWeight: "400" }, rewrite: { marginTop: 5, color: theme.colors.text, fontSize: 17, lineHeight: 28, fontWeight: "400" }, divider: { marginTop: 28, height: StyleSheet.hairlineWidth, backgroundColor: theme.colors.border },
+  loader: { marginTop: 40 }, recallDetailPage: { flex: 1, backgroundColor: theme.colors.canvas }, recallAdjacentPage: { position: "absolute", top: 0, bottom: 0, width: "100%", backgroundColor: theme.colors.canvas }, recallAdjacentSafeArea: { flex: 1, backgroundColor: theme.colors.canvas }, reviewPage: { flex: 1, backgroundColor: theme.colors.canvas }, content: { paddingHorizontal: 22, paddingTop: 10, paddingBottom: 88 }, flipCardStage: { flex: 1, marginHorizontal: 10, marginTop: 4, marginBottom: 10 }, flipCardShell: { flex: 1, position: "relative", borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.border, borderRadius: 18, backgroundColor: theme.colors.surface, overflow: "hidden" }, flipCardFace: { ...StyleSheet.absoluteFill, backgroundColor: theme.colors.surface }, flipCardScroll: { flex: 1 }, flipCardContent: { paddingHorizontal: 18, paddingTop: 18, paddingBottom: 30 }, flipCardTextBlock: { marginTop: 2 }, flipCardSection: { marginTop: 24, paddingTop: 18, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.border }, cardSectionCopyButton: { width: 34, height: 32, marginTop: 5, marginRight: -5, alignSelf: "flex-end", alignItems: "center", justifyContent: "center", borderRadius: 16 }, cardDisplayTitle: { marginBottom: 6, color: theme.colors.text, fontSize: 23, lineHeight: 30, fontWeight: "600" }, date: { color: theme.colors.textMuted, fontSize: 12, fontWeight: "400" }, imageCarousel: { marginTop: 18, borderRadius: 10, backgroundColor: theme.colors.surfaceMuted }, image: { width: "100%", aspectRatio: CARD_IMAGE_ASPECT_RATIO, borderRadius: 10, backgroundColor: theme.colors.surfaceMuted }, carouselImagePage: { borderRadius: 10, overflow: "hidden", backgroundColor: theme.colors.surfaceMuted }, carouselImageLayer: { ...StyleSheet.absoluteFill, width: "100%", height: "100%" }, coverMoveHint: { position: "absolute", left: 10, bottom: 10, width: 30, height: 30, borderRadius: 15, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(20,28,24,0.56)" }, imageDots: { height: 18, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 }, imageDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: theme.colors.disabled }, imageDotActive: { backgroundColor: theme.colors.text }, reviewImageActions: { minHeight: 30, flexDirection: "row", justifyContent: "flex-end", alignItems: "center" }, reviewAddImage: { minHeight: 30, flexDirection: "row", alignItems: "center", gap: 3, paddingLeft: 10 }, reviewAddImageText: { color: theme.colors.accentStrong, fontSize: 14 }, sectionLabel: { marginTop: 22, color: theme.colors.textMuted, fontSize: 12, fontWeight: "500" }, original: { marginTop: 8, color: theme.colors.textMuted, fontSize: 17, lineHeight: 28, fontWeight: "400" }, secondaryContent: { marginTop: 8, color: theme.colors.textSecondary, fontSize: 17, lineHeight: 28, fontWeight: "400" }, rewrite: { marginTop: 5, color: theme.colors.text, fontSize: 17, lineHeight: 28, fontWeight: "400" }, divider: { marginTop: 28, height: StyleSheet.hairlineWidth, backgroundColor: theme.colors.border },
   recallFinishButton: { height: 42, marginHorizontal: 18, marginBottom: 8, paddingHorizontal: 18, borderRadius: 21, backgroundColor: theme.colors.text, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 }, recallFinishButtonText: { color: theme.colors.surface, fontSize: 15, fontWeight: "600" },
   imagePreviewPage: { flex: 1, backgroundColor: "transparent" },
   imagePreviewBackdrop: { backgroundColor: theme.colors.canvas },
@@ -5262,7 +5262,7 @@ const styles = StyleSheet.create({
   imagePreviewImage: { backgroundColor: theme.colors.canvas },
   cropShade: { position: "absolute", backgroundColor: "rgba(0,0,0,0.48)" },
   previewCropOverlay: { zIndex: 20, elevation: 20 },
-  previewCropFrame: { position: "absolute", zIndex: 20, elevation: 20, borderWidth: 2, borderColor: "#FFFFFF", shadowColor: "#000000", shadowOpacity: 0.28, shadowRadius: 5, shadowOffset: { width: 0, height: 1 } },
+  previewCropFrame: { position: "absolute", zIndex: 20, elevation: 20, borderWidth: 2, borderColor: theme.colors.surface, shadowColor: "#000000", shadowOpacity: 0.28, shadowRadius: 5, shadowOffset: { width: 0, height: 1 } },
   imagePreviewTransitionImage: { position: "absolute", overflow: "hidden", backgroundColor: theme.colors.surfaceMuted },
   imagePreviewTransitionFill: { ...StyleSheet.absoluteFill, width: "100%", height: "100%" },
   imagePreviewFooter: { minHeight: 76, paddingHorizontal: 24, paddingTop: 18, alignItems: "center" },
@@ -5278,43 +5278,43 @@ const styles = StyleSheet.create({
   cardPlaybackLyricsStage: { flex: 1, position: "relative", borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.border },
   cardPlaybackLyrics: { paddingHorizontal: 14, paddingTop: 30, paddingBottom: 90 },
   cardPlaybackLyricRow: { marginVertical: 2, paddingVertical: 9, paddingHorizontal: 6, borderRadius: 12 },
-  cardPlaybackLyric: { color: "#303030", fontSize: 16, lineHeight: 25, textAlign: "left" },
-  cardPlaybackLyricActive: { color: "#34775B" },
-  cardPlaybackBlank: { color: "#A34F63", textDecorationLine: "underline", textDecorationColor: "#D05F78", textDecorationStyle: "solid" },
-  cardPlaybackAuxiliary: { marginTop: 3, color: "#666666", fontSize: 13, lineHeight: 20, textAlign: "left" },
+  cardPlaybackLyric: { color: theme.colors.text, fontSize: 16, lineHeight: 25, textAlign: "left" },
+  cardPlaybackLyricActive: { color: theme.colors.success },
+  cardPlaybackBlank: { color: theme.colors.danger, textDecorationLine: "underline", textDecorationColor: theme.colors.danger, textDecorationStyle: "solid" },
+  cardPlaybackAuxiliary: { marginTop: 3, color: theme.colors.textSecondary, fontSize: 13, lineHeight: 20, textAlign: "left" },
   cardPlaybackBar: { paddingHorizontal: 20, paddingTop: 13, paddingBottom: 8, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.border, backgroundColor: theme.colors.surface },
   cardPlaybackSeekArea: { height: 25, justifyContent: "center" },
   cardPlaybackProgressTrack: { height: 3, borderRadius: 2, backgroundColor: theme.colors.surfaceMuted },
-  cardPlaybackLoadingFill: { width: "30%", height: "100%", borderRadius: 2, backgroundColor: "#3F7D65" },
-  cardPlaybackProgressFill: { height: "100%", borderRadius: 2, backgroundColor: "#3F7D65" },
-  cardPlaybackProgressThumb: { position: "absolute", top: -5, width: 13, height: 13, marginLeft: -6.5, borderRadius: 7, borderWidth: 2, borderColor: theme.colors.surface, backgroundColor: "#3F7D65" },
+  cardPlaybackLoadingFill: { width: "30%", height: "100%", borderRadius: 2, backgroundColor: theme.colors.success },
+  cardPlaybackProgressFill: { height: "100%", borderRadius: 2, backgroundColor: theme.colors.success },
+  cardPlaybackProgressThumb: { position: "absolute", top: -5, width: 13, height: 13, marginLeft: -6.5, borderRadius: 7, borderWidth: 2, borderColor: theme.colors.surface, backgroundColor: theme.colors.success },
   cardPlaybackControls: { height: 64, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   cardPlaybackSideControl: { width: 42, height: 42, alignItems: "center", justifyContent: "center" },
   cardPlaybackMainControl: { width: 50, height: 50, borderRadius: 25, backgroundColor: theme.colors.text, alignItems: "center", justifyContent: "center" },
   cardPlaybackUtility: { minWidth: 40, height: 34, alignItems: "center", justifyContent: "center" },
   cardPlaybackLoopControl: { width: 40, height: 40, alignItems: "center", justifyContent: "center" },
   cardPlaybackLoopIcon: { width: 24, height: 21, alignItems: "center", justifyContent: "center" },
-  cardPlaybackLoopOne: { position: "absolute", color: "#3F7D65", fontSize: 8, lineHeight: 10, fontWeight: "700" },
+  cardPlaybackLoopOne: { position: "absolute", color: theme.colors.success, fontSize: 8, lineHeight: 10, fontWeight: "700" },
   cardPlaybackRate: { color: theme.colors.textSecondary, fontSize: 13, fontWeight: "600" },
   cardPlaybackRateDisabled: { color: theme.colors.textMuted },
-  recommendationButton: { position: "absolute", zIndex: 12, elevation: 5, right: 22, bottom: 70, width: 44, height: 44, borderWidth: StyleSheet.hairlineWidth, borderColor: "#CFE0DA", borderRadius: 22, backgroundColor: "#F3F8F6", alignItems: "center", justifyContent: "center", shadowColor: "#385C50", shadowOpacity: 0.12, shadowRadius: 8, shadowOffset: { width: 0, height: 3 } },
+  recommendationButton: { position: "absolute", zIndex: 12, elevation: 5, right: 22, bottom: 70, width: 44, height: 44, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.borderStrong, borderRadius: 22, backgroundColor: theme.colors.surfaceSunken, alignItems: "center", justifyContent: "center", shadowColor: "#385C50", shadowOpacity: 0.12, shadowRadius: 8, shadowOffset: { width: 0, height: 3 } },
   recommendationButtonDisabled: { opacity: 0.48 },
-  recommendationUnreadDot: { position: "absolute", top: 3, right: 3, width: 9, height: 9, borderRadius: 5, backgroundColor: "#F04444", borderWidth: 1.5, borderColor: theme.colors.surface },
+  recommendationUnreadDot: { position: "absolute", top: 3, right: 3, width: 9, height: 9, borderRadius: 5, backgroundColor: theme.colors.danger, borderWidth: 1.5, borderColor: theme.colors.surface },
   recommendationBackdrop: { flex: 1, paddingHorizontal: 22, backgroundColor: "rgba(28,35,32,0.35)", alignItems: "center", justifyContent: "center" },
-  recommendationSheet: { width: "100%", maxWidth: 430, paddingHorizontal: 20, paddingTop: 16, paddingBottom: 22, borderWidth: 2, borderColor: "#DCEDE6", borderRadius: 26, backgroundColor: "#FFFDF8", shadowColor: "#263C34", shadowOpacity: 0.22, shadowRadius: 24, shadowOffset: { width: 0, height: 12 }, elevation: 16 },
+  recommendationSheet: { width: "100%", maxWidth: 430, paddingHorizontal: 20, paddingTop: 16, paddingBottom: 22, borderWidth: 2, borderColor: theme.colors.border, borderRadius: 26, backgroundColor: theme.colors.canvas, shadowColor: "#263C34", shadowOpacity: 0.22, shadowRadius: 24, shadowOffset: { width: 0, height: 12 }, elevation: 16 },
   recommendationSheetHeader: { minHeight: 38, flexDirection: "row", alignItems: "center", gap: 9 },
-  recommendationSheetMark: { width: 40, height: 40, borderRadius: 20, backgroundColor: "#E5F2ED", alignItems: "center", justifyContent: "center" },
+  recommendationSheetMark: { width: 40, height: 40, borderRadius: 20, backgroundColor: theme.colors.surfaceMuted, alignItems: "center", justifyContent: "center" },
   recommendationSheetTitle: { flex: 1, color: theme.colors.text, fontSize: 18, lineHeight: 24, fontWeight: "700" },
   recommendationClose: { width: 34, height: 34, alignItems: "center", justifyContent: "center" },
   recommendationLoading: { minHeight: 200, alignItems: "center", justifyContent: "center", gap: 13 },
-  recommendationLoadingCharacter: { width: 78, height: 78, borderRadius: 39, backgroundColor: "#EAF6F1", alignItems: "center", justifyContent: "center" },
+  recommendationLoadingCharacter: { width: 78, height: 78, borderRadius: 39, backgroundColor: theme.colors.surfaceMuted, alignItems: "center", justifyContent: "center" },
   recommendationLoadingText: { color: theme.colors.textSecondary, fontSize: 14, lineHeight: 20 },
-  recommendationFound: { marginTop: 14, color: "#52796C", fontSize: 13, lineHeight: 19, fontWeight: "700", textAlign: "center" },
-  recommendationRewardCard: { marginTop: 10, padding: 16, borderWidth: 1, borderColor: "#F1DF9A", borderRadius: 18, backgroundColor: "#FFF9DE" },
+  recommendationFound: { marginTop: 14, color: theme.colors.success, fontSize: 13, lineHeight: 19, fontWeight: "700", textAlign: "center" },
+  recommendationRewardCard: { marginTop: 10, padding: 16, borderWidth: 1, borderColor: theme.colors.warningSoft, borderRadius: 18, backgroundColor: theme.colors.highlight },
   recommendationPhrase: { color: theme.colors.text, fontSize: 25, lineHeight: 32, fontWeight: "800", textAlign: "center" },
-  recommendationMeaning: { marginTop: 7, color: "#52796C", fontSize: 15, lineHeight: 22, fontWeight: "500" },
+  recommendationMeaning: { marginTop: 7, color: theme.colors.success, fontSize: 15, lineHeight: 22, fontWeight: "500" },
   recommendationSentence: { marginTop: 14, padding: 12, borderRadius: 13, backgroundColor: "rgba(255,255,255,0.72)", color: theme.colors.textSecondary, fontSize: 15, lineHeight: 23 },
-  recommendationSentenceHighlight: { color: theme.colors.text, backgroundColor: "#FFF0A8", fontWeight: "700" },
+  recommendationSentenceHighlight: { color: theme.colors.text, backgroundColor: theme.colors.warning, fontWeight: "700" },
   recommendationSheetActions: { marginTop: 22, flexDirection: "row", gap: 10 },
   recommendationSecondaryAction: { minHeight: 46, paddingHorizontal: 18, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.border, borderRadius: 23, alignItems: "center", justifyContent: "center" },
   recommendationSecondaryActionText: { color: theme.colors.textSecondary, fontSize: 14, fontWeight: "600" },
@@ -5325,15 +5325,15 @@ const styles = StyleSheet.create({
   recommendationEmptyText: { color: theme.colors.textSecondary, fontSize: 15, lineHeight: 22, textAlign: "center" },
   recommendationRetry: { minHeight: 40, paddingHorizontal: 20, borderRadius: 20, backgroundColor: theme.colors.surfaceMuted, alignItems: "center", justifyContent: "center" },
   recommendationRetryText: { color: theme.colors.text, fontSize: 14, fontWeight: "600" },
-  recommendationEmptyCharacter: { width: 72, height: 72, borderRadius: 36, backgroundColor: "#F2F5F3", alignItems: "center", justifyContent: "center", opacity: 0.78 },
+  recommendationEmptyCharacter: { width: 72, height: 72, borderRadius: 36, backgroundColor: theme.colors.surfaceMuted, alignItems: "center", justifyContent: "center", opacity: 0.78 },
   recommendationPractice: { paddingTop: 17 },
   recommendationPracticeHint: { color: theme.colors.textSecondary, fontSize: 14, lineHeight: 20, textAlign: "center" },
-  recommendationPracticeSentence: { marginTop: 15, padding: 16, borderRadius: 16, backgroundColor: "#FFF9DE", color: theme.colors.text, fontSize: 17, lineHeight: 26, textAlign: "center" },
-  recommendationPracticeBlank: { color: "#52796C", fontWeight: "800" },
+  recommendationPracticeSentence: { marginTop: 15, padding: 16, borderRadius: 16, backgroundColor: theme.colors.highlight, color: theme.colors.text, fontSize: 17, lineHeight: 26, textAlign: "center" },
+  recommendationPracticeBlank: { color: theme.colors.success, fontWeight: "800" },
   recommendationPracticeOptions: { marginTop: 16, gap: 9 },
-  recommendationPracticeOption: { minHeight: 46, paddingHorizontal: 15, borderWidth: 1, borderColor: "#CFE0DA", borderRadius: 15, backgroundColor: "#F3F8F6", alignItems: "center", justifyContent: "center" },
-  recommendationPracticeOptionWrong: { borderColor: "#E9D8D8", backgroundColor: "#F8EEEE", opacity: 0.55 },
-  recommendationPracticeOptionText: { color: "#385C50", fontSize: 16, lineHeight: 22, fontWeight: "700" },
+  recommendationPracticeOption: { minHeight: 46, paddingHorizontal: 15, borderWidth: 1, borderColor: theme.colors.borderStrong, borderRadius: 15, backgroundColor: theme.colors.surfaceSunken, alignItems: "center", justifyContent: "center" },
+  recommendationPracticeOptionWrong: { borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceMuted, opacity: 0.55 },
+  recommendationPracticeOptionText: { color: theme.colors.success, fontSize: 16, lineHeight: 22, fontWeight: "700" },
   recommendationPracticeOptionTextWrong: { color: theme.colors.textMuted, textDecorationLine: "line-through" },
   recommendationPracticeSkip: { minHeight: 38, marginTop: 7, alignItems: "center", justifyContent: "center" },
   recommendationPracticeSkipText: { color: theme.colors.textMuted, fontSize: 13, lineHeight: 19, fontWeight: "500" },
@@ -5400,7 +5400,7 @@ const styles = StyleSheet.create({
   detailChoiceTray: { minHeight: 60, paddingHorizontal: 10, paddingVertical: 8, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.border, backgroundColor: theme.colors.surface },
   clozeChoiceOptionEmpty: { opacity: 0 },
   clozeChoiceOption: { flex: 1, minHeight: 44, paddingHorizontal: 10, paddingVertical: 8, borderWidth: 1, borderColor: theme.colors.border, borderRadius: 11, backgroundColor: theme.colors.surfaceMuted, alignItems: "center", justifyContent: "center" },
-  clozeChoiceOptionIncorrect: { borderColor: "#D98B87", backgroundColor: "#FCE7E5" },
+  clozeChoiceOptionIncorrect: { borderColor: theme.colors.accentSoft, backgroundColor: theme.colors.accentFaint },
   clozeChoiceOptionText: { color: theme.colors.text, fontSize: 15, lineHeight: 20, fontWeight: "500", textAlign: "center" },
   clozeChoiceOptionTextIncorrect: { color: theme.colors.danger },
   stableSentence: { alignSelf: "stretch", overflow: "visible", flexDirection: "row", alignItems: "flex-end" },
@@ -5418,10 +5418,10 @@ const styles = StyleSheet.create({
   clozeSentenceRowActive: { backgroundColor: theme.colors.accentSoft },
   clozeSentencePlay: { width: 34, minHeight: 34, marginTop: -1, marginRight: -5, alignItems: "center", justifyContent: "center" },
   clozeSentenceBody: { flex: 1, paddingTop: 1 },
-  clozeSentence: { color: "#242424", fontSize: 17, lineHeight: 28 },
+  clozeSentence: { color: theme.colors.text, fontSize: 17, lineHeight: 28 },
   originalLearningSentence: { color: theme.colors.text },
   replyLearningSentence: { color: theme.colors.text },
-  auxiliarySentence: { marginTop: 3, color: "#666666", fontSize: 13, lineHeight: 20 },
+  auxiliarySentence: { marginTop: 3, color: theme.colors.textSecondary, fontSize: 13, lineHeight: 20 },
   imageDescriptionSection: { gap: 7 },
   imageDescriptionBody: { paddingHorizontal: 6, paddingTop: 2, paddingBottom: 6 },
   imageIntegratedSection: { marginTop: 0, paddingTop: 7, borderTopWidth: 0 },
@@ -5445,8 +5445,8 @@ const styles = StyleSheet.create({
   metadataModalSecondaryText: { color: theme.colors.textSecondary, fontSize: 14, fontWeight: "600" },
   metadataModalPrimary: { minWidth: 86, minHeight: 42, borderRadius: 12, backgroundColor: theme.colors.accentStrong, alignItems: "center", justifyContent: "center" },
   metadataModalPrimaryText: { color: theme.colors.surface, fontSize: 14, fontWeight: "700" },
-  imageDescriptionSectionLabel: { color: "#6F73A6" },
-  rewriteSectionLabel: { color: "#4E7B65" },
+  imageDescriptionSectionLabel: { color: theme.colors.accent },
+  rewriteSectionLabel: { color: theme.colors.success },
   imageDescriptionSentenceRow: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
   imageDescriptionSentenceBody: { flex: 1 },
   clozeRevealButton: { alignSelf: "flex-end", minHeight: 34, paddingHorizontal: 4, flexDirection: "row", alignItems: "center", gap: 5 },
@@ -5505,7 +5505,7 @@ const styles = StyleSheet.create({
   relationCard: { marginTop: 10, padding: 14, borderRadius: theme.radius.control, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surface },
   relationTitleRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   relationTitle: { flex: 1, color: theme.colors.text, fontSize: 15, fontWeight: "600" },
-  relationMatch: { color: "#244C3F", backgroundColor: "#BFE8D8", fontWeight: "700" },
+  relationMatch: { color: theme.colors.success, backgroundColor: theme.colors.success, fontWeight: "700" },
   reasonList: { marginTop: 10, flexDirection: "row", flexWrap: "wrap", gap: 7 },
   draftContent: { paddingHorizontal: 22, paddingTop: 10, paddingBottom: 52 },
   draftContentPage: { flex: 1, paddingHorizontal: 22 },

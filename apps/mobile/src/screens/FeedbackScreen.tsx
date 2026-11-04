@@ -6,6 +6,7 @@ import * as Application from "expo-application";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { getLanguage, t } from "../i18n";
 import { submitFeedback, type FeedbackCategory } from "../services/api/meApi";
+import { theme } from "../theme";
 
 type FeedbackScreenProps = {
   onBack: () => void;
@@ -57,7 +58,7 @@ export function FeedbackScreen({ onBack }: FeedbackScreenProps) {
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
         <Pressable style={styles.headerButton} onPress={onBack} hitSlop={10} disabled={submitting}>
-          <Ionicons name="chevron-back" size={24} color="#111111" />
+          <Ionicons name="chevron-back" size={24} color={theme.colors.text} />
         </Pressable>
         <Text style={styles.headerTitle}>{t("feedback.title")}</Text>
         <View style={styles.headerButton} />
@@ -92,7 +93,7 @@ export function FeedbackScreen({ onBack }: FeedbackScreenProps) {
             value={content}
             onChangeText={setContent}
             placeholder={t("feedback.placeholder")}
-            placeholderTextColor="#8A8A8A"
+            placeholderTextColor={theme.colors.textMuted}
             multiline
             maxLength={2_000}
             textAlignVertical="top"
@@ -113,7 +114,7 @@ export function FeedbackScreen({ onBack }: FeedbackScreenProps) {
           disabled={!canSubmit}
         >
           {submitting ? (
-            <ActivityIndicator color="#FFFFFF" />
+            <ActivityIndicator color={theme.colors.onAccent} />
           ) : (
             <Text style={styles.submitText}>{t("feedback.submit")}</Text>
           )}
@@ -124,7 +125,7 @@ export function FeedbackScreen({ onBack }: FeedbackScreenProps) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#FAFAFA" },
+  container: { flex: 1, backgroundColor: theme.colors.canvas },
   header: {
     height: 60,
     paddingHorizontal: 16,
@@ -133,41 +134,41 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
   },
   headerButton: { width: 40, height: 40, alignItems: "center", justifyContent: "center" },
-  headerTitle: { color: "#111111", fontSize: 17, fontWeight: "500" },
+  headerTitle: { color: theme.colors.text, fontSize: 17, fontWeight: "500" },
   content: { flex: 1, paddingHorizontal: 20, paddingTop: 16 },
-  intro: { color: "#555555", fontSize: 14, lineHeight: 22, marginBottom: 18 },
+  intro: { color: theme.colors.textStrong, fontSize: 14, lineHeight: 22, marginBottom: 18 },
   categories: { flexDirection: "row", gap: 8, marginBottom: 14 },
   category: {
     minHeight: 36,
     justifyContent: "center",
     paddingHorizontal: 14,
     borderWidth: 1,
-    borderColor: "#D8D8D8",
+    borderColor: theme.colors.borderStrong,
     borderRadius: 18,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: theme.colors.surface,
   },
-  categorySelected: { borderColor: "#111111", backgroundColor: "#111111" },
-  categoryText: { color: "#444444", fontSize: 13 },
-  categoryTextSelected: { color: "#FFFFFF" },
+  categorySelected: { borderColor: theme.colors.text, backgroundColor: theme.colors.ink },
+  categoryText: { color: theme.colors.textStrong, fontSize: 13 },
+  categoryTextSelected: { color: theme.colors.onAccent },
   inputCard: {
     minHeight: 220,
     borderWidth: 1,
-    borderColor: "#DEDEDE",
+    borderColor: theme.colors.borderStrong,
     borderRadius: 10,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: theme.colors.surface,
     padding: 14,
   },
-  input: { flex: 1, minHeight: 170, padding: 0, color: "#111111", fontSize: 15, lineHeight: 23 },
-  counter: { marginTop: 8, color: "#8A8A8A", fontSize: 12, textAlign: "right" },
+  input: { flex: 1, minHeight: 170, padding: 0, color: theme.colors.text, fontSize: 15, lineHeight: 23 },
+  counter: { marginTop: 8, color: theme.colors.textMuted, fontSize: 12, textAlign: "right" },
   submitButton: {
     minHeight: 48,
     marginTop: 18,
     alignItems: "center",
     justifyContent: "center",
     borderRadius: 8,
-    backgroundColor: "#111111",
+    backgroundColor: theme.colors.ink,
   },
-  submitButtonDisabled: { backgroundColor: "#C8C8C8" },
+  submitButtonDisabled: { backgroundColor: theme.colors.disabled },
   submitButtonPressed: { opacity: 0.78 },
-  submitText: { color: "#FFFFFF", fontSize: 15, fontWeight: "600" },
+  submitText: { color: theme.colors.onAccent, fontSize: 15, fontWeight: "600" },
 });

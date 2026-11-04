@@ -887,9 +887,9 @@ export function MemoryRoundScreen({
 
   const speechBusy = question?.kind === "speech" && (pronunciation.status === "recording" || pronunciation.status === "evaluating");
 
-  if (phase === "loading") return <SafeAreaView style={styles.page}><Header onClose={onClose} /><View style={styles.center}><ActivityIndicator color="#5E7C6A" /><Text style={styles.loadingText}>{t("memory_round.loading")}</Text></View></SafeAreaView>;
+  if (phase === "loading") return <SafeAreaView style={styles.page}><Header onClose={onClose} /><View style={styles.center}><ActivityIndicator color={theme.colors.success} /><Text style={styles.loadingText}>{t("memory_round.loading")}</Text></View></SafeAreaView>;
   if (phase === "error") return <SafeAreaView style={styles.page}><Header onClose={onClose} /><View style={styles.center}><Text style={styles.emptyTitle}>{t("memory_round.load_failed")}</Text><Pressable style={({ pressed }) => [styles.lightButton, pressed && styles.controlPressed]} onPress={() => void start()}><Text style={styles.lightButtonText}>{t("common.retry")}</Text></Pressable></View></SafeAreaView>;
-  if (phase === "empty") return <SafeAreaView style={styles.page}><Header onClose={onClose} /><View style={styles.center}><View style={styles.emptyGlyph}><Ionicons name="albums-outline" size={28} color="#7A6E9D" /></View><Text style={styles.emptyTitle}>{t("memory_round.empty_title")}</Text><Text style={styles.emptyText}>{t("memory_round.empty_text")}</Text><Pressable style={({ pressed }) => [styles.lightButton, pressed && styles.controlPressed]} onPress={onOpenLibrary}><Text style={styles.lightButtonText}>{t("memory_round.go_cards")}</Text><Ionicons name="arrow-forward" size={17} color="#4F6557" /></Pressable></View></SafeAreaView>;
+  if (phase === "empty") return <SafeAreaView style={styles.page}><Header onClose={onClose} /><View style={styles.center}><View style={styles.emptyGlyph}><Ionicons name="albums-outline" size={28} color={theme.colors.accent} /></View><Text style={styles.emptyTitle}>{t("memory_round.empty_title")}</Text><Text style={styles.emptyText}>{t("memory_round.empty_text")}</Text><Pressable style={({ pressed }) => [styles.lightButton, pressed && styles.controlPressed]} onPress={onOpenLibrary}><Text style={styles.lightButtonText}>{t("memory_round.go_cards")}</Text><Ionicons name="arrow-forward" size={17} color={theme.colors.textSecondary} /></Pressable></View></SafeAreaView>;
   if (phase === "retry_offer") return (
     <SafeAreaView style={styles.summaryPage}>
       <Header onClose={onClose} />
@@ -897,13 +897,13 @@ export function MemoryRoundScreen({
         <View style={styles.retryCelebration}>
           <View style={[styles.retryConfetti, styles.retryConfettiLeft]} />
           <View style={[styles.retryConfetti, styles.retryConfettiRight]} />
-          <View style={styles.retryOfferIcon}><Ionicons name="flag" size={36} color="#FFFFFF" /></View>
+          <View style={styles.retryOfferIcon}><Ionicons name="flag" size={36} color={theme.colors.onAccent} /></View>
         </View>
         <Text style={styles.retryOfferTitle}>{t("memory_round.retry_skipped_title")}</Text>
         <Text style={styles.retryOfferDetail}>{t("memory_round.retry_skipped_detail").replace("{count}", String(summaryWrong.length))}</Text>
         <View style={styles.retryOfferActions}>
           <Pressable style={({ pressed }) => [styles.gamePrimaryButton, pressed && styles.gameButtonPressed]} onPress={() => void retryWrongQuestions()}>
-            <Ionicons name="refresh" size={20} color="#FFFFFF" />
+            <Ionicons name="refresh" size={20} color={theme.colors.onAccent} />
             <Text style={styles.gamePrimaryButtonText}>{t("memory_round.retry_skipped_action")}</Text>
           </Pressable>
           <Pressable style={({ pressed }) => [styles.gameSecondaryButton, pressed && styles.gameButtonPressed]} onPress={() => void finishAfterRetryOffer()}>
@@ -924,29 +924,29 @@ export function MemoryRoundScreen({
       <SafeAreaView style={styles.summaryPage}>
         <Header onClose={onClose} />
         <ScrollView contentContainerStyle={styles.cardCompleteBody}>
-          <View style={styles.cardCompleteIcon}><Ionicons name="checkmark" size={36} color="#FFFFFF" /></View>
+          <View style={styles.cardCompleteIcon}><Ionicons name="checkmark" size={36} color={theme.colors.onAccent} /></View>
           <Text style={styles.cardCompleteTitle}>{t("memory_round.card_complete")}</Text>
           {nextCard ? <>
             <Text style={styles.cardCompleteLabel}>{nextCard.relationHint ? t("memory_round.next_related").replace("{topic}", nextCard.relationHint) : t("memory_round.next_card_ready")}</Text>
             <View style={[styles.cardRouteCard, styles.nextCardRouteCard]}>
-              {nextCard.thumbnailUrl ? <Image source={{ uri: nextCard.thumbnailUrl }} style={styles.cardRouteImage} /> : <View style={[styles.cardRouteImage, styles.cardRouteImageFallback]}><Ionicons name="document-text-outline" size={25} color="#6D8178" /></View>}
+              {nextCard.thumbnailUrl ? <Image source={{ uri: nextCard.thumbnailUrl }} style={styles.cardRouteImage} /> : <View style={[styles.cardRouteImage, styles.cardRouteImageFallback]}><Ionicons name="document-text-outline" size={25} color={theme.colors.textSecondary} /></View>}
               {nextCard.title.trim() ? <View style={styles.cardRouteCopy}><Text numberOfLines={2} style={styles.cardRouteTitle}>{nextCard.title}</Text></View> : null}
             </View>
             <View style={styles.cardCompleteActions}>
               {summaryWrong.length ? <Pressable style={({ pressed }) => [styles.gameSecondaryButton, pressed && styles.gameButtonPressed]} onPress={() => void retryWrongQuestions()}>
-                <Ionicons name="refresh" size={19} color="#625978" />
+                <Ionicons name="refresh" size={19} color={theme.colors.accent} />
                 <Text style={styles.gameSecondaryButtonText}>{t("memory_round.retry_wrong").replace("{count}", String(summaryWrong.length))}</Text>
               </Pressable> : null}
               <Pressable style={({ pressed }) => [styles.gamePrimaryButton, pressed && styles.gameButtonPressed]} onPress={() => void continueToNextCard()}>
-                <Ionicons name="play" size={19} color="#FFFFFF" />
+                <Ionicons name="play" size={19} color={theme.colors.onAccent} />
                 <Text style={styles.gamePrimaryButtonText}>{t("memory_round.continue_game")}</Text>
               </Pressable>
               {canChangeCard ? <Pressable disabled={changingNextCard} style={({ pressed }) => [styles.gameSecondaryButton, changingNextCard && styles.buttonDisabled, pressed && styles.gameButtonPressed]} onPress={() => void changeNextCard()}>
-                {changingNextCard ? <ActivityIndicator size="small" color="#625978" /> : <Ionicons name="shuffle" size={19} color="#625978" />}
+                {changingNextCard ? <ActivityIndicator size="small" color={theme.colors.accent} /> : <Ionicons name="shuffle" size={19} color={theme.colors.accent} />}
                 <Text style={styles.gameSecondaryButtonText}>{t("memory_round.change_card")}</Text>
               </Pressable> : null}
               <Pressable style={({ pressed }) => [styles.gameExitButton, pressed && styles.gameButtonPressed]} onPress={() => void exitAfterCard()}>
-                <Ionicons name="exit-outline" size={19} color="#A45F56" />
+                <Ionicons name="exit-outline" size={19} color={theme.colors.danger} />
                 <Text style={styles.gameExitButtonText}>{t("memory_round.exit_after_card")}</Text>
               </Pressable>
             </View>
@@ -978,17 +978,17 @@ export function MemoryRoundScreen({
             </Animated.View>
           </Animated.View>
           <View style={[styles.coachBubble, meaningExpanded && meaningStatus === "ready" && styles.coachBubbleExpanded, feedbackState === "correct" && styles.coachBubbleSuccess, feedbackState === "wrong" && styles.coachBubbleWrong]}>
-            {feedbackState === "correct" ? <View style={styles.coachFeedback}><Ionicons name="checkmark-circle" size={19} color="#43816E" /><Text style={styles.coachSuccessText}>{t("memory_round.coach_correct")}</Text></View> : <>
-              {feedbackState === "wrong" ? <View style={styles.coachHintHeading}><Ionicons name="refresh" size={16} color="#B75F5F" /><Text style={[styles.coachHintTitle, styles.coachWrongText]}>{t("memory_round.coach_wrong")}</Text></View> : null}
+            {feedbackState === "correct" ? <View style={styles.coachFeedback}><Ionicons name="checkmark-circle" size={19} color={theme.colors.success} /><Text style={styles.coachSuccessText}>{t("memory_round.coach_correct")}</Text></View> : <>
+              {feedbackState === "wrong" ? <View style={styles.coachHintHeading}><Ionicons name="refresh" size={16} color={theme.colors.danger} /><Text style={[styles.coachHintTitle, styles.coachWrongText]}>{t("memory_round.coach_wrong")}</Text></View> : null}
               {question.task !== "meaning_sentence" ? <View style={styles.coachHintActions}>
                 <Pressable accessibilityRole="button" accessibilityLabel={t("memory_round.play_audio")} disabled={audioLoading || speechBusy} style={({ pressed }) => [styles.coachHintButton, styles.coachAudioButton, (audioLoading || speechBusy) && styles.buttonDisabled, pressed && styles.controlPressed]} onPress={() => void playSentence()}>
-                  <Ionicons name="volume-medium-outline" size={17} color="#596F65" />
+                  <Ionicons name="volume-medium-outline" size={17} color={theme.colors.textSecondary} />
                   <AudioWaveform active={sentenceAudioActive} progress={audioWaveProgress} reduceMotion={reduceMotion} />
                 </Pressable>
                 <Pressable accessibilityRole="button" accessibilityLabel={t("memory_round.native_meaning")} disabled={meaningStatus === "loading"} style={({ pressed }) => [styles.meaningIconButton, meaningExpanded && styles.meaningIconButtonActive, meaningStatus === "loading" && styles.buttonDisabled, pressed && styles.controlPressed]} onPress={() => void revealNativeMeaning()}>
-                  {meaningStatus === "loading" ? <ActivityIndicator size="small" color="#596F65" /> : <Ionicons name={meaningExpanded ? "bulb" : "bulb-outline"} size={19} color="#596F65" />}
+                  {meaningStatus === "loading" ? <ActivityIndicator size="small" color={theme.colors.textSecondary} /> : <Ionicons name={meaningExpanded ? "bulb" : "bulb-outline"} size={19} color={theme.colors.textSecondary} />}
                 </Pressable>
-              </View> : meaningStatus === "loading" ? <View style={styles.meaningDots}>{meaningDots.map((dot, index) => <Animated.View key={index} style={[styles.meaningDot, { opacity: dot }]} />)}</View> : meaningStatus === "error" ? <Pressable accessibilityRole="button" accessibilityLabel={t("memory_round.meaning_retry")} style={({ pressed }) => [styles.meaningRetryIcon, pressed && styles.controlPressed]} onPress={() => void revealNativeMeaning()}><Ionicons name="refresh" size={17} color="#8A6F68" /></Pressable> : null}
+              </View> : meaningStatus === "loading" ? <View style={styles.meaningDots}>{meaningDots.map((dot, index) => <Animated.View key={index} style={[styles.meaningDot, { opacity: dot }]} />)}</View> : meaningStatus === "error" ? <Pressable accessibilityRole="button" accessibilityLabel={t("memory_round.meaning_retry")} style={({ pressed }) => [styles.meaningRetryIcon, pressed && styles.controlPressed]} onPress={() => void revealNativeMeaning()}><Ionicons name="refresh" size={17} color={theme.colors.danger} /></Pressable> : null}
               {audioUnavailable ? <Text style={styles.coachHintError}>{t("memory_round.audio_unavailable")}</Text> : null}
               {meaningUnavailable ? <Text style={styles.coachHintError}>{t("memory_round.meaning_unavailable")}</Text> : null}
               {meaningExpanded && meaningStatus === "ready" && nativeMeaning ? <ScrollView style={styles.coachMeaningScroll} contentContainerStyle={styles.coachMeaningScrollContent} nestedScrollEnabled showsVerticalScrollIndicator persistentScrollbar>
@@ -999,12 +999,12 @@ export function MemoryRoundScreen({
         </View>
         <Animated.View style={{ transform: [{ translateX: wrongOffset.interpolate({ inputRange: [-1, 1], outputRange: [-6, 6] }) }] }}>
         {question.kind === "speech" ? question.completed ? <View style={styles.completedSentenceCard}><Text style={[styles.completedSentence, sentenceTypography]}>{question.sentence}</Text></View> : <>
-          {question.task === "blind_speech" && !blindSubtitleRevealed ? <View style={styles.blindSpeechCard}><Ionicons name="ear-outline" size={34} color="#729487" /><Text style={styles.blindSpeechText}>{t("memory_round.blind_speech_prompt")}</Text><Pressable style={({ pressed }) => [styles.revealSubtitleButton, pressed && styles.secondaryPressed]} onPress={() => setBlindSubtitleRevealed(true)}><Text style={styles.revealSubtitleText}>{t("memory_round.show_subtitle")}</Text></Pressable></View> : <View style={styles.speechSentenceCard}><GuidedSpeechSentence sentence={question.sentence} recognizedText={pronunciation.recognizedText} completed={question.completed} typography={sentenceTypography} /></View>}
+          {question.task === "blind_speech" && !blindSubtitleRevealed ? <View style={styles.blindSpeechCard}><Ionicons name="ear-outline" size={34} color={theme.colors.success} /><Text style={styles.blindSpeechText}>{t("memory_round.blind_speech_prompt")}</Text><Pressable style={({ pressed }) => [styles.revealSubtitleButton, pressed && styles.secondaryPressed]} onPress={() => setBlindSubtitleRevealed(true)}><Text style={styles.revealSubtitleText}>{t("memory_round.show_subtitle")}</Text></Pressable></View> : <View style={styles.speechSentenceCard}><GuidedSpeechSentence sentence={question.sentence} recognizedText={pronunciation.recognizedText} completed={question.completed} typography={sentenceTypography} /></View>}
           <View style={styles.speechPanel}>
             <Text style={styles.speechStatus}>{t(`memory_round.speech_${pronunciation.status}`)}</Text>
-            {pronunciation.status === "evaluating" || pronunciation.status === "preparing" ? <ActivityIndicator size="small" color="#668C7E" style={styles.speechSpinner} /> : null}
+            {pronunciation.status === "evaluating" || pronunciation.status === "preparing" ? <ActivityIndicator size="small" color={theme.colors.success} style={styles.speechSpinner} /> : null}
             <Pressable disabled={pronunciation.status === "preparing" || pronunciation.status === "evaluating"} style={({ pressed }) => [styles.speechButton, (pronunciation.status === "preparing" || pronunciation.status === "evaluating") && styles.buttonDisabled, pronunciation.status === "recording" && styles.speechButtonRecording, pressed && styles.gameButtonPressed]} onPress={() => { if (pronunciation.status === "recording") void pronunciation.stop(); else { sentenceAudioRequestRef.current += 1; stopTtsAudio({ resetControls: true }); setAudioLoading(false); void pronunciation.start(); } }}>
-              <Ionicons name={pronunciation.status === "recording" ? "stop" : "mic"} size={19} color="#FFFFFF" />
+              <Ionicons name={pronunciation.status === "recording" ? "stop" : "mic"} size={19} color={theme.colors.onAccent} />
               <Text style={styles.checkButtonText}>{pronunciation.status === "recording" ? t("memory_round.speech_finish") : pronunciation.status === "retry" || pronunciation.status === "error" ? t("memory_round.try_again") : t("memory_round.speech_start")}</Text>
             </Pressable>
             <Pressable style={({ pressed }) => [styles.speechSkip, pressed && styles.gameButtonPressed]} onPress={() => skipCurrentQuestion()}><Text style={styles.speechSkipText}>{t("memory_round.speech_skip")}</Text></Pressable>
@@ -1029,7 +1029,7 @@ export function MemoryRoundScreen({
           <View style={styles.options}>{question.options.map((option) => {
             const disabled = question.disabledOptions.includes(option);
             const isAnswer = question.completed && normalizeAnswer(option) === normalizeAnswer(question.answer);
-            return <Pressable key={option} disabled={disabled || question.completed || checking} style={({ pressed }) => [styles.option, pressed && styles.optionPressed, disabled && styles.optionWrong, isAnswer && styles.optionCorrect]} onPress={() => void chooseOption(option)}><Text style={[styles.optionText, memoryOptionTypography(option), disabled && styles.optionWrongText, isAnswer && styles.optionCorrectText]}>{option}</Text>{disabled ? <Ionicons name="close" size={20} color="#D56E6E" /> : isAnswer ? <Ionicons name="checkmark" size={20} color="#43816E" /> : null}</Pressable>;
+            return <Pressable key={option} disabled={disabled || question.completed || checking} style={({ pressed }) => [styles.option, pressed && styles.optionPressed, disabled && styles.optionWrong, isAnswer && styles.optionCorrect]} onPress={() => void chooseOption(option)}><Text style={[styles.optionText, memoryOptionTypography(option), disabled && styles.optionWrongText, isAnswer && styles.optionCorrectText]}>{option}</Text>{disabled ? <Ionicons name="close" size={20} color={theme.colors.danger} /> : isAnswer ? <Ionicons name="checkmark" size={20} color={theme.colors.success} /> : null}</Pressable>;
           })}</View>
         </> : question.kind === "input" ? question.completed ? <View style={styles.completedSentenceCard}><Text style={[styles.completedSentence, sentenceTypography]}>{question.before}<Text style={question.skipped ? styles.revealedInputAnswer : styles.blank}>{question.answer}</Text>{question.after}</Text></View> : <>
           <View style={styles.sentenceSurface}><Text accessibilityLabel={`${question.before} … ${question.after}`} style={[styles.sentence, sentenceTypography]}>{question.before}<Text style={styles.inputBlank}>{memoryAnswerBlank(question.answer)}</Text>{question.after}</Text></View>
@@ -1047,8 +1047,8 @@ export function MemoryRoundScreen({
               enterKeyHint="done"
               returnKeyType="done"
               placeholder={t("memory_round.type_answer")}
-              placeholderTextColor="#9AA49F"
-              selectionColor="#6FAE99"
+              placeholderTextColor={theme.colors.textMuted}
+              selectionColor={theme.colors.success}
               style={styles.inputAnswer}
               onFocus={() => {
                 requestAnimationFrame(() => questionScrollerRef.current?.scrollToEnd({ animated: true }));
@@ -1061,7 +1061,7 @@ export function MemoryRoundScreen({
               }}
               onSubmitEditing={checkInputAnswer}
             />
-            {inputAnswer && !sentenceIncorrect ? <Pressable accessibilityRole="button" accessibilityLabel={t("memory_round.clear_answer")} hitSlop={8} style={({ pressed }) => [styles.inputClear, pressed && styles.headerPressed]} onPress={() => { void Haptics.selectionAsync().catch(() => undefined); setInputAnswer(""); setSentenceIncorrect(false); setFeedbackState("idle"); inputAnswerRef.current?.focus(); }}><Ionicons name="close-circle" size={20} color="#87938D" /></Pressable> : null}
+            {inputAnswer && !sentenceIncorrect ? <Pressable accessibilityRole="button" accessibilityLabel={t("memory_round.clear_answer")} hitSlop={8} style={({ pressed }) => [styles.inputClear, pressed && styles.headerPressed]} onPress={() => { void Haptics.selectionAsync().catch(() => undefined); setInputAnswer(""); setSentenceIncorrect(false); setFeedbackState("idle"); inputAnswerRef.current?.focus(); }}><Ionicons name="close-circle" size={20} color={theme.colors.textMuted} /></Pressable> : null}
           </View>
           {sentenceIncorrect ? <View style={styles.inputWrongActions}>
             <Pressable disabled={checking} style={({ pressed }) => [styles.inputRetryButton, checking && styles.buttonDisabled, pressed && styles.gameButtonPressed]} onPress={retryInputAnswer}><Text style={styles.inputRetryButtonText}>{t("memory_round.try_again")}</Text></Pressable>
@@ -1080,14 +1080,14 @@ export function MemoryRoundScreen({
           {!answerRevealCompletion ? <>
             <View style={styles.completionHandle} />
             <View style={styles.completionHeading}>
-              <View style={[styles.successMark, question.skipped && styles.skippedMark]}><Ionicons name={question.skipped ? "play-skip-forward" : "checkmark"} size={20} color="#FFFFFF" /></View>
+              <View style={[styles.successMark, question.skipped && styles.skippedMark]}><Ionicons name={question.skipped ? "play-skip-forward" : "checkmark"} size={20} color={theme.colors.onAccent} /></View>
               <View style={styles.completionCopy}>
                 <Text style={[styles.completionTitle, question.skipped && styles.completionTitleSkipped]}>{question.skipped ? t("memory_round.skipped_feedback") : memoryPraise(question.id)}</Text>
                 <Text style={styles.completionDetail}>{question.skipped ? t("memory_round.skipped_detail") : t("memory_round.correct_detail")}</Text>
               </View>
             </View>
           </> : null}
-          <Pressable style={({ pressed }) => [styles.continueButton, question.skipped && styles.skippedContinueButton, answerRevealCompletion && styles.answerRevealContinueButton, pressed && styles.gameButtonPressed]} onPress={() => void continueRound()}><Text style={styles.primaryButtonText}>{t("common.continue")}</Text><Ionicons name="arrow-forward" size={18} color="#FFFFFF" /></Pressable>
+          <Pressable style={({ pressed }) => [styles.continueButton, question.skipped && styles.skippedContinueButton, answerRevealCompletion && styles.answerRevealContinueButton, pressed && styles.gameButtonPressed]} onPress={() => void continueRound()}><Text style={styles.primaryButtonText}>{t("common.continue")}</Text><Ionicons name="arrow-forward" size={18} color={theme.colors.onAccent} /></Pressable>
         </View>
       </Animated.View> : null}
     </Animated.View>
@@ -1108,7 +1108,7 @@ function AudioWaveform({ active, progress, reduceMotion }: { active: boolean; pr
 }
 
 function Progress({ total, current, currentCompleted, pulse, completion, colors }: { total: number; current: number; currentCompleted: boolean; pulse: Animated.Value; completion: Animated.Value; colors: string[] }) {
-  return <View style={styles.progress}>{Array.from({ length: total }, (_, index) => <React.Fragment key={index}>{index > 0 ? <View style={[styles.connector, index <= current && { backgroundColor: colors[(index - 1) % colors.length] }]} /> : null}<Animated.View style={[styles.progressNode, index <= current && { backgroundColor: colors[index % colors.length] }, index === current && !currentCompleted && { transform: [{ scale: pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.22] }) }], opacity: pulse.interpolate({ inputRange: [0, 1], outputRange: [0.68, 1] }) }, index === current && currentCompleted && { transform: [{ scale: completion.interpolate({ inputRange: [0, 0.58, 1], outputRange: [0.82, 1.28, 1], extrapolate: "clamp" }) }] }]}>{index < current || index === current && currentCompleted ? <Ionicons name="checkmark" size={10} color="#fff" /> : null}</Animated.View></React.Fragment>)}</View>;
+  return <View style={styles.progress}>{Array.from({ length: total }, (_, index) => <React.Fragment key={index}>{index > 0 ? <View style={[styles.connector, index <= current && { backgroundColor: colors[(index - 1) % colors.length] }]} /> : null}<Animated.View style={[styles.progressNode, index <= current && { backgroundColor: colors[index % colors.length] }, index === current && !currentCompleted && { transform: [{ scale: pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.22] }) }], opacity: pulse.interpolate({ inputRange: [0, 1], outputRange: [0.68, 1] }) }, index === current && currentCompleted && { transform: [{ scale: completion.interpolate({ inputRange: [0, 0.58, 1], outputRange: [0.82, 1.28, 1], extrapolate: "clamp" }) }] }]}>{index < current || index === current && currentCompleted ? <Ionicons name="checkmark" size={10} color={theme.colors.onAccent} /> : null}</Animated.View></React.Fragment>)}</View>;
 }
 
 function GuidedSpeechSentence({ sentence, recognizedText, completed, typography }: { sentence: string; recognizedText: string; completed: boolean; typography: { fontSize: number; lineHeight: number } }) {
@@ -1515,24 +1515,24 @@ function isPendingMemoryResult(value: unknown, ownerId: string): value is Pendin
 }
 
 const styles = StyleSheet.create({
-  page: { flex: 1, backgroundColor: "#F8FAF9" },
-  summaryPage: { flex: 1, backgroundColor: "#F4F1FB" },
+  page: { flex: 1, backgroundColor: theme.colors.canvas },
+  summaryPage: { flex: 1, backgroundColor: theme.colors.surfaceSunken },
   header: { height: 54, paddingHorizontal: 18, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   headerButton: { width: 56, height: 40, alignItems: "flex-start", justifyContent: "center" },
   headerCardButton: { width: 56, height: 40, alignItems: "flex-end", justifyContent: "center" },
   headerPressed: { opacity: 0.55, transform: [{ scale: 0.94 }] },
-  headerCardButtonText: { color: "#52645D", fontSize: 14, fontWeight: "600" },
+  headerCardButtonText: { color: theme.colors.textSecondary, fontSize: 14, fontWeight: "600" },
   headerTitle: { color: theme.colors.text, fontSize: 17, fontWeight: "600" },
   center: { flex: 1, paddingHorizontal: 42, alignItems: "center", justifyContent: "center" },
   loadingText: { marginTop: 12, color: theme.colors.textMuted, fontSize: 14 },
-  emptyGlyph: { width: 64, height: 64, borderRadius: 22, backgroundColor: "#EDE7FA", alignItems: "center", justifyContent: "center", marginBottom: 22 },
+  emptyGlyph: { width: 64, height: 64, borderRadius: 22, backgroundColor: theme.colors.surfaceMuted, alignItems: "center", justifyContent: "center", marginBottom: 22 },
   emptyTitle: { color: theme.colors.text, fontSize: 22, lineHeight: 30, fontWeight: "600", textAlign: "center" },
   emptyText: { marginTop: 12, color: theme.colors.textSecondary, fontSize: 15, lineHeight: 23, textAlign: "center" },
-  lightButton: { marginTop: 24, minHeight: 48, paddingHorizontal: 20, borderRadius: 16, backgroundColor: "#E4F1E8", flexDirection: "row", gap: 8, alignItems: "center", justifyContent: "center" },
-  lightButtonText: { color: "#4F6557", fontSize: 15, fontWeight: "600" },
+  lightButton: { marginTop: 24, minHeight: 48, paddingHorizontal: 20, borderRadius: 16, backgroundColor: theme.colors.surfaceMuted, flexDirection: "row", gap: 8, alignItems: "center", justifyContent: "center" },
+  lightButtonText: { color: theme.colors.textSecondary, fontSize: 15, fontWeight: "600" },
   progress: { height: 42, paddingHorizontal: 28, flexDirection: "row", alignItems: "center", justifyContent: "center" },
-  connector: { flex: 1, maxWidth: 34, height: 3, borderRadius: 2, backgroundColor: "#DCE2E0" },
-  progressNode: { width: 15, height: 15, borderRadius: 8, backgroundColor: "#DCE2E0", alignItems: "center", justifyContent: "center" },
+  connector: { flex: 1, maxWidth: 34, height: 3, borderRadius: 2, backgroundColor: theme.colors.surfaceMuted },
+  progressNode: { width: 15, height: 15, borderRadius: 8, backgroundColor: theme.colors.surfaceMuted, alignItems: "center", justifyContent: "center" },
   taskHeading: { minHeight: 34, marginTop: 2, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   taskHeadingText: { color: theme.colors.text, fontSize: 18, lineHeight: 24, fontWeight: "700" },
   cardQuestionCount: { color: theme.colors.textMuted, fontSize: 13, fontWeight: "600" },
@@ -1540,7 +1540,7 @@ const styles = StyleSheet.create({
   questionScroller: { flex: 1 },
   questionScroll: { paddingHorizontal: 20, paddingBottom: 48 },
   questionScrollCompact: { paddingBottom: 32 },
-  memoryImage: { width: "100%", height: 164, marginTop: 8, borderRadius: 22, backgroundColor: "#E8ECEB" },
+  memoryImage: { width: "100%", height: 164, marginTop: 8, borderRadius: 22, backgroundColor: theme.colors.surfaceMuted },
   memoryImageCompact: { height: 128, borderRadius: 18 },
   titlePrompt: { minHeight: 72, marginTop: 8, paddingHorizontal: 18, paddingVertical: 14, borderRadius: 20, backgroundColor: "rgba(255,255,255,0.72)", flexDirection: "row", alignItems: "center", gap: 12 },
   titlePromptCompact: { minHeight: 58, paddingVertical: 10, borderRadius: 17 },
@@ -1553,22 +1553,22 @@ const styles = StyleSheet.create({
   coachCharacter: { width: 62, alignSelf: "stretch", alignItems: "center", justifyContent: "flex-end" },
   coachBubble: { flex: 1, minHeight: 58, paddingHorizontal: 12, paddingVertical: 9, borderRadius: 16, borderBottomLeftRadius: 5, borderWidth: 1, borderColor: "rgba(80,100,92,0.13)", backgroundColor: "rgba(255,255,255,0.92)", alignItems: "stretch", justifyContent: "center", shadowColor: "#52645D", shadowOpacity: 0.08, shadowRadius: 7, shadowOffset: { width: 0, height: 3 }, elevation: 1 },
   coachBubbleExpanded: { alignSelf: "stretch" },
-  coachBubbleSuccess: { borderColor: "#A9D7C8", backgroundColor: "#ECF8F3" },
-  coachBubbleWrong: { borderColor: "#EDBBB4", backgroundColor: "#FFF2F0" },
-  coachHintTitle: { color: "#6B7872", fontSize: 12, lineHeight: 16, fontWeight: "500" },
+  coachBubbleSuccess: { borderColor: theme.colors.successSoft, backgroundColor: theme.colors.surfaceMuted },
+  coachBubbleWrong: { borderColor: theme.colors.accentSoft, backgroundColor: theme.colors.surfaceSunken },
+  coachHintTitle: { color: theme.colors.textSecondary, fontSize: 12, lineHeight: 16, fontWeight: "500" },
   coachHintHeading: { flexDirection: "row", alignItems: "center", gap: 5 },
-  coachWrongText: { color: "#9A605C", fontWeight: "600" },
+  coachWrongText: { color: theme.colors.danger, fontWeight: "600" },
   coachFeedback: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7 },
-  coachSuccessText: { color: "#43816E", fontSize: 13, fontWeight: "600" },
+  coachSuccessText: { color: theme.colors.success, fontSize: 13, fontWeight: "600" },
   coachHintActions: { marginTop: 5, alignSelf: "stretch", flexDirection: "row", alignItems: "center", gap: 6 },
-  coachHintButton: { minHeight: 29, paddingHorizontal: 8, borderRadius: 10, backgroundColor: "#F1F6F3", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4 },
+  coachHintButton: { minHeight: 29, paddingHorizontal: 8, borderRadius: 10, backgroundColor: theme.colors.surfaceMuted, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4 },
   coachAudioButton: { flex: 1, minHeight: 36, justifyContent: "flex-start", gap: 8 },
-  meaningIconButton: { width: 38, height: 36, borderRadius: 11, backgroundColor: "#F1F6F3", alignItems: "center", justifyContent: "center" },
-  meaningIconButtonActive: { backgroundColor: "#DDEFE8" },
-  coachHintButtonText: { color: "#596F65", fontSize: 12, fontWeight: "600" },
+  meaningIconButton: { width: 38, height: 36, borderRadius: 11, backgroundColor: theme.colors.surfaceMuted, alignItems: "center", justifyContent: "center" },
+  meaningIconButtonActive: { backgroundColor: theme.colors.surfaceMuted },
+  coachHintButtonText: { color: theme.colors.textSecondary, fontSize: 12, fontWeight: "600" },
   audioWaveform: { flex: 1, height: 22, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  audioWaveBarTrack: { width: 2, borderRadius: 2, overflow: "hidden", backgroundColor: "#BDD0C9" },
-  audioWaveBarFill: { ...StyleSheet.absoluteFill, backgroundColor: "#4F8573" },
+  audioWaveBarTrack: { width: 2, borderRadius: 2, overflow: "hidden", backgroundColor: theme.colors.disabled },
+  audioWaveBarFill: { ...StyleSheet.absoluteFill, backgroundColor: theme.colors.success },
   coachHintError: { marginTop: 5, color: theme.colors.textMuted, fontSize: 11 },
   coachMeaningScroll: { maxHeight: 92, marginTop: 8, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "rgba(80,100,92,0.13)" },
   coachMeaningScrollContent: { paddingTop: 8, paddingRight: 5, paddingBottom: 2 },
@@ -1576,101 +1576,101 @@ const styles = StyleSheet.create({
   controlPressed: { opacity: 0.76, transform: [{ translateY: 1 }, { scale: 0.96 }] },
   sentenceSurface: { paddingHorizontal: 18, paddingVertical: 17, borderRadius: 20, borderWidth: StyleSheet.hairlineWidth, borderColor: "rgba(78,98,89,0.13)", backgroundColor: "rgba(255,255,255,0.76)" },
   sentence: { color: theme.colors.text, fontSize: 20, lineHeight: 31, fontWeight: "400" },
-  blank: { color: "#397461", textDecorationLine: "underline", textDecorationColor: "#72A18F" },
-  inputBlank: { color: "#78A493" },
-  memoryBlankUnit: { color: "#78A493", letterSpacing: 1 },
-  inputAnswerShell: { minHeight: 56, marginTop: 14, paddingLeft: 17, paddingRight: 12, borderRadius: 17, borderWidth: 1.5, borderColor: "#9FC7B9", backgroundColor: "rgba(255,255,255,0.94)", flexDirection: "row", alignItems: "center", shadowColor: "#52645D", shadowOpacity: 0.06, shadowRadius: 6, shadowOffset: { width: 0, height: 3 }, elevation: 1 },
-  inputAnswerShellWrong: { borderColor: "#DF8A82", backgroundColor: "#FFF4F2" },
+  blank: { color: theme.colors.success, textDecorationLine: "underline", textDecorationColor: theme.colors.success },
+  inputBlank: { color: theme.colors.success },
+  memoryBlankUnit: { color: theme.colors.success, letterSpacing: 1 },
+  inputAnswerShell: { minHeight: 56, marginTop: 14, paddingLeft: 17, paddingRight: 12, borderRadius: 17, borderWidth: 1.5, borderColor: theme.colors.successSoft, backgroundColor: "rgba(255,255,255,0.94)", flexDirection: "row", alignItems: "center", shadowColor: "#52645D", shadowOpacity: 0.06, shadowRadius: 6, shadowOffset: { width: 0, height: 3 }, elevation: 1 },
+  inputAnswerShellWrong: { borderColor: theme.colors.accentSoft, backgroundColor: theme.colors.surfaceSunken },
   inputAnswer: { flex: 1, minHeight: 54, paddingVertical: 10, color: theme.colors.text, fontSize: 18, lineHeight: 24, fontWeight: "500" },
   inputClear: { width: 34, height: 40, alignItems: "flex-end", justifyContent: "center" },
   inputWrongActions: { marginTop: 22, flexDirection: "row", gap: 10 },
-  inputRetryButton: { flex: 1, minHeight: 54, borderRadius: 19, borderWidth: 2, borderBottomWidth: 5, borderColor: "#E2B2AB", backgroundColor: "#FFFFFF", alignItems: "center", justifyContent: "center" },
-  inputRetryButtonText: { color: "#A75F58", fontSize: 16, fontWeight: "800" },
-  inputShowAnswerButton: { flex: 1, minHeight: 54, borderRadius: 19, borderBottomWidth: 5, borderBottomColor: "#3F6E5E", backgroundColor: "#67A88F", alignItems: "center", justifyContent: "center" },
-  inputShowAnswerButtonText: { color: "#FFFFFF", fontSize: 16, fontWeight: "800" },
-  meaningRetry: { color: "#8A6F68", fontSize: 12, fontWeight: "500" },
-  meaningRetryIcon: { width: 32, height: 32, borderRadius: 10, backgroundColor: "#F1F6F3", alignItems: "center", justifyContent: "center" },
+  inputRetryButton: { flex: 1, minHeight: 54, borderRadius: 19, borderWidth: 2, borderBottomWidth: 5, borderColor: theme.colors.accentSoft, backgroundColor: theme.colors.surface, alignItems: "center", justifyContent: "center" },
+  inputRetryButtonText: { color: theme.colors.danger, fontSize: 16, fontWeight: "800" },
+  inputShowAnswerButton: { flex: 1, minHeight: 54, borderRadius: 19, borderBottomWidth: 5, borderBottomColor: theme.colors.successSoft, backgroundColor: theme.colors.success, alignItems: "center", justifyContent: "center" },
+  inputShowAnswerButtonText: { color: theme.colors.onAccent, fontSize: 16, fontWeight: "800" },
+  meaningRetry: { color: theme.colors.danger, fontSize: 12, fontWeight: "500" },
+  meaningRetryIcon: { width: 32, height: 32, borderRadius: 10, backgroundColor: theme.colors.surfaceMuted, alignItems: "center", justifyContent: "center" },
   meaningDots: { height: 12, marginLeft: 2, flexDirection: "row", alignItems: "center", gap: 4 },
-  meaningDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: "#739889" },
-  speechSentenceCard: { paddingHorizontal: 18, paddingVertical: 17, borderRadius: 20, borderWidth: 1, borderColor: "#CFE0DA", backgroundColor: "rgba(255,255,255,0.86)" },
-  blindSpeechCard: { minHeight: 112, paddingHorizontal: 24, paddingVertical: 18, borderRadius: 20, borderWidth: 1, borderColor: "#CFE0DA", backgroundColor: "rgba(255,255,255,0.86)", alignItems: "center", justifyContent: "center", gap: 10 },
+  meaningDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: theme.colors.success },
+  speechSentenceCard: { paddingHorizontal: 18, paddingVertical: 17, borderRadius: 20, borderWidth: 1, borderColor: theme.colors.borderStrong, backgroundColor: "rgba(255,255,255,0.86)" },
+  blindSpeechCard: { minHeight: 112, paddingHorizontal: 24, paddingVertical: 18, borderRadius: 20, borderWidth: 1, borderColor: theme.colors.borderStrong, backgroundColor: "rgba(255,255,255,0.86)", alignItems: "center", justifyContent: "center", gap: 10 },
   blindSpeechText: { color: theme.colors.textSecondary, fontSize: 15, lineHeight: 21, fontWeight: "600", textAlign: "center" },
-  revealSubtitleButton: { minHeight: 40, marginTop: 4, paddingHorizontal: 15, borderRadius: 14, borderWidth: 1.5, borderBottomWidth: 4, borderColor: "#CADBD4", backgroundColor: "#FFFFFF", alignItems: "center", justifyContent: "center" },
-  revealSubtitleText: { color: "#5F7B70", fontSize: 13, fontWeight: "600" },
-  guidedSentence: { color: "#A7AFAB", fontWeight: "500" },
-  guidedWordMatched: { color: "#45A77F" },
+  revealSubtitleButton: { minHeight: 40, marginTop: 4, paddingHorizontal: 15, borderRadius: 14, borderWidth: 1.5, borderBottomWidth: 4, borderColor: theme.colors.borderStrong, backgroundColor: theme.colors.surface, alignItems: "center", justifyContent: "center" },
+  revealSubtitleText: { color: theme.colors.success, fontSize: 13, fontWeight: "600" },
+  guidedSentence: { color: theme.colors.textFaint, fontWeight: "500" },
+  guidedWordMatched: { color: theme.colors.success },
   speechPanel: { marginTop: 16, paddingHorizontal: 18, paddingTop: 14, paddingBottom: 12, borderRadius: 22, backgroundColor: "rgba(255,255,255,0.72)", alignItems: "center" },
   speechStatus: { minHeight: 32, color: theme.colors.textSecondary, fontSize: 14, lineHeight: 20, textAlign: "center" },
   speechSpinner: { position: "absolute", top: 42 },
-  speechButton: { alignSelf: "stretch", minHeight: 58, marginTop: 10, borderRadius: 21, borderBottomWidth: 6, borderBottomColor: "#3F6E5E", backgroundColor: "#67A88F", flexDirection: "row", gap: 8, alignItems: "center", justifyContent: "center" },
-  speechButtonRecording: { borderBottomColor: "#864A45", backgroundColor: "#C87068" },
-  speechSkip: { alignSelf: "stretch", minHeight: 52, marginTop: 12, paddingHorizontal: 18, borderRadius: 19, borderWidth: 2, borderBottomWidth: 5, borderColor: "#D5DDD9", backgroundColor: "#FFFFFF", alignItems: "center", justifyContent: "center" },
-  speechSkipText: { color: "#5F6F67", fontSize: 15, fontWeight: "800" },
+  speechButton: { alignSelf: "stretch", minHeight: 58, marginTop: 10, borderRadius: 21, borderBottomWidth: 6, borderBottomColor: theme.colors.successSoft, backgroundColor: theme.colors.success, flexDirection: "row", gap: 8, alignItems: "center", justifyContent: "center" },
+  speechButtonRecording: { borderBottomColor: theme.colors.accentSoft, backgroundColor: theme.colors.danger },
+  speechSkip: { alignSelf: "stretch", minHeight: 52, marginTop: 12, paddingHorizontal: 18, borderRadius: 19, borderWidth: 2, borderBottomWidth: 5, borderColor: theme.colors.borderStrong, backgroundColor: theme.colors.surface, alignItems: "center", justifyContent: "center" },
+  speechSkipText: { color: theme.colors.textSecondary, fontSize: 15, fontWeight: "800" },
   options: { marginTop: 14, gap: 10 },
   option: { minHeight: 54, paddingHorizontal: 17, paddingVertical: 10, borderRadius: 17, borderWidth: 1.25, borderColor: "rgba(93,113,104,0.17)", backgroundColor: "rgba(255,255,255,0.88)", flexDirection: "row", alignItems: "center", justifyContent: "space-between", shadowColor: "#52645D", shadowOpacity: 0.055, shadowRadius: 5, shadowOffset: { width: 0, height: 3 }, elevation: 1 },
   optionPressed: { opacity: 0.86, transform: [{ translateY: 2 }, { scale: 0.975 }], shadowOpacity: 0.01, elevation: 0 },
   optionText: { flex: 1, paddingRight: 10, color: theme.colors.text, fontSize: 17, lineHeight: 24, fontWeight: "400" },
-  optionWrong: { borderColor: "#E59A91", backgroundColor: "#FBE8E5" },
-  optionWrongText: { color: "#B75F5F", textDecorationLine: "line-through" },
-  optionCorrect: { borderColor: "#7BC4AC", backgroundColor: "#DDF3EA" },
-  optionCorrectText: { color: "#397461" },
-  sentenceTray: { minHeight: 130, padding: 14, borderRadius: 20, borderWidth: 1.5, borderColor: "#D6E2DD", backgroundColor: "rgba(255,255,255,0.78)", justifyContent: "center" },
-  sentenceTrayWrong: { borderColor: "#DF8A82", backgroundColor: "#FBEAE7" },
+  optionWrong: { borderColor: theme.colors.accentSoft, backgroundColor: theme.colors.surfaceMuted },
+  optionWrongText: { color: theme.colors.danger, textDecorationLine: "line-through" },
+  optionCorrect: { borderColor: theme.colors.successSoft, backgroundColor: theme.colors.surfaceMuted },
+  optionCorrectText: { color: theme.colors.success },
+  sentenceTray: { minHeight: 130, padding: 14, borderRadius: 20, borderWidth: 1.5, borderColor: theme.colors.borderStrong, backgroundColor: "rgba(255,255,255,0.78)", justifyContent: "center" },
+  sentenceTrayWrong: { borderColor: theme.colors.accentSoft, backgroundColor: theme.colors.surfaceMuted },
   trayHint: { color: theme.colors.textMuted, fontSize: 15, textAlign: "center" },
   tokenWrap: { flexDirection: "row", flexWrap: "wrap", alignItems: "flex-start", columnGap: 6, rowGap: 9 },
-  token: { maxWidth: "100%", minHeight: 42, paddingHorizontal: 9, borderRadius: 14, borderWidth: 1, borderColor: "#D7DBE3", backgroundColor: "#FFFFFF", alignSelf: "flex-start", alignItems: "center", justifyContent: "center", shadowColor: "#53615B", shadowOpacity: 0.06, shadowRadius: 4, shadowOffset: { width: 0, height: 2 }, elevation: 1 },
+  token: { maxWidth: "100%", minHeight: 42, paddingHorizontal: 9, borderRadius: 14, borderWidth: 1, borderColor: theme.colors.borderStrong, backgroundColor: theme.colors.surface, alignSelf: "flex-start", alignItems: "center", justifyContent: "center", shadowColor: "#53615B", shadowOpacity: 0.06, shadowRadius: 4, shadowOffset: { width: 0, height: 2 }, elevation: 1 },
   tokenText: { color: theme.colors.text, fontSize: 15, lineHeight: 20, fontWeight: "400" },
-  selectedToken: { minHeight: 38, paddingHorizontal: 10, borderRadius: 11, backgroundColor: "#DCEDE8", alignItems: "center", justifyContent: "center" },
-  selectedTokenText: { color: "#365E52", fontSize: 16, fontWeight: "400" },
+  selectedToken: { minHeight: 38, paddingHorizontal: 10, borderRadius: 11, backgroundColor: theme.colors.surfaceMuted, alignItems: "center", justifyContent: "center" },
+  selectedTokenText: { color: theme.colors.success, fontSize: 16, fontWeight: "400" },
   tokenPressed: { opacity: 0.78, transform: [{ translateY: 2 }, { scale: 0.96 }] },
-  checkButton: { minHeight: 58, marginTop: 22, borderRadius: 21, borderBottomWidth: 6, borderBottomColor: "#3F6E5E", backgroundColor: "#67A88F", alignItems: "center", justifyContent: "center" },
-  checkButtonWrong: { borderBottomColor: "#8E514A", backgroundColor: "#C77870" },
-  checkButtonText: { color: "#FFFFFF", fontSize: 16, fontWeight: "800" },
-  skipButton: { minHeight: 52, marginTop: 12, borderRadius: 19, borderWidth: 2, borderBottomWidth: 5, borderColor: "#D5DDD9", backgroundColor: "#FFFFFF", alignItems: "center", justifyContent: "center" },
-  skipButtonText: { color: "#5F6F67", fontSize: 15, fontWeight: "800" },
+  checkButton: { minHeight: 58, marginTop: 22, borderRadius: 21, borderBottomWidth: 6, borderBottomColor: theme.colors.successSoft, backgroundColor: theme.colors.success, alignItems: "center", justifyContent: "center" },
+  checkButtonWrong: { borderBottomColor: theme.colors.accentSoft, backgroundColor: theme.colors.danger },
+  checkButtonText: { color: theme.colors.onAccent, fontSize: 16, fontWeight: "800" },
+  skipButton: { minHeight: 52, marginTop: 12, borderRadius: 19, borderWidth: 2, borderBottomWidth: 5, borderColor: theme.colors.borderStrong, backgroundColor: theme.colors.surface, alignItems: "center", justifyContent: "center" },
+  skipButtonText: { color: theme.colors.textSecondary, fontSize: 15, fontWeight: "800" },
   buttonDisabled: { opacity: 0.35 },
   primaryPressed: { opacity: 0.88, transform: [{ translateY: 2 }, { scale: 0.985 }] },
   secondaryPressed: { opacity: 0.62, transform: [{ scale: 0.97 }] },
-  completedSentenceCard: { marginTop: 8, padding: 18, borderRadius: 20, borderWidth: 1, borderColor: "#CFE5DC", backgroundColor: "rgba(255,255,255,0.84)" },
-  completedSentence: { color: "#397461", fontSize: 20, lineHeight: 31, fontWeight: "400" },
-  revealedInputAnswer: { color: "#8A5A2B", fontWeight: "700", backgroundColor: "#FFF0CE", textDecorationLine: "underline", textDecorationColor: "#D8A85C" },
+  completedSentenceCard: { marginTop: 8, padding: 18, borderRadius: 20, borderWidth: 1, borderColor: theme.colors.borderStrong, backgroundColor: "rgba(255,255,255,0.84)" },
+  completedSentence: { color: theme.colors.success, fontSize: 20, lineHeight: 31, fontWeight: "400" },
+  revealedInputAnswer: { color: theme.colors.warning, fontWeight: "700", backgroundColor: theme.colors.highlight, textDecorationLine: "underline", textDecorationColor: theme.colors.warning },
   completionSheet: { position: "absolute", left: 0, right: 0, bottom: 0, zIndex: 20, paddingHorizontal: 14, paddingTop: 10, paddingBottom: 10, backgroundColor: "rgba(252,250,248,0.96)", borderTopLeftRadius: 28, borderTopRightRadius: 28, shadowColor: "#35473F", shadowOpacity: 0.18, shadowRadius: 18, shadowOffset: { width: 0, height: -7 }, elevation: 16 },
-  completionActions: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 16, borderRadius: 22, borderWidth: 1, borderColor: "#B9E2D3", backgroundColor: "#E9F8F2" },
+  completionActions: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 16, borderRadius: 22, borderWidth: 1, borderColor: theme.colors.successSoft, backgroundColor: theme.colors.surfaceMuted },
   completionHandle: { width: 38, height: 4, marginBottom: 10, borderRadius: 2, backgroundColor: "rgba(88,108,99,0.22)", alignSelf: "center" },
-  completionActionsSkipped: { borderColor: "#EDC5BD", backgroundColor: "#FFF1EE" },
+  completionActionsSkipped: { borderColor: theme.colors.accentSoft, backgroundColor: theme.colors.surfaceSunken },
   completionActionsAnswerReveal: { paddingHorizontal: 0, paddingTop: 0, paddingBottom: 0, borderWidth: 0, backgroundColor: "transparent" },
   completionHeading: { minHeight: 48, marginBottom: 14, flexDirection: "row", alignItems: "center", gap: 11 },
   completionCopy: { flex: 1 },
-  completionTitle: { color: "#39806A", fontSize: 18, lineHeight: 24, fontWeight: "800" },
-  completionTitleSkipped: { color: "#A15F54" },
-  completionTitleAnswerReveal: { color: "#8A5A2B" },
+  completionTitle: { color: theme.colors.success, fontSize: 18, lineHeight: 24, fontWeight: "800" },
+  completionTitleSkipped: { color: theme.colors.danger },
+  completionTitleAnswerReveal: { color: theme.colors.warning },
   completionDetail: { marginTop: 2, color: theme.colors.textSecondary, fontSize: 13, lineHeight: 18 },
-  successMark: { width: 38, height: 38, borderRadius: 19, borderWidth: 3, borderColor: "#F7FBF9", backgroundColor: "#64AE96", alignItems: "center", justifyContent: "center", shadowColor: "#477766", shadowOpacity: 0.16, shadowRadius: 6, shadowOffset: { width: 0, height: 3 }, elevation: 2 },
-  skippedMark: { backgroundColor: "#D48778", shadowColor: "#985F55" },
-  answerRevealMark: { backgroundColor: "#D9A75C", shadowColor: "#9A743C" },
-  continueButton: { minHeight: 58, paddingHorizontal: 22, borderRadius: 21, borderBottomWidth: 6, borderBottomColor: "#3F6E5E", backgroundColor: "#67A88F", flexDirection: "row", gap: 8, alignItems: "center", justifyContent: "center" },
-  skippedContinueButton: { borderBottomColor: "#754941", backgroundColor: "#A7695E" },
-  answerRevealContinueButton: { borderBottomColor: "#654B2D", backgroundColor: "#8B6B43" },
-  primaryButton: { minHeight: 54, marginTop: 20, paddingHorizontal: 28, borderRadius: 18, backgroundColor: "#566C63", alignItems: "center", justifyContent: "center" },
-  primaryButtonText: { color: "#FFFFFF", fontSize: 16, fontWeight: "600" },
+  successMark: { width: 38, height: 38, borderRadius: 19, borderWidth: 3, borderColor: theme.colors.border, backgroundColor: theme.colors.success, alignItems: "center", justifyContent: "center", shadowColor: "#477766", shadowOpacity: 0.16, shadowRadius: 6, shadowOffset: { width: 0, height: 3 }, elevation: 2 },
+  skippedMark: { backgroundColor: theme.colors.danger, shadowColor: "#985F55" },
+  answerRevealMark: { backgroundColor: theme.colors.warning, shadowColor: "#9A743C" },
+  continueButton: { minHeight: 58, paddingHorizontal: 22, borderRadius: 21, borderBottomWidth: 6, borderBottomColor: theme.colors.successSoft, backgroundColor: theme.colors.success, flexDirection: "row", gap: 8, alignItems: "center", justifyContent: "center" },
+  skippedContinueButton: { borderBottomColor: theme.colors.accentSoft, backgroundColor: theme.colors.danger },
+  answerRevealContinueButton: { borderBottomColor: theme.colors.warningSoft, backgroundColor: theme.colors.warning },
+  primaryButton: { minHeight: 54, marginTop: 20, paddingHorizontal: 28, borderRadius: 18, backgroundColor: theme.colors.ink, alignItems: "center", justifyContent: "center" },
+  primaryButtonText: { color: theme.colors.onAccent, fontSize: 16, fontWeight: "600" },
   againButton: { minHeight: 48, marginTop: 10, alignItems: "center", justifyContent: "center" },
-  againButtonText: { color: "#665C80", fontSize: 15, fontWeight: "500" },
+  againButtonText: { color: theme.colors.accent, fontSize: 15, fontWeight: "500" },
   summaryBody: { flex: 1, paddingHorizontal: 36, alignItems: "stretch", justifyContent: "center" },
   retryOfferBody: { flex: 1, paddingHorizontal: 30, paddingBottom: 48, alignItems: "stretch", justifyContent: "center" },
   retryCelebration: { height: 112, marginBottom: 18, alignItems: "center", justifyContent: "center" },
-  retryOfferIcon: { width: 86, height: 86, borderRadius: 32, borderWidth: 5, borderColor: "#FFF8E8", backgroundColor: "#F3A968", alignItems: "center", justifyContent: "center", shadowColor: "#A8663D", shadowOpacity: 0.22, shadowRadius: 0, shadowOffset: { width: 0, height: 7 }, elevation: 5 },
+  retryOfferIcon: { width: 86, height: 86, borderRadius: 32, borderWidth: 5, borderColor: theme.colors.warningSoft, backgroundColor: theme.colors.warning, alignItems: "center", justifyContent: "center", shadowColor: "#A8663D", shadowOpacity: 0.22, shadowRadius: 0, shadowOffset: { width: 0, height: 7 }, elevation: 5 },
   retryConfetti: { position: "absolute", width: 14, height: 14, borderRadius: 5, transform: [{ rotate: "18deg" }] },
-  retryConfettiLeft: { left: "22%", top: 16, backgroundColor: "#8CC8F0" },
-  retryConfettiRight: { right: "20%", bottom: 12, backgroundColor: "#B5A1E6", transform: [{ rotate: "-16deg" }] },
+  retryConfettiLeft: { left: "22%", top: 16, backgroundColor: theme.colors.accent },
+  retryConfettiRight: { right: "20%", bottom: 12, backgroundColor: theme.colors.accent, transform: [{ rotate: "-16deg" }] },
   retryOfferTitle: { color: theme.colors.text, fontSize: 30, lineHeight: 38, fontWeight: "800", textAlign: "center" },
-  retryOfferDetail: { marginTop: 8, color: "#776F86", fontSize: 16, lineHeight: 23, fontWeight: "600", textAlign: "center" },
+  retryOfferDetail: { marginTop: 8, color: theme.colors.accent, fontSize: 16, lineHeight: 23, fontWeight: "600", textAlign: "center" },
   retryOfferActions: { marginTop: 36, gap: 14 },
-  gamePrimaryButton: { minHeight: 60, paddingHorizontal: 24, borderRadius: 22, borderBottomWidth: 6, borderBottomColor: "#3F6E5E", backgroundColor: "#67A88F", flexDirection: "row", gap: 9, alignItems: "center", justifyContent: "center" },
-  gamePrimaryButtonText: { color: "#FFFFFF", fontSize: 17, lineHeight: 23, fontWeight: "800" },
-  gameSecondaryButton: { minHeight: 58, paddingHorizontal: 24, borderRadius: 22, borderWidth: 2, borderBottomWidth: 6, borderColor: "#D4CDE4", backgroundColor: "#FFFFFF", flexDirection: "row", gap: 9, alignItems: "center", justifyContent: "center" },
-  gameSecondaryButtonText: { color: "#625978", fontSize: 17, lineHeight: 23, fontWeight: "800" },
-  gameExitButton: { minHeight: 58, paddingHorizontal: 24, borderRadius: 22, borderWidth: 2, borderBottomWidth: 6, borderColor: "#E5B8B1", backgroundColor: "#FFF4F1", flexDirection: "row", gap: 9, alignItems: "center", justifyContent: "center" },
-  gameExitButtonText: { color: "#A45F56", fontSize: 17, lineHeight: 23, fontWeight: "800" },
+  gamePrimaryButton: { minHeight: 60, paddingHorizontal: 24, borderRadius: 22, borderBottomWidth: 6, borderBottomColor: theme.colors.successSoft, backgroundColor: theme.colors.success, flexDirection: "row", gap: 9, alignItems: "center", justifyContent: "center" },
+  gamePrimaryButtonText: { color: theme.colors.onAccent, fontSize: 17, lineHeight: 23, fontWeight: "800" },
+  gameSecondaryButton: { minHeight: 58, paddingHorizontal: 24, borderRadius: 22, borderWidth: 2, borderBottomWidth: 6, borderColor: theme.colors.accent, backgroundColor: theme.colors.surface, flexDirection: "row", gap: 9, alignItems: "center", justifyContent: "center" },
+  gameSecondaryButtonText: { color: theme.colors.accent, fontSize: 17, lineHeight: 23, fontWeight: "800" },
+  gameExitButton: { minHeight: 58, paddingHorizontal: 24, borderRadius: 22, borderWidth: 2, borderBottomWidth: 6, borderColor: theme.colors.accentSoft, backgroundColor: theme.colors.surfaceSunken, flexDirection: "row", gap: 9, alignItems: "center", justifyContent: "center" },
+  gameExitButtonText: { color: theme.colors.danger, fontSize: 17, lineHeight: 23, fontWeight: "800" },
   gameButtonPressed: { transform: [{ translateY: 4 }, { scale: 0.99 }], borderBottomWidth: 2, opacity: 0.94 },
   finishRoute: { flexDirection: "row", justifyContent: "center", alignItems: "center", marginBottom: 42 },
   finishConnector: { flex: 1, maxWidth: 20, height: 4, borderRadius: 2 },
@@ -1678,19 +1678,19 @@ const styles = StyleSheet.create({
   summaryTitle: { color: theme.colors.text, fontSize: 28, fontWeight: "700", textAlign: "center", marginBottom: 22 },
   summarySubtitle: { marginTop: -10, marginBottom: 8, color: theme.colors.textSecondary, fontSize: 16, lineHeight: 23, textAlign: "center" },
   cardCompleteBody: { flexGrow: 1, paddingHorizontal: 28, paddingTop: 22, paddingBottom: 42, alignItems: "stretch", justifyContent: "center" },
-  cardCompleteIcon: { width: 82, height: 82, marginBottom: 20, borderRadius: 30, borderWidth: 5, borderColor: "#EBFAF4", backgroundColor: "#68B99D", alignSelf: "center", alignItems: "center", justifyContent: "center", shadowColor: "#477766", shadowOpacity: 0.2, shadowRadius: 0, shadowOffset: { width: 0, height: 7 }, elevation: 5 },
+  cardCompleteIcon: { width: 82, height: 82, marginBottom: 20, borderRadius: 30, borderWidth: 5, borderColor: theme.colors.border, backgroundColor: theme.colors.success, alignSelf: "center", alignItems: "center", justifyContent: "center", shadowColor: "#477766", shadowOpacity: 0.2, shadowRadius: 0, shadowOffset: { width: 0, height: 7 }, elevation: 5 },
   cardCompleteTitle: { color: theme.colors.text, fontSize: 29, lineHeight: 37, fontWeight: "800", textAlign: "center" },
   cardCompleteName: { marginTop: 8, color: theme.colors.textSecondary, fontSize: 16, lineHeight: 23, textAlign: "center" },
-  nextCardPreview: { marginTop: 34, paddingHorizontal: 18, paddingVertical: 16, borderRadius: 18, borderWidth: 1, borderColor: "#DCD5EB", backgroundColor: "rgba(255,255,255,0.72)" },
-  cardCompleteLabel: { marginTop: 24, marginBottom: 9, color: "#776F86", fontSize: 14, lineHeight: 19, fontWeight: "700", textAlign: "center" },
-  cardRouteCard: { minHeight: 92, padding: 10, borderRadius: 20, borderWidth: 1, borderColor: "#D7E5DF", backgroundColor: "rgba(255,255,255,0.88)", flexDirection: "row", alignItems: "center", gap: 12 },
-  nextCardRouteCard: { borderWidth: 2, borderBottomWidth: 5, borderColor: "#A9D7C8", backgroundColor: "#ECF8F3" },
-  cardRouteImage: { width: 72, height: 72, borderRadius: 14, backgroundColor: "#E8ECEB" },
+  nextCardPreview: { marginTop: 34, paddingHorizontal: 18, paddingVertical: 16, borderRadius: 18, borderWidth: 1, borderColor: theme.colors.borderStrong, backgroundColor: "rgba(255,255,255,0.72)" },
+  cardCompleteLabel: { marginTop: 24, marginBottom: 9, color: theme.colors.accent, fontSize: 14, lineHeight: 19, fontWeight: "700", textAlign: "center" },
+  cardRouteCard: { minHeight: 92, padding: 10, borderRadius: 20, borderWidth: 1, borderColor: theme.colors.borderStrong, backgroundColor: "rgba(255,255,255,0.88)", flexDirection: "row", alignItems: "center", gap: 12 },
+  nextCardRouteCard: { borderWidth: 2, borderBottomWidth: 5, borderColor: theme.colors.successSoft, backgroundColor: theme.colors.surfaceMuted },
+  cardRouteImage: { width: 72, height: 72, borderRadius: 14, backgroundColor: theme.colors.surfaceMuted },
   cardRouteImageFallback: { alignItems: "center", justifyContent: "center" },
   cardRouteCopy: { flex: 1 },
   cardRouteTitle: { color: theme.colors.text, fontSize: 16, lineHeight: 22, fontWeight: "700" },
   cardRouteMeta: { marginTop: 5, color: theme.colors.textSecondary, fontSize: 12, lineHeight: 17 },
   cardCompleteActions: { marginTop: 24, gap: 13 },
-  nextCardEyebrow: { color: "#776C91", fontSize: 12, fontWeight: "700" },
+  nextCardEyebrow: { color: theme.colors.accent, fontSize: 12, fontWeight: "700" },
   nextCardTitle: { marginTop: 6, color: theme.colors.text, fontSize: 17, lineHeight: 24, fontWeight: "600" },
 });

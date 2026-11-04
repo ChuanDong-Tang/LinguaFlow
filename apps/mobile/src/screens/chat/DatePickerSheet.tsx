@@ -3,6 +3,7 @@ import { Modal, Pressable, StyleSheet, View } from "react-native";
 import { Text } from "../../components/Typography";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { t, tf } from "../../i18n";
+import { theme } from "../../theme";
 
 type DatePickerSheetProps = {
   visible: boolean;
@@ -72,7 +73,7 @@ export function DatePickerSheet({ visible, monthCursor, selectedDate, onClose, o
 
           <View style={styles.topRow}>
             <Pressable style={styles.closeBtn} onPress={onClose}>
-              <Ionicons name="close" size={26} color="#111111" />
+              <Ionicons name="close" size={26} color={theme.colors.text} />
             </Pressable>
             <Text style={styles.title}>{t("chat.date.select")}</Text>
             <View style={styles.closeBtn} />
@@ -81,15 +82,15 @@ export function DatePickerSheet({ visible, monthCursor, selectedDate, onClose, o
           <View style={styles.monthRow}>
             <View style={styles.monthTitleWrap}>
               <Text style={styles.monthTitle}>{title}</Text>
-              <Ionicons name="chevron-down" size={16} color="#5E6370" />
+              <Ionicons name="chevron-down" size={16} color={theme.colors.textSecondary} />
             </View>
 
             <View style={styles.monthActions}>
               <Pressable onPress={onPrevMonth} style={styles.arrowBtn}>
-                <Ionicons name="chevron-back" size={24} color="#111111" />
+                <Ionicons name="chevron-back" size={24} color={theme.colors.text} />
               </Pressable>
               <Pressable onPress={onNextMonth} style={styles.arrowBtn}>
-                <Ionicons name="chevron-forward" size={24} color="#111111" />
+                <Ionicons name="chevron-forward" size={24} color={theme.colors.text} />
               </Pressable>
             </View>
           </View>
@@ -159,7 +160,7 @@ const styles = StyleSheet.create({
     minHeight: 560,
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: theme.colors.surface,
     paddingHorizontal: 22,
     paddingBottom: 24,
   },
@@ -169,7 +170,7 @@ const styles = StyleSheet.create({
     height: 5,
     marginTop: 8,
     borderRadius: 999,
-    backgroundColor: "#E3E5E9",
+    backgroundColor: theme.colors.surfaceMuted,
   },
   topRow: {
     marginTop: 10,
@@ -184,7 +185,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   title: {
-    color: "#111111",
+    color: theme.colors.text,
     fontSize: 18,
     fontWeight: "700",
   },
@@ -200,7 +201,7 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   monthTitle: {
-    color: "#111111",
+    color: theme.colors.text,
     fontSize: 17,
     fontWeight: "600",
   },
@@ -222,7 +223,7 @@ const styles = StyleSheet.create({
   },
   weekText: {
     width: "14.28%",
-    color: "#A0A5B1",
+    color: theme.colors.textFaint,
     fontSize: 12,
     textAlign: "center",
   },
@@ -245,21 +246,21 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   dayDotSelected: {
-    backgroundColor: "#BFDCCB",
+    backgroundColor: theme.colors.success,
   },
   dayDotRecorded: {
-    backgroundColor: "#E7F1EB",
+    backgroundColor: theme.colors.surfaceMuted,
   },
   dayText: {
-    color: "#1E222B",
+    color: theme.colors.text,
     fontSize: 15,
     fontWeight: "500",
   },
   dayTextMuted: {
-    color: "#C5CAD4",
+    color: theme.colors.textFaint,
   },
   dayTextSelected: {
-    color: "#111111",
+    color: theme.colors.text,
     fontWeight: "700",
   },
 });

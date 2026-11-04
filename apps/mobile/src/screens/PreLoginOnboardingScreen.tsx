@@ -109,7 +109,7 @@ export function PreLoginOnboardingScreen({ step, draft, onChangeDraft, onBack, o
           onPress={onContinue}
         >
           <Text style={styles.continueText}>{step === 4 ? t("onboarding.flow.finish") : t("common.continue")}</Text>
-          <Ionicons name="arrow-forward" size={19} color="#FFFFFF" />
+          <Ionicons name="arrow-forward" size={19} color={theme.colors.onAccent} />
         </Pressable>
       </View>
       </KeyboardAvoidingView>
@@ -218,7 +218,7 @@ const styles = StyleSheet.create({
   backButton: { width: 44, height: 44, alignItems: "center", justifyContent: "center", marginLeft: -10 },
   progressText: { color: theme.colors.textMuted, fontSize: 13, fontWeight: "600" },
   progressTrack: { flexDirection: "row", gap: 7, paddingHorizontal: 24, marginTop: 4 },
-  progressSegment: { flex: 1, height: 3, borderRadius: 999, backgroundColor: "#E8E8E8" },
+  progressSegment: { flex: 1, height: 3, borderRadius: 999, backgroundColor: theme.colors.surfaceMuted },
   progressSegmentActive: { backgroundColor: theme.colors.accentStrong },
   body: { flex: 1 },
   bodyContent: { flexGrow: 1, paddingHorizontal: 24, paddingTop: 46, paddingBottom: 24 },
@@ -236,7 +236,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
   },
-  optionActive: { borderColor: theme.colors.accentStrong, backgroundColor: "#F6F6F3" },
+  optionActive: { borderColor: theme.colors.accentStrong, backgroundColor: theme.colors.surfaceSunken },
   optionIcon: {
     width: 38,
     height: 38,
@@ -250,7 +250,7 @@ const styles = StyleSheet.create({
   optionLabel: { color: theme.colors.text, fontSize: 16, lineHeight: 22, fontWeight: "600" },
   optionLabelActive: { fontWeight: "700" },
   optionDetail: { marginTop: 3, color: theme.colors.textSecondary, fontSize: 12, lineHeight: 17 },
-  radio: { width: 22, height: 22, borderRadius: 11, borderWidth: 1.5, borderColor: "#C9C9C9", alignItems: "center", justifyContent: "center" },
+  radio: { width: 22, height: 22, borderRadius: 11, borderWidth: 1.5, borderColor: theme.colors.borderStrong, alignItems: "center", justifyContent: "center" },
   radioActive: { borderColor: theme.colors.accentStrong },
   radioDot: { width: 12, height: 12, borderRadius: 6, backgroundColor: theme.colors.accentStrong },
   footer: { paddingHorizontal: 24, paddingTop: 12, paddingBottom: 12 },
@@ -264,5 +264,5 @@ const styles = StyleSheet.create({
     gap: 9,
   },
   continueButtonDisabled: { opacity: 0.28 },
-  continueText: { color: "#FFFFFF", fontSize: 16, lineHeight: 22, fontWeight: "700" },
+  continueText: { color: theme.colors.onAccent, fontSize: 16, lineHeight: 22, fontWeight: "700" },
 });

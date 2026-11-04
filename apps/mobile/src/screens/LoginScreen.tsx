@@ -17,6 +17,7 @@ import { PRIVACY_URL, TERMS_URL } from "../constants/legalUrls";
 import type { User } from "@lf/core/types";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { useMountedGuard } from "../hooks/useMountedGuard";
+import { theme } from "../theme";
 
 type LoginScreenProps = { onLoginSuccess: () => void };
 type LoginMode = "phone" | "email";
@@ -197,7 +198,7 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                 value={passwordAccount}
                 onChangeText={setPasswordAccount}
                 placeholder={t("auth.login.account_placeholder")}
-                placeholderTextColor="#A1A4AD"
+                placeholderTextColor={theme.colors.textMuted}
                 autoCapitalize="none"
                 autoCorrect={false}
                 textContentType="username"
@@ -217,7 +218,7 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                       if (credentialError) setCredentialError("");
                     }}
                 placeholder={mode === "phone" ? t("auth.login.phone_placeholder") : t("auth.login.email_placeholder")}
-                placeholderTextColor="#A1A4AD"
+                placeholderTextColor={theme.colors.textMuted}
                 keyboardType={mode === "phone" ? "phone-pad" : "email-address"}
                 autoCapitalize="none"
                 autoCorrect={false}
@@ -236,7 +237,7 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                   value={password}
                   onChangeText={setPassword}
                   placeholder={t("auth.login.password_placeholder")}
-                  placeholderTextColor="#A1A4AD"
+                  placeholderTextColor={theme.colors.textMuted}
                   secureTextEntry={!passwordVisible}
                   autoCapitalize="none"
                   autoCorrect={false}
@@ -251,7 +252,7 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                   accessibilityRole="button"
                   accessibilityLabel={passwordVisible ? t("auth.login.hide_password") : t("auth.login.show_password")}
                 >
-                  <Ionicons name={passwordVisible ? "eye-off-outline" : "eye-outline"} size={21} color="#777B85" />
+                  <Ionicons name={passwordVisible ? "eye-off-outline" : "eye-outline"} size={21} color={theme.colors.textSecondary} />
                 </Pressable>
               </>
             ) : (
@@ -260,7 +261,7 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                   value={passCode}
                   onChangeText={(value) => setPassCode(value.replace(/\D/g, ""))}
                   placeholder={t("auth.login.code_placeholder")}
-                  placeholderTextColor="#A1A4AD"
+                  placeholderTextColor={theme.colors.textMuted}
                   keyboardType="number-pad"
                   textContentType="oneTimeCode"
                   style={styles.accountInput}
@@ -272,7 +273,7 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                   disabled={sendingCode || countdown > 0}
                 >
                   {sendingCode ? (
-                    <ActivityIndicator size="small" color="#111111" />
+                    <ActivityIndicator size="small" color={theme.colors.text} />
                   ) : (
                     <Text style={[styles.sendCodeText, countdown > 0 && styles.sendCodeTextDisabled]}>
                       {countdown > 0 ? tf("auth.login.resend_countdown", { seconds: countdown }) : t("auth.login.send_code")}
@@ -313,7 +314,7 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
               accessibilityLabel={t("auth.login.agreement_checkbox")}
             >
               <View style={[styles.checkbox, agreed && styles.checkboxChecked]}>
-                {agreed ? <Ionicons name="checkmark" size={18} color="#111111" /> : null}
+                {agreed ? <Ionicons name="checkmark" size={18} color={theme.colors.text} /> : null}
               </View>
             </Pressable>
             <Text style={styles.agreeText}>
@@ -337,7 +338,7 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
           onPress={handlePrimaryLogin}
           disabled={loading}
         >
-          {loading ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.loginText}>{t("auth.login.button")}</Text>}
+          {loading ? <ActivityIndicator color={theme.colors.onAccent} /> : <Text style={styles.loginText}>{t("auth.login.button")}</Text>}
         </Pressable>
 
         <Pressable
@@ -425,7 +426,7 @@ function resolveDisplayName(user: {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#FCFCFD",
+    backgroundColor: theme.colors.canvas,
   },
   keyboardArea: {
     flex: 1,
@@ -444,7 +445,7 @@ const styles = StyleSheet.create({
   },
   brandText: {
     marginTop: -22,
-    color: "#050505",
+    color: theme.colors.text,
     fontSize: 20,
     fontWeight: "500",
     letterSpacing: 1,
@@ -456,7 +457,7 @@ const styles = StyleSheet.create({
     height: 44,
     padding: 3,
     borderRadius: 12,
-    backgroundColor: "#F0F0F2",
+    backgroundColor: theme.colors.surfaceMuted,
     flexDirection: "row",
   },
   modeTab: {
@@ -466,14 +467,14 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   modeTabActive: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: theme.colors.surface,
   },
   modeTabText: {
-    color: "#8A8D96",
+    color: theme.colors.textMuted,
     fontSize: 15,
   },
   modeTabTextActive: {
-    color: "#111111",
+    color: theme.colors.text,
     fontWeight: "600",
   },
   passwordHeader: {
@@ -482,12 +483,12 @@ const styles = StyleSheet.create({
     maxWidth: 340,
     height: 44,
     borderRadius: 12,
-    backgroundColor: "#F0F0F2",
+    backgroundColor: theme.colors.surfaceMuted,
     alignItems: "center",
     justifyContent: "center",
   },
   passwordHeaderText: {
-    color: "#111111",
+    color: theme.colors.text,
     fontSize: 15,
     fontWeight: "600",
   },
@@ -501,16 +502,16 @@ const styles = StyleSheet.create({
     height: 54,
     paddingHorizontal: 16,
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "#DADCE2",
+    borderColor: theme.colors.borderStrong,
     borderRadius: 14,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: theme.colors.surface,
     flexDirection: "row",
     alignItems: "center",
   },
   phoneRegionHint: {
     marginTop: -5,
     paddingHorizontal: 2,
-    color: "#8A8D96",
+    color: theme.colors.textMuted,
     fontSize: 12,
     lineHeight: 18,
   },
@@ -518,8 +519,8 @@ const styles = StyleSheet.create({
     paddingRight: 12,
     marginRight: 12,
     borderRightWidth: StyleSheet.hairlineWidth,
-    borderRightColor: "#DADCE2",
-    color: "#111111",
+    borderRightColor: theme.colors.borderStrong,
+    color: theme.colors.text,
     fontSize: 16,
     lineHeight: 20,
     includeFontPadding: false,
@@ -527,7 +528,7 @@ const styles = StyleSheet.create({
   accountInput: {
     flex: 1,
     height: "100%",
-    color: "#111111",
+    color: theme.colors.text,
     fontSize: 16,
     lineHeight: 20,
     paddingVertical: 0,
@@ -541,12 +542,12 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   sendCodeText: {
-    color: "#111111",
+    color: theme.colors.text,
     fontSize: 14,
     fontWeight: "500",
   },
   sendCodeTextDisabled: {
-    color: "#A1A4AD",
+    color: theme.colors.textMuted,
   },
   passwordVisibilityButton: {
     width: 38,
@@ -557,7 +558,7 @@ const styles = StyleSheet.create({
   fieldErrorText: {
     marginTop: -6,
     paddingHorizontal: 4,
-    color: "#C53C3C",
+    color: theme.colors.danger,
     fontSize: 12,
     lineHeight: 18,
   },
@@ -568,7 +569,7 @@ const styles = StyleSheet.create({
     maxWidth: 340,
     height: 56,
     borderRadius: 28,
-    backgroundColor: "#111111",
+    backgroundColor: theme.colors.ink,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -576,7 +577,7 @@ const styles = StyleSheet.create({
     opacity: 0.56,
   },
   loginText: {
-    color: "#FFFFFF",
+    color: theme.colors.onAccent,
     fontSize: 18,
     fontWeight: "500",
   },
@@ -587,7 +588,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   methodSwitchText: {
-    color: "#686C75",
+    color: theme.colors.textSecondary,
     fontSize: 14,
   },
 
@@ -603,8 +604,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   agreementBlockRequired: {
-    borderColor: "#E8B1B1",
-    backgroundColor: "#FFF7F7",
+    borderColor: theme.colors.accentSoft,
+    backgroundColor: theme.colors.canvas,
   },
   agreeRow: {
     width: "100%",
@@ -623,29 +624,29 @@ const styles = StyleSheet.create({
     height: 22,
     borderRadius: 5,
     borderWidth: 1.2,
-    borderColor: "#6F7078",
-    backgroundColor: "#FFFFFF",
+    borderColor: theme.colors.borderStrong,
+    backgroundColor: theme.colors.surface,
     alignItems: "center",
     justifyContent: "center",
   },
   checkboxChecked: {
-    borderColor: "#111111",
-    backgroundColor: "#FFFFFF",
+    borderColor: theme.colors.text,
+    backgroundColor: theme.colors.surface,
   },
   agreeText: {
     flexShrink: 1,
-    color: "#545A68",
+    color: theme.colors.textSecondary,
     fontSize: 14,
     lineHeight: 21,
   },
   linkText: {
-    color: "#111111",
+    color: theme.colors.text,
     textDecorationLine: "underline",
   },
   agreementRequiredText: {
     width: "100%",
     paddingLeft: 40,
-    color: "#C53C3C",
+    color: theme.colors.danger,
     fontSize: 12,
     lineHeight: 18,
   },
@@ -653,7 +654,7 @@ const styles = StyleSheet.create({
     width: "100%",
     maxWidth: 340,
     marginTop: 8,
-    color: "#D14343",
+    color: theme.colors.danger,
     fontSize: 12,
     textAlign: "center",
   },

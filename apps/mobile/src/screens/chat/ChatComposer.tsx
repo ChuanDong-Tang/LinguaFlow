@@ -151,7 +151,7 @@ export function ChatComposer({
             { height: textInputHeight },
           ]}
           placeholder={t("chat.assistant.placeholder")}
-          placeholderTextColor="#A0A4AF"
+          placeholderTextColor={theme.colors.textMuted}
           value={value}
           onChangeText={onChangeText}
           editable={inputEditable}
@@ -161,7 +161,7 @@ export function ChatComposer({
           selection={selection}
           returnKeyType="default"
           blurOnSubmit={false}
-          cursorColor="#8E84FF"
+          cursorColor={theme.colors.accent}
           autoComplete="off"
           contextMenuHidden={false}
           textContentType="none"
@@ -182,7 +182,7 @@ export function ChatComposer({
         </Text>
         {canExpand ? (
           <Pressable style={styles.expandButton} onPress={handleToggleExpand} hitSlop={6}>
-            <Ionicons name={expanded ? "contract-outline" : "expand-outline"} size={14} color="#8E84FF" />
+            <Ionicons name={expanded ? "contract-outline" : "expand-outline"} size={14} color={theme.colors.accent} />
           </Pressable>
         ) : null}
         {onSttPress ? (
@@ -214,7 +214,7 @@ export function ChatComposer({
 
 const styles = StyleSheet.create({
   inputWrap: {
-    backgroundColor: "#FCFCFD",
+    backgroundColor: theme.colors.canvas,
     paddingHorizontal: 16,
     paddingTop: 8,
     paddingBottom: 10,
@@ -227,8 +227,8 @@ const styles = StyleSheet.create({
     minHeight: COLLAPSED_MIN_HEIGHT,
     borderRadius: 30,
     borderWidth: 1,
-    borderColor: "#D9DDE6",
-    backgroundColor: "#FFFFFF",
+    borderColor: theme.colors.borderStrong,
+    backgroundColor: theme.colors.surface,
     position: "relative",
     justifyContent: "flex-start",
     alignItems: "stretch",
@@ -239,7 +239,7 @@ const styles = StyleSheet.create({
     paddingRight: INPUT_RIGHT_ACTION_SPACE,
     lineHeight: INPUT_LINE_HEIGHT,
     fontSize: 15,
-    color: "#111111",
+    color: theme.colors.text,
     includeFontPadding: false,
     textAlignVertical: "top",
   },
@@ -252,7 +252,7 @@ const styles = StyleSheet.create({
     zIndex: -1,
     lineHeight: INPUT_LINE_HEIGHT,
     fontSize: 15,
-    color: "#111111",
+    color: theme.colors.text,
     includeFontPadding: false,
   },
   pasteButton: {
@@ -262,13 +262,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     height: 32,
     borderRadius: 8,
-    backgroundColor: "#111111",
+    backgroundColor: theme.colors.ink,
     alignItems: "center",
     justifyContent: "center",
     zIndex: 4,
   },
   pasteButtonText: {
-    color: "#FFFFFF",
+    color: theme.colors.onAccent,
     fontSize: 14,
     fontWeight: "600",
   },
@@ -324,7 +324,7 @@ const styles = StyleSheet.create({
     marginBottom: 0,
   },
   micButtonActive: {
-    backgroundColor: "#8E84FF",
+    backgroundColor: theme.colors.accent,
   },
   micButtonDisabled: {
     opacity: 0.5,

@@ -16,6 +16,7 @@ import {
 } from "./ChatSelectableTextView";
 import { useFloatingNotice } from "../shared/FloatingNotice";
 import { useFontSize } from "../../services/preferences/fontSizePreference";
+import { theme } from "../../theme";
 
 export type NativeTextSelectionPayload = {
   start: number;
@@ -412,7 +413,7 @@ export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, 
                 }
                 style={[
                   segment.highlighted
-                    ? { backgroundColor: segment.correct ? "#DDEFE2" : "#FFF0B8", color: "#3D3420" }
+                    ? { backgroundColor: segment.correct ? "#DDEFE2" : "#FFF0B8", color: theme.colors.warning }
                     : null,
                   segment.blank ? styles.fallbackBlank : null,
                   segment.hidden ? styles.fallbackBlankHidden : null,
@@ -442,7 +443,7 @@ export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, 
           activeRangeJson={nativeActiveRangeJson}
           answersVisible={answersVisible}
           visualsHidden={visualsHidden}
-          textColor={typeof flattenedTextStyle.color === "string" ? flattenedTextStyle.color : "#111111"}
+          textColor={typeof flattenedTextStyle.color === "string" ? flattenedTextStyle.color : theme.colors.text}
           fontSize={(typeof flattenedTextStyle.fontSize === "number" ? flattenedTextStyle.fontSize : 17) * appFontScale}
           lineHeight={(typeof flattenedTextStyle.lineHeight === "number" ? flattenedTextStyle.lineHeight : 25) * appFontScale}
           fontWeight={
@@ -494,7 +495,7 @@ const styles = StyleSheet.create({
     opacity: 0,
   },
   fallbackBlank: {
-    textDecorationColor: "#D05F78",
+    textDecorationColor: theme.colors.danger,
     textDecorationLine: "underline",
     textDecorationStyle: "solid",
   },
