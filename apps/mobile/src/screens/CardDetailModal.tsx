@@ -3364,7 +3364,7 @@ function Review({ onLanguageControlChange, hidePhraseRecommendation = true, deta
           <Pressable disabled={!playbackBelongsToCard || !playback.canNavigateNext} style={styles.cardPlaybackSideControl} onPress={navigateTtsNext}><Ionicons name="play-skip-forward" size={22} color={playbackBelongsToCard && playback.canNavigateNext ? theme.colors.text : theme.colors.textMuted} /></Pressable>
           <Pressable accessibilityLabel={loopLabel} style={styles.cardPlaybackLoopControl} onPress={cycleCardLoopMode}>
             <View style={styles.cardPlaybackLoopIcon}>
-              <Ionicons name="sync-outline" size={19} color={playback.loopMode !== "off" ? "#3F7D65" : theme.colors.textMuted} />
+              <Ionicons name="sync-outline" size={19} color={playback.loopMode !== "off" ? theme.colors.accent : theme.colors.textMuted} />
               {playback.loopMode === "one" ? <Text style={styles.cardPlaybackLoopOne}>1</Text> : null}
             </View>
           </Pressable>
@@ -3617,8 +3617,8 @@ function Review({ onLanguageControlChange, hidePhraseRecommendation = true, deta
                     onPress={() => onRetryGeneration?.("reply")}
                   >
                     {replyGenerating
-                      ? <ActivityIndicator size="small" color={theme.colors.success} />
-                      : <Ionicons name={replyFailed ? "refresh-outline" : "chatbubble-ellipses-outline"} size={16} color={theme.colors.success} />}
+                      ? <ActivityIndicator size="small" color={theme.colors.accent} />
+                      : <Ionicons name={replyFailed ? "refresh-outline" : "chatbubble-ellipses-outline"} size={16} color={theme.colors.accent} />}
                     <Text style={styles.replyGenerateButtonText}>{t(replyGenerating ? "card_detail.generating" : replyFailed ? "common.retry" : "chat.settings.generate_reply")}</Text>
                   </Pressable> : null}
                   <CardSectionCopyButton onPress={() => void copySection(primaryText)} />
@@ -3855,7 +3855,7 @@ function CollapsibleCardSection({ label, tone = "default", collapsed, onToggle, 
     : tone === "rewrite"
       ? styles.rewriteSectionLabel
       : undefined;
-  const iconColor = tone === "image" ? "#6F73A6" : tone === "rewrite" ? "#4E7B65" : theme.colors.textMuted;
+  const iconColor = tone === "rewrite" ? theme.colors.accent : theme.colors.textFaint;
   const imageDescriptionGenerate = tone === "image" && action === "generate";
   const press = action === "generate" ? onAction : action === "toggle" ? onToggle : undefined;
   return <View style={[styles.flipCardSection, tone === "image" && styles.imageIntegratedSection]}>
@@ -5171,10 +5171,10 @@ const styles = StyleSheet.create({
   moduleComposerSend: { width: 38, height: 38, borderRadius: 19, backgroundColor: theme.colors.text, alignItems: "center", justifyContent: "center" },
   moduleComposerSendDisabled: { opacity: 0.38 },
   rewriteModuleActions: { minHeight: 38, flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 7 },
-  replyGenerateButton: { minHeight: 32, marginTop: 5, paddingHorizontal: 11, borderRadius: 16, backgroundColor: theme.colors.surfaceMuted, flexDirection: "row", alignItems: "center", gap: 6 },
+  replyGenerateButton: { minHeight: 32, marginTop: 6, paddingHorizontal: 12, borderRadius: theme.radius.pill, backgroundColor: theme.colors.accentFaint, flexDirection: "row", alignItems: "center", gap: 6 },
   replyGenerateButtonDisabled: { opacity: 0.5 },
   replyGenerateButtonPressed: { opacity: 0.68 },
-  replyGenerateButtonText: { color: theme.colors.success, fontSize: 13, fontWeight: "600" },
+  replyGenerateButtonText: { color: theme.colors.accent, fontSize: 13, fontWeight: "600" },
   collapsibleSectionHeader: { height: 36, flexDirection: "row", alignItems: "center", gap: 8 },
   collapsibleSectionHeaderPressed: { opacity: 0.66 },
   sectionGenerateAction: { minHeight: 32, paddingHorizontal: 8, flexDirection: "row", alignItems: "center", gap: 5 },
@@ -5246,10 +5246,10 @@ const styles = StyleSheet.create({
   cardMetadataRow: { minHeight: 34, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
   recordTimeButton: { minHeight: 34, justifyContent: "center" },
   collectionMetaButton: { minWidth: 70, maxWidth: "54%", minHeight: 34, paddingHorizontal: 8, borderRadius: 10, flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: 4 },
-  collectionMetaText: { flexShrink: 1, color: theme.colors.textMuted, fontSize: 12 },
+  collectionMetaText: { flexShrink: 1, color: theme.colors.textMuted, fontSize: 13 },
   metadataPressed: { opacity: 0.58 },
   articlePlayButton: { width: 36, height: 32, marginTop: -1, alignItems: "flex-end", justifyContent: "center" },
-  loader: { marginTop: 40 }, recallDetailPage: { flex: 1, backgroundColor: theme.colors.canvas }, recallAdjacentPage: { position: "absolute", top: 0, bottom: 0, width: "100%", backgroundColor: theme.colors.canvas }, recallAdjacentSafeArea: { flex: 1, backgroundColor: theme.colors.canvas }, reviewPage: { flex: 1, backgroundColor: theme.colors.canvas }, content: { paddingHorizontal: 22, paddingTop: 10, paddingBottom: 88 }, flipCardStage: { flex: 1, marginHorizontal: 10, marginTop: 4, marginBottom: 10 }, flipCardShell: { flex: 1, position: "relative", borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.border, borderRadius: 18, backgroundColor: theme.colors.surface, overflow: "hidden" }, flipCardFace: { ...StyleSheet.absoluteFill, backgroundColor: theme.colors.surface }, flipCardScroll: { flex: 1 }, flipCardContent: { paddingHorizontal: 18, paddingTop: 18, paddingBottom: 30 }, flipCardTextBlock: { marginTop: 2 }, flipCardSection: { marginTop: 24, paddingTop: 18, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.border }, cardSectionCopyButton: { width: 34, height: 32, marginTop: 5, marginRight: -5, alignSelf: "flex-end", alignItems: "center", justifyContent: "center", borderRadius: 16 }, cardDisplayTitle: { marginBottom: 6, color: theme.colors.text, fontSize: 23, lineHeight: 30, fontWeight: "600" }, date: { color: theme.colors.textMuted, fontSize: 12, fontWeight: "400" }, imageCarousel: { marginTop: 18, borderRadius: 10, backgroundColor: theme.colors.surfaceMuted }, image: { width: "100%", aspectRatio: CARD_IMAGE_ASPECT_RATIO, borderRadius: 10, backgroundColor: theme.colors.surfaceMuted }, carouselImagePage: { borderRadius: 10, overflow: "hidden", backgroundColor: theme.colors.surfaceMuted }, carouselImageLayer: { ...StyleSheet.absoluteFill, width: "100%", height: "100%" }, coverMoveHint: { position: "absolute", left: 10, bottom: 10, width: 30, height: 30, borderRadius: 15, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(20,28,24,0.56)" }, imageDots: { height: 18, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 }, imageDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: theme.colors.disabled }, imageDotActive: { backgroundColor: theme.colors.text }, reviewImageActions: { minHeight: 30, flexDirection: "row", justifyContent: "flex-end", alignItems: "center" }, reviewAddImage: { minHeight: 30, flexDirection: "row", alignItems: "center", gap: 3, paddingLeft: 10 }, reviewAddImageText: { color: theme.colors.accentStrong, fontSize: 14 }, sectionLabel: { marginTop: 22, color: theme.colors.textMuted, fontSize: 12, fontWeight: "500" }, original: { marginTop: 8, color: theme.colors.textMuted, fontSize: 17, lineHeight: 28, fontWeight: "400" }, secondaryContent: { marginTop: 8, color: theme.colors.textSecondary, fontSize: 17, lineHeight: 28, fontWeight: "400" }, rewrite: { marginTop: 5, color: theme.colors.text, fontSize: 17, lineHeight: 28, fontWeight: "400" }, divider: { marginTop: 28, height: StyleSheet.hairlineWidth, backgroundColor: theme.colors.border },
+  loader: { marginTop: 40 }, recallDetailPage: { flex: 1, backgroundColor: theme.colors.canvas }, recallAdjacentPage: { position: "absolute", top: 0, bottom: 0, width: "100%", backgroundColor: theme.colors.canvas }, recallAdjacentSafeArea: { flex: 1, backgroundColor: theme.colors.canvas }, reviewPage: { flex: 1, backgroundColor: theme.colors.canvas }, content: { paddingHorizontal: 22, paddingTop: 10, paddingBottom: 88 }, flipCardStage: { flex: 1, marginHorizontal: 0, marginTop: 0, marginBottom: 0 }, flipCardShell: { flex: 1, position: "relative", backgroundColor: theme.colors.canvas, overflow: "hidden" }, flipCardFace: { ...StyleSheet.absoluteFill, backgroundColor: theme.colors.canvas }, flipCardScroll: { flex: 1 }, flipCardContent: { paddingHorizontal: 24, paddingTop: 14, paddingBottom: 40 }, flipCardTextBlock: { marginTop: 2 }, flipCardSection: { marginTop: 30 }, cardSectionCopyButton: { width: 34, height: 32, marginTop: 5, marginRight: -5, alignSelf: "flex-end", alignItems: "center", justifyContent: "center", borderRadius: 16 }, cardDisplayTitle: { marginBottom: 4, color: theme.colors.text, fontSize: 26, lineHeight: 34, fontWeight: "700", letterSpacing: -0.3 }, date: { color: theme.colors.textMuted, fontSize: 12, fontWeight: "400" }, imageCarousel: { marginTop: 18, borderRadius: 10, backgroundColor: theme.colors.surfaceMuted }, image: { width: "100%", aspectRatio: CARD_IMAGE_ASPECT_RATIO, borderRadius: 10, backgroundColor: theme.colors.surfaceMuted }, carouselImagePage: { borderRadius: 10, overflow: "hidden", backgroundColor: theme.colors.surfaceMuted }, carouselImageLayer: { ...StyleSheet.absoluteFill, width: "100%", height: "100%" }, coverMoveHint: { position: "absolute", left: 10, bottom: 10, width: 30, height: 30, borderRadius: 15, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(20,28,24,0.56)" }, imageDots: { height: 18, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 }, imageDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: theme.colors.disabled }, imageDotActive: { backgroundColor: theme.colors.text }, reviewImageActions: { minHeight: 30, flexDirection: "row", justifyContent: "flex-end", alignItems: "center" }, reviewAddImage: { minHeight: 30, flexDirection: "row", alignItems: "center", gap: 3, paddingLeft: 10 }, reviewAddImageText: { color: theme.colors.accentStrong, fontSize: 14 }, sectionLabel: { marginTop: 22, color: theme.colors.textMuted, fontSize: 12, fontWeight: "500" }, original: { marginTop: 8, color: theme.colors.textMuted, fontSize: 17, lineHeight: 28, fontWeight: "400" }, secondaryContent: { marginTop: 8, color: theme.colors.textSecondary, fontSize: 17, lineHeight: 28, fontWeight: "400" }, rewrite: { marginTop: 5, color: theme.colors.text, fontSize: 18, lineHeight: 30, fontWeight: "400" }, divider: { marginTop: 28, height: StyleSheet.hairlineWidth, backgroundColor: theme.colors.border },
   recallFinishButton: { height: 42, marginHorizontal: 18, marginBottom: 8, paddingHorizontal: 18, borderRadius: 21, backgroundColor: theme.colors.text, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 }, recallFinishButtonText: { color: theme.colors.surface, fontSize: 15, fontWeight: "600" },
   imagePreviewPage: { flex: 1, backgroundColor: "transparent" },
   imagePreviewBackdrop: { backgroundColor: theme.colors.canvas },
@@ -5269,7 +5269,7 @@ const styles = StyleSheet.create({
   imagePreviewDate: { color: theme.colors.textMuted, fontSize: 14, lineHeight: 20, textAlign: "center" },
   imageAddingPlaceholder: { ...StyleSheet.absoluteFill, alignItems: "center", justifyContent: "center", gap: 9, backgroundColor: theme.colors.surfaceMuted },
   imageAddingText: { color: theme.colors.textMuted, fontSize: 13, lineHeight: 18 },
-  detailActionBar: { minHeight: 54, paddingHorizontal: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.border, backgroundColor: theme.colors.surface, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 2 },
+  detailActionBar: { minHeight: 56, paddingHorizontal: 18, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.border, backgroundColor: theme.colors.canvas, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 2 },
   cardPlaybackPage: { flex: 1, backgroundColor: theme.colors.canvas },
   cardPlaybackContent: { paddingHorizontal: 28, paddingTop: 8, paddingBottom: 12, alignItems: "center" },
   cardPlaybackArtwork: { width: "48%", maxWidth: 210, aspectRatio: 1, borderRadius: 15, backgroundColor: theme.colors.surfaceMuted },
@@ -5338,7 +5338,7 @@ const styles = StyleSheet.create({
   recommendationPracticeSkip: { minHeight: 38, marginTop: 7, alignItems: "center", justifyContent: "center" },
   recommendationPracticeSkipText: { color: theme.colors.textMuted, fontSize: 13, lineHeight: 19, fontWeight: "500" },
   detailActionButton: { flex: 1, minWidth: 40, maxWidth: 48, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
-  detailActionButtonActive: { backgroundColor: theme.colors.text },
+  detailActionButtonActive: { backgroundColor: theme.colors.accent },
   detailActionButtonDisabled: { opacity: 0.28 },
   clozeToolbarText: { color: theme.colors.textSecondary, fontSize: 16, lineHeight: 21, fontWeight: "600" },
   detailActionIconText: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 2 },
@@ -5369,7 +5369,7 @@ const styles = StyleSheet.create({
   blankActionMenuDeleteText: { color: theme.colors.danger, fontSize: 13, fontWeight: "500" },
   practiceContent: { padding: 20, paddingBottom: 44 }, practiceHint: { color: theme.colors.textSecondary, fontSize: 13, lineHeight: 20 }, answerInput: { marginTop: 18, minHeight: 50, paddingHorizontal: 14, borderWidth: 1, borderColor: theme.colors.border, borderRadius: theme.radius.control, backgroundColor: theme.colors.surface, color: theme.colors.text, fontSize: 16 }, dictationInput: { minHeight: 120, paddingTop: 13 }, primaryButton: { marginTop: 14, minHeight: 48, borderRadius: theme.radius.control, alignItems: "center", justifyContent: "center", backgroundColor: theme.colors.accentStrong }, primaryButtonText: { color: theme.colors.surface, fontSize: 15, fontWeight: "600" }, secondaryButton: { marginTop: 10, minHeight: 44, alignItems: "center", justifyContent: "center" }, secondaryButtonText: { color: theme.colors.accentStrong, fontSize: 14 }, result: { marginTop: 16, fontSize: 14, textAlign: "center" }, correct: { color: theme.colors.success }, incorrect: { color: theme.colors.danger }, answerReveal: { marginTop: 16, padding: 14, borderRadius: theme.radius.control, backgroundColor: theme.colors.accentSoft, color: theme.colors.text, fontSize: 16, lineHeight: 24 }, audioPlaceholder: { minHeight: 88, borderRadius: theme.radius.card, backgroundColor: theme.colors.surface, alignItems: "center", justifyContent: "center" }, audioText: { marginTop: 7, color: theme.colors.textMuted, fontSize: 12 },
   sectionHeading: { marginTop: 18, minHeight: 30, flexDirection: "row", alignItems: "center" },
-  sectionLabelInline: { flex: 1, color: theme.colors.textMuted, fontSize: 12, fontWeight: "500" },
+  sectionLabelInline: { flex: 1, color: theme.colors.textMuted, fontSize: 12, fontWeight: "600", letterSpacing: 0.6 },
   replyContentRow: { flexDirection: "row", alignItems: "flex-start", gap: 10 },
   replyTextContent: { flex: 1, minWidth: 0 },
   dictationSentenceList: { gap: 12 },
@@ -5445,8 +5445,8 @@ const styles = StyleSheet.create({
   metadataModalSecondaryText: { color: theme.colors.textSecondary, fontSize: 14, fontWeight: "600" },
   metadataModalPrimary: { minWidth: 86, minHeight: 42, borderRadius: 12, backgroundColor: theme.colors.accentStrong, alignItems: "center", justifyContent: "center" },
   metadataModalPrimaryText: { color: theme.colors.surface, fontSize: 14, fontWeight: "700" },
-  imageDescriptionSectionLabel: { color: theme.colors.accent },
-  rewriteSectionLabel: { color: theme.colors.success },
+  imageDescriptionSectionLabel: { color: theme.colors.textMuted },
+  rewriteSectionLabel: { color: theme.colors.accent },
   imageDescriptionSentenceRow: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
   imageDescriptionSentenceBody: { flex: 1 },
   clozeRevealButton: { alignSelf: "flex-end", minHeight: 34, paddingHorizontal: 4, flexDirection: "row", alignItems: "center", gap: 5 },
