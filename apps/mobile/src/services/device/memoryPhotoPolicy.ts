@@ -13,6 +13,32 @@ export function photoDayRange(date: Date) {
   return { start: start.getTime(), end: end.getTime() };
 }
 
+type DatedPhoto = { creationTime: number; modificationTime: number };
+
+/**
+ * Android maps creationTime to MediaStore DATE_TAKEN, which is empty (0) for
+ * screenshots, saved/downloaded images and some OEM camera files.
+ */
+export function photoTakenTime(photo: DatedPhoto): number {
+  return photo.creationTime > 0 ? photo.creationTime : photo.modificationTime;
+}
+
+/**
+ * Filter one Android page, read newest-modified first, to a local day. Native
+ * DATE_TAKEN filtering would drop every undated photo, so the day is applied here.
+ * A file is modified no earlier than it is taken, so once a page reaches rows
+ * modified before the day, later pages cannot contain photos from that day.
+ */
+export function androidPhotoDayPage<T extends DatedPhoto>(photos: readonly T[], range: { start: number; end: number }) {
+  return {
+    photos: photos.filter((photo) => {
+      const time = photoTakenTime(photo);
+      return time >= range.start && time < range.end;
+    }),
+    passedDay: photos.some((photo) => photo.modificationTime > 0 && photo.modificationTime < range.start),
+  };
+}
+
 export function mergePhotoPage<T extends { id: string }>(current: readonly T[], incoming: readonly T[]): T[] {
   const seen = new Set(current.map((photo) => photo.id));
   return [...current, ...incoming.filter((photo) => {

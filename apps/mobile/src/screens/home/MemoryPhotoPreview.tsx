@@ -4,7 +4,7 @@ import { Text } from "../../components/Typography";
 import * as MediaLibrary from "expo-media-library/legacy";
 import { getLanguage } from "../../i18n";
 import { theme } from "../../theme";
-import { memoryPhotoPreviewUri } from "../../services/device/memoryPhotoPolicy";
+import { readMemoryPhotoSource } from "../../services/device/memoryPhotoLibrary";
 
 // Resolve only mounted deck cards, never the whole library. ph:// identifiers
 // are not file URLs; do not hand them directly to React Native's Image loader.
@@ -14,8 +14,8 @@ export function MemoryPhotoPreview({ asset, style, cover = false }: { asset: Med
   useEffect(() => {
     let active = true;
     setPreview(null); setFailed(false);
-    void MediaLibrary.getAssetInfoAsync(asset, { shouldDownloadFromNetwork: false }).then(info => {
-      if (active) setPreview({ id: asset.id, uri: memoryPhotoPreviewUri(info) });
+    void readMemoryPhotoSource(asset).then(source => {
+      if (active) setPreview({ id: asset.id, uri: source.uri });
     }).catch(() => { if (active) setPreview({ id: asset.id, uri: null }); });
     return () => { active = false; };
   }, [asset.id, asset.uri]);

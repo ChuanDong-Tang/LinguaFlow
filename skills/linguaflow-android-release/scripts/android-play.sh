@@ -269,14 +269,8 @@ validate_apk() {
   ! grep -F 'application-debuggable' <<<"$badging" >/dev/null || fail "APK is debuggable."
 
   permissions_dump="$($aapt2 dump permissions "$apk")"
-  for permission in \
-    android.permission.READ_MEDIA_IMAGES \
-    android.permission.READ_MEDIA_VIDEO \
-    android.permission.READ_MEDIA_VISUAL_USER_SELECTED \
-    android.permission.READ_EXTERNAL_STORAGE \
-    android.permission.WRITE_EXTERNAL_STORAGE; do
-    ! grep -F "$permission" <<<"$permissions_dump" >/dev/null || fail "APK contains forbidden media permission: $permission"
-  done
+  printf '%s\n' "$permissions_dump" > "$verify_dir/permissions.txt"
+  node "$SCRIPT_DIR/validate-china-photo-permissions.mjs" "$manifest_version_name" "$verify_dir/permissions.txt" || fail "APK photo permission validation failed."
 
   "$apksigner" verify --verbose "$apk" >/dev/null || fail "APK signature verification failed."
   bundle_file="$verify_dir/index.android.bundle"

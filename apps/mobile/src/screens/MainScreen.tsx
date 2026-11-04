@@ -7,6 +7,7 @@ import * as Crypto from "expo-crypto";
 import * as Haptics from "expo-haptics";
 import * as ImagePicker from "expo-image-picker";
 import * as MediaLibrary from "expo-media-library/legacy";
+import { readMemoryPhotoSource } from "../services/device/memoryPhotoLibrary";
 import { MemoryPhotoBrowser } from "./home/MemoryPhotoBrowser";
 import { MemoryArchiveDeck } from "./home/MemoryArchiveDeck";
 import { MemoryCollectionFilters } from "./home/MemoryCollectionFilters";
@@ -83,7 +84,6 @@ import { extractTargetLanguageCorpus } from "@lf/core/text/corpusText";
 import { dictionaryLookupErrorKey, lookupDictionary, type DictionaryLookupResult } from "../services/api/dictionaryApi";
 import { DictionarySearchResultCard } from "./search/DictionarySearchResultCard";
 import { homeDateKey, homeLibraryView, memoryHomeCopy, swipedMemoryTab, type MemoryHomeTab } from "./home/memoryHome";
-import { MemoryDayControl } from "./home/MemoryDayControl";
 import { memoryBrowseIds, memoryBrowseRound } from "./home/memoryBrowse";
 
 type MainScreenProps = {
@@ -132,8 +132,6 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
   const photoConfirmLock = useRef(false);
   const [homeLayout, setHomeLayout] = useState<"grid" | "list">("grid");
   const [localDay, setLocalDay] = useState(() => toDateKey(new Date()));
-  const [selectedMemoryDay, setSelectedMemoryDay] = useState<string | null>(null);
-  const browsingDay = selectedMemoryDay && selectedMemoryDay < localDay ? selectedMemoryDay : localDay;
   useEffect(() => {
     const updateDay = () => setLocalDay(toDateKey(new Date()));
     const timer = setInterval(updateDay, 30_000);
@@ -142,7 +140,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
   }, []);
   const [rememberedLibraryView, setLibraryView] = useState<LibraryView>("all");
   const libraryView = homeLibraryView(homeTab, rememberedLibraryView);
-  const dateScope = homeDateKey(homeTab, libraryView === TRASH_VIEW, new Date(`${browsingDay}T12:00:00`));
+  const dateScope = homeDateKey(homeTab, libraryView === TRASH_VIEW, new Date(`${localDay}T12:00:00`));
   const queryScope = JSON.stringify([libraryView, dateScope]);
   const [recordsScope, setRecordsScope] = useState(queryScope);
   const previousDateScopeRef = useRef(dateScope);
@@ -1169,8 +1167,8 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
     try {
       // The caller has explicitly confirmed upload and generation. Never invoke
       // this path from photo browsing, paging, or the initial selection action.
-      const info = await MediaLibrary.getAssetInfoAsync(asset);
-      const prepared = await prepareCardDraftImage({ uri: info.localUri || info.uri, width: info.width, height: info.height });
+      const source = await readMemoryPhotoSource(asset, true);
+      const prepared = await prepareCardDraftImage(source);
       if (draftRevisionRef.current !== revision) throw new Error("Draft changed while preparing photo");
       await commitDraft({ ...EMPTY_DRAFT, collectionId: current.collectionId, text, generateImageDescription: true, images: [prepared] });
       try {
@@ -1641,7 +1639,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
       {homeTab === "blind" && libraryView !== TRASH_VIEW && !selectingRecords ? <ScrollView style={{ flex: 1, minHeight: 0 }} contentContainerStyle={styles.memoryLanding}>
         <MemoryArchiveDeck key={`${libraryView}:${sortMode}`} records={recordsScope === queryScope ? records : []} loading={loading || loadingMore} hasMore={recordsScope === queryScope && Boolean(nextCursor)} onThumbnailError={recoverFailedThumbnail} onLoadMore={() => void loadMore()} onOpen={(ids, onBrowseSetFinished) => { if (ids[0]) onOpenCard(ids[0], "review", undefined, { browseRecordIds: ids, onBrowseSetFinished }); }} />
       </ScrollView> : <>
-      {!selectingRecords && libraryView !== TRASH_VIEW && !editorialHome ? <View style={styles.memoryToolbar}>{homeTab === "today" ? <MemoryDayControl day={browsingDay} today={localDay} onChange={setSelectedMemoryDay} /> : <View />}<Pressable accessibilityRole="button" accessibilityLabel={gridLayout ? homeCopy.list : homeCopy.grid} style={styles.headerIconButton} onPress={() => setHomeLayout(gridLayout ? "list" : "grid")}><Ionicons name={gridLayout ? "list-outline" : "grid-outline"} size={22} color={theme.colors.text} /></Pressable></View> : null}
+      {!selectingRecords && libraryView !== TRASH_VIEW && !editorialHome ? <View style={styles.memoryToolbar}>{homeTab === "today" ? <Text style={{ color: theme.colors.textSecondary, fontSize: 14 }}>{localDay}</Text> : <View />}<Pressable accessibilityRole="button" accessibilityLabel={gridLayout ? homeCopy.list : homeCopy.grid} style={styles.headerIconButton} onPress={() => setHomeLayout(gridLayout ? "list" : "grid")}><Ionicons name={gridLayout ? "list-outline" : "grid-outline"} size={22} color={theme.colors.text} /></Pressable></View> : null}
 
       <FlatList
         key={`${gridLayout ? "grid" : "list"}:${dateScope ?? "all"}`}
@@ -1668,8 +1666,8 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
         ListEmptyComponent={loading ? <ActivityIndicator color={theme.colors.accentStrong} style={styles.loader} /> : (
           <View style={styles.emptyCard}>
             {libraryView === "all" || homeTab === "today" ? <>
-              <Text style={styles.emptyTitle}>{homeTab === "today" ? browsingDay === localDay ? homeCopy.todayEmpty : homeCopy.dayEmpty : t("quick_note.empty_cards")}</Text>
-              <Text style={styles.emptyText}>{homeTab === "today" ? browsingDay === localDay ? homeCopy.todayHint : homeCopy.dayHint : t("quick_note.empty_cards_hint")}</Text>
+              <Text style={styles.emptyTitle}>{homeTab === "today" ? homeCopy.todayEmpty : t("quick_note.empty_cards")}</Text>
+              <Text style={styles.emptyText}>{homeTab === "today" ? homeCopy.todayHint : t("quick_note.empty_cards_hint")}</Text>
             </> : null}
             {libraryView !== TRASH_VIEW ? <Pressable style={styles.emptyAction} onPress={openCardComposer}>
               <Text style={styles.emptyActionText}>{homeCopy.create}</Text>
