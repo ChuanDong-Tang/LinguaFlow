@@ -12,7 +12,7 @@ import {
   StyleSheet,
   useWindowDimensions,
 } from "react-native";
-import Ionicons from "@expo/vector-icons/Ionicons";
+import { Icon } from "../components/Icon";
 import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { getSession } from "../services/auth/authStorage";
@@ -1580,7 +1580,7 @@ export function ChatScreen({ contact, onBack, onConvertMessageToCard }: ChatScre
               revealLatestMessage();
             }}
           >
-            <Ionicons name="chevron-down" size={21} color={theme.colors.text} />
+            <Icon name="chevron-down" size={21} color={theme.colors.text} />
           </Pressable>
         ) : null}
 

@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { NativeSyntheticEvent, Platform, Pressable, StyleSheet, TextInputSelectionChangeEventData, View, useWindowDimensions } from "react-native";
 import { Text, TextInput } from "../../components/Typography";
-import Ionicons from "@expo/vector-icons/Ionicons";
+import { Icon } from "../../components/Icon";
 import * as Clipboard from "expo-clipboard";
 import { t } from "../../i18n";
 import { theme } from "../../theme";
@@ -182,7 +182,7 @@ export function ChatComposer({
         </Text>
         {canExpand ? (
           <Pressable style={styles.expandButton} onPress={handleToggleExpand} hitSlop={6}>
-            <Ionicons name={expanded ? "contract-outline" : "expand-outline"} size={14} color={theme.colors.accent} />
+            <Icon name={expanded ? "contract-outline" : "expand-outline"} size={14} color={theme.colors.accent} />
           </Pressable>
         ) : null}
         {onSttPress ? (
@@ -194,7 +194,7 @@ export function ChatComposer({
             disabled={isSending ? true : false}
             hitSlop={6}
           >
-            <Ionicons name={"arrow-up"} size={18} color={disabled || isSending ? "#A0A4AF" : "#7F77F9"} />
+            <Icon name={"arrow-up"} size={18} color={disabled || isSending ? "#A0A4AF" : "#7F77F9"} />
           </Pressable>
         )}
       </Pressable>
@@ -205,7 +205,7 @@ export function ChatComposer({
           disabled={isSending ? true : false}
           hitSlop={6}
         >
-          <Ionicons name={"arrow-up"} size={19} color={disabled || isSending ? "#A0A4AF" : "#7F77F9"} />
+          <Icon name={"arrow-up"} size={19} color={disabled || isSending ? "#A0A4AF" : "#7F77F9"} />
         </Pressable>
       ) : null}
     </View>

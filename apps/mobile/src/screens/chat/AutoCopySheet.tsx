@@ -1,7 +1,7 @@
 import React from "react";
 import { Modal, Pressable, StyleSheet, Switch, View } from "react-native";
 import { Text } from "../../components/Typography";
-import Ionicons from "@expo/vector-icons/Ionicons";
+import { Icon } from "../../components/Icon";
 import { t } from "../../i18n";
 import { theme } from "../../theme";
 
@@ -25,7 +25,7 @@ export function AutoCopySheet({
           <View style={styles.header}>
             <Text style={styles.title}>{t("chat.settings.title")}</Text>
             <Pressable style={styles.closeButton} hitSlop={8} onPress={onClose}>
-              <Ionicons name="close" size={20} color={theme.colors.text} />
+              <Icon name="close" size={20} color={theme.colors.text} />
             </Pressable>
           </View>
 

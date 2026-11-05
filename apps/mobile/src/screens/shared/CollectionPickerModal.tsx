@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { Text, TextInput } from "../../components/Typography";
-import Ionicons from "@expo/vector-icons/Ionicons";
+import { Icon } from "../../components/Icon";
 import { SafeAreaView } from "react-native-safe-area-context";
 import type { CardCollection } from "../../services/api/cardApi";
 import { theme } from "../../theme";
@@ -103,25 +103,25 @@ export function CollectionPickerModal({ visible, title, collections, value, incl
   const renderTarget = (collection: CardCollection, showPath: boolean, depth = 0) => {
     const hasChildren = collections.some((candidate) => candidate.parentId === collection.id);
     return <View key={collection.id} style={styles.row}>
-      {!showPath ? hasChildren ? <Pressable style={[styles.disclosure, { marginLeft: depth * 20 }]} disabled={selecting !== undefined} onPress={() => setExpandedIds((current) => { const next = new Set(current); if (next.has(collection.id)) next.delete(collection.id); else next.add(collection.id); return next; })}><Ionicons name={expandedIds.has(collection.id) ? "chevron-down" : "chevron-forward"} size={18} color={theme.colors.textMuted} /></Pressable> : <View style={[styles.disclosure, { marginLeft: depth * 20 }]} /> : null}
+      {!showPath ? hasChildren ? <Pressable style={[styles.disclosure, { marginLeft: depth * 20 }]} disabled={selecting !== undefined} onPress={() => setExpandedIds((current) => { const next = new Set(current); if (next.has(collection.id)) next.delete(collection.id); else next.add(collection.id); return next; })}><Icon name={expandedIds.has(collection.id) ? "chevron-down" : "chevron-forward"} size={18} color={theme.colors.textMuted} /></Pressable> : <View style={[styles.disclosure, { marginLeft: depth * 20 }]} /> : null}
       <Pressable style={[styles.target, showPath && styles.searchTarget]} disabled={selecting !== undefined} onPress={() => void select(collection.id)}>
-        <Ionicons name="folder-outline" size={20} color={theme.colors.textSecondary} />
+        <Icon name="folder-outline" size={20} color={theme.colors.textSecondary} />
         <Text numberOfLines={1} style={styles.name}>{showPath ? collectionPathName(collection, collections) : collection.name}</Text>
-        {value === collection.id ? <Ionicons name="checkmark" size={20} color={theme.colors.accentStrong} /> : null}
+        {value === collection.id ? <Icon name="checkmark" size={20} color={theme.colors.accentStrong} /> : null}
         {selecting === collection.id ? <ActivityIndicator size="small" color={theme.colors.accentStrong} /> : null}
       </Pressable>
-      {(onRenameCollection || onCreateCollection || onDeleteCollection) ? <Pressable accessibilityLabel={t("collection_picker.manage_named")} style={styles.moreButton} disabled={selecting !== undefined || creating} onPress={() => openActions(collection)}><Ionicons name="ellipsis-horizontal" size={20} color={theme.colors.textSecondary} /></Pressable> : null}
+      {(onRenameCollection || onCreateCollection || onDeleteCollection) ? <Pressable accessibilityLabel={t("collection_picker.manage_named")} style={styles.moreButton} disabled={selecting !== undefined || creating} onPress={() => openActions(collection)}><Icon name="ellipsis-horizontal" size={20} color={theme.colors.textSecondary} /></Pressable> : null}
     </View>;
   };
   return <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
     <SafeAreaView style={styles.page}>
       <View style={styles.header}><Pressable style={styles.headerSide} onPress={onClose}><Text style={styles.cancel}>{t("common.cancel")}</Text></Pressable><Text numberOfLines={1} style={styles.title}>{title}</Text><View style={styles.headerSide} /></View>
-      {collections.length > 7 ? <View style={styles.search}><Ionicons name="search" size={18} color={theme.colors.textMuted} /><TextInput value={query} onChangeText={setQuery} placeholder={t("collection_picker.search_placeholder")} placeholderTextColor={theme.colors.textMuted} style={styles.searchInput} autoCorrect={false} clearButtonMode="while-editing" /></View> : null}
+      {collections.length > 7 ? <View style={styles.search}><Icon name="search" size={18} color={theme.colors.textMuted} /><TextInput value={query} onChangeText={setQuery} placeholder={t("collection_picker.search_placeholder")} placeholderTextColor={theme.colors.textMuted} style={styles.searchInput} autoCorrect={false} clearButtonMode="while-editing" /></View> : null}
       <ScrollView contentContainerStyle={styles.list} alwaysBounceVertical={false} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
         {normalizedQuery ? searchMatches.length ? searchMatches.map((collection) => renderTarget(collection, true)) : <Text style={styles.empty}>{t("collection_picker.empty")}</Text> : <>
           {onCreateCollection && !editor ? (
             <Pressable style={styles.createEntry} disabled={selecting !== undefined} onPress={() => { setEditor({ kind: "create", parentId: null }); setEditorName(""); }}>
-              <Ionicons name="add" size={21} color={theme.colors.text} />
+              <Icon name="add" size={21} color={theme.colors.text} />
               <Text style={styles.createEntryText}>{t("collection_picker.new")}</Text>
             </Pressable>
           ) : null}
@@ -145,7 +145,7 @@ export function CollectionPickerModal({ visible, title, collections, value, incl
                 disabled={creating}
                 onPress={() => { setEditor(null); setEditorName(""); }}
               >
-                <Ionicons name="close" size={20} color={theme.colors.textSecondary} />
+                <Icon name="close" size={20} color={theme.colors.textSecondary} />
               </Pressable>
               <Pressable
                 accessibilityRole="button"
@@ -162,22 +162,22 @@ export function CollectionPickerModal({ visible, title, collections, value, incl
           ) : null}
           {includeAll ? (
             <Pressable style={styles.hereRow} disabled={selecting !== undefined} onPress={() => void select(undefined)}>
-              <Ionicons name="albums-outline" size={20} color={theme.colors.textSecondary} />
+              <Icon name="albums-outline" size={20} color={theme.colors.textSecondary} />
               <Text style={styles.name}>{t("sidebar.collections")}</Text>
-              {value === undefined ? <Ionicons name="checkmark" size={20} color={theme.colors.accentStrong} /> : null}
+              {value === undefined ? <Icon name="checkmark" size={20} color={theme.colors.accentStrong} /> : null}
             </Pressable>
           ) : (
             <View style={styles.hereRow}>
-              <Ionicons name="albums-outline" size={20} color={theme.colors.textSecondary} />
+              <Icon name="albums-outline" size={20} color={theme.colors.textSecondary} />
               <Text style={styles.name}>{t("sidebar.collections")}</Text>
             </View>
           )}
           <View style={styles.row}>
             <View style={styles.disclosure} />
             <Pressable style={styles.target} disabled={selecting !== undefined} onPress={() => void select(null)}>
-              <Ionicons name="folder-outline" size={20} color={theme.colors.textSecondary} />
+              <Icon name="folder-outline" size={20} color={theme.colors.textSecondary} />
               <Text style={styles.name}>{t("sidebar.unclassified")}</Text>
-              {value === null ? <Ionicons name="checkmark" size={20} color={theme.colors.accentStrong} /> : null}
+              {value === null ? <Icon name="checkmark" size={20} color={theme.colors.accentStrong} /> : null}
               {selecting === null ? <ActivityIndicator size="small" color={theme.colors.accentStrong} /> : null}
             </Pressable>
           </View>

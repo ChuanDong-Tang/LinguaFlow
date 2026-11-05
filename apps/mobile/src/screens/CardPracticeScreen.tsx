@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { Text } from "../components/Typography";
-import Ionicons from "@expo/vector-icons/Ionicons";
+import { Icon } from "../components/Icon";
 import { SafeAreaView } from "react-native-safe-area-context";
 import {
   generateCardImageDescriptions,
@@ -42,13 +42,13 @@ export function CardPracticeScreen({ isActive }: { isActive: boolean }) {
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
         <View><Text style={styles.title}>{t("card_practice.title")}</Text><Text style={styles.subtitle}>{t("card_practice.subtitle")}</Text></View>
-        <Pressable style={styles.calendarButton}><Ionicons name="calendar-outline" size={20} color={theme.colors.textSecondary} /></Pressable>
+        <Pressable style={styles.calendarButton}><Icon name="calendar-outline" size={20} color={theme.colors.textSecondary} /></Pressable>
       </View>
       <ScrollView contentContainerStyle={styles.content} alwaysBounceVertical={false}>
         <Pressable style={[styles.startCard, !items.length && styles.disabled]} disabled={!items.length} onPress={() => items[0] && void open(items[0])}>
-          <View style={styles.startIcon}><Ionicons name="play" size={22} color={theme.colors.surface} /></View>
+          <View style={styles.startIcon}><Icon name="play" size={22} color={theme.colors.surface} /></View>
           <View style={styles.startBody}><Text style={styles.startTitle}>{t("card_practice.start")}</Text><Text style={styles.startSubtitle}>{items.length ? tf("card_practice.start_count", { count: items.length }) : t("card_practice.start_empty")}</Text></View>
-          <Ionicons name="chevron-forward" size={20} color={theme.colors.surface} />
+          <Icon name="chevron-forward" size={20} color={theme.colors.surface} />
         </Pressable>
         {loading ? <ActivityIndicator style={styles.loader} color={theme.colors.accentStrong} /> : null}
         {!loading && items.length ? (
@@ -83,7 +83,7 @@ export function CardPracticeScreen({ isActive }: { isActive: boolean }) {
 
 function PracticeRow({ item, onPress }: { item: CardPracticeQueueItem; onPress: () => void }) {
   const labels = { continue_cloze: t("card_practice.reason.continue_cloze"), retry: t("card_practice.reason.retry"), try_dictation: t("card_practice.reason.try_dictation"), review: t("card_practice.reason.review") } as const;
-  return <Pressable style={styles.row} onPress={onPress}><View style={styles.rowBody}><Text style={styles.reason}>{labels[item.reason]}</Text>{item.record.displayTitle.trim() ? <Text numberOfLines={1} style={styles.preview}>{item.record.displayTitle}</Text> : null}<Text numberOfLines={1} style={styles.previewBody}>{item.record.rewrittenPreview?.trim() || item.record.originalPreview}</Text></View><Ionicons name="chevron-forward" size={19} color={theme.colors.textMuted} /></Pressable>;
+  return <Pressable style={styles.row} onPress={onPress}><View style={styles.rowBody}><Text style={styles.reason}>{labels[item.reason]}</Text>{item.record.displayTitle.trim() ? <Text numberOfLines={1} style={styles.preview}>{item.record.displayTitle}</Text> : null}<Text numberOfLines={1} style={styles.previewBody}>{item.record.rewrittenPreview?.trim() || item.record.originalPreview}</Text></View><Icon name="chevron-forward" size={19} color={theme.colors.textMuted} /></Pressable>;
 }
 
 const styles = StyleSheet.create({

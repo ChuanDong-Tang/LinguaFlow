@@ -1,4 +1,4 @@
-import Ionicons from "@expo/vector-icons/Ionicons";
+import { Icon } from "../../components/Icon";
 import React from "react";
 import { ActivityIndicator, Pressable, StyleSheet, View } from "react-native";
 import { Text } from "../../components/Typography";
@@ -38,7 +38,7 @@ export function MembershipSummaryCard({
       </View>
       <View style={styles.action}>
         <Text style={styles.actionText}>{t("subscription.manager.title")}</Text>
-        <Ionicons name="chevron-forward" size={18} color={theme.colors.textMuted} />
+        <Icon name="chevron-forward" size={18} color={theme.colors.textMuted} />
       </View>
     </Pressable>
   );

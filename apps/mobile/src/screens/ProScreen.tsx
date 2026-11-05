@@ -4,6 +4,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { ActivityIndicator, Alert, AppState, Linking, Platform, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { Text } from "../components/Typography";
 import Ionicons from "@expo/vector-icons/Ionicons";
+import { Icon } from "../components/Icon";
 import {
   ErrorCode,
   endConnection,
@@ -1819,7 +1820,7 @@ export function ProScreen({
       <PointsUsageSheet visible={pointsUsageVisible} onClose={() => setPointsUsageVisible(false)} />
       <View style={styles.header}>
         <Pressable accessibilityLabel={t("subscription.manager.back")} style={styles.backButton} onPress={onBack} hitSlop={10}>
-          <Ionicons name="arrow-back" size={24} color={theme.colors.text} />
+          <Icon name="arrow-back" size={24} color={theme.colors.text} />
         </Pressable>
         <Text style={styles.headerTitle}>{t("subscription.manager.title")}</Text>
         <View style={styles.backButton} />
@@ -1890,7 +1891,7 @@ export function ProScreen({
                   [{ text: t("common.got_it") }],
                 )}
               >
-                <Ionicons name="information-circle-outline" size={18} color={theme.colors.textSecondary} />
+                <Icon name="information-circle-outline" size={18} color={theme.colors.textSecondary} />
               </Pressable>
             </View>
             <View style={styles.periodToggle}>
@@ -1939,7 +1940,7 @@ export function ProScreen({
                 <View style={styles.managerBenefits}>
                   {benefits.map((benefit) => (
                     <View key={benefit} style={styles.managerBenefitRow}>
-                      <Ionicons name="checkmark" size={15} color={theme.colors.textStrong} />
+                      <Icon name="checkmark" size={15} color={theme.colors.textStrong} />
                       <Text style={styles.managerBenefitText}>{benefit}</Text>
                     </View>
                   ))}
@@ -2445,7 +2446,7 @@ function BenefitItem({
   return (
     <View style={[styles.benefitItem, !isLast && styles.benefitItemBorder]}>
       <View style={styles.benefitIcon}>
-        <Ionicons name={icon} size={18} color={theme.colors.text} />
+        <Icon name={icon} size={18} color={theme.colors.text} />
       </View>
       <View style={styles.benefitCopy}>
         <Text style={styles.benefitTitle}>{title}</Text>

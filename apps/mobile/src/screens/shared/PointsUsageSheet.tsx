@@ -2,7 +2,7 @@ import React from "react";
 import { Modal, Pressable, ScrollView, StyleSheet, View, useWindowDimensions } from "react-native";
 import { Text } from "../../components/Typography";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import Ionicons from "@expo/vector-icons/Ionicons";
+import { Icon } from "../../components/Icon";
 import { t } from "../../i18n";
 import { theme } from "../../theme";
 
@@ -26,7 +26,7 @@ export function PointsUsageSheet({ visible, onClose }: { visible: boolean; onClo
         <View style={styles.handle} />
         <View style={styles.header}>
           <Text style={styles.title}>{t("pro.points.title")}</Text>
-          <Pressable accessibilityRole="button" accessibilityLabel={t("card_detail.a11y.close")} hitSlop={10} onPress={onClose}><Ionicons name="close" size={22} color={theme.colors.textSecondary} /></Pressable>
+          <Pressable accessibilityRole="button" accessibilityLabel={t("card_detail.a11y.close")} hitSlop={10} onPress={onClose}><Icon name="close" size={22} color={theme.colors.textSecondary} /></Pressable>
         </View>
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
           <View>

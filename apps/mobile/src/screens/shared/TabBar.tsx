@@ -1,7 +1,7 @@
 import React from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { Text } from "../../components/Typography";
-import Ionicons from "@expo/vector-icons/Ionicons";
+import { Icon } from "../../components/Icon";
 import { t } from "../../i18n";
 import { theme } from "../../theme";
 
@@ -17,7 +17,7 @@ export function TabBar({ activeTab, onPressMain, onPressPractice, onPressMe }: T
     <View style={styles.bar}>
       <Pressable style={styles.tab} onPress={activeTab === "main" ? undefined : onPressMain}>
         <View style={styles.iconSlot}>
-          <Ionicons
+          <Icon
             name="book-outline"
             size={24}
             color={activeTab === "main" ? theme.colors.accentStrong : theme.colors.textMuted}
@@ -28,7 +28,7 @@ export function TabBar({ activeTab, onPressMain, onPressPractice, onPressMe }: T
 
       <Pressable style={styles.tab} onPress={activeTab === "practice" ? undefined : onPressPractice}>
         <View style={styles.iconSlot}>
-          <Ionicons
+          <Icon
             name="git-network-outline"
             size={24}
             color={activeTab === "practice" ? theme.colors.accentStrong : theme.colors.textMuted}
@@ -39,7 +39,7 @@ export function TabBar({ activeTab, onPressMain, onPressPractice, onPressMe }: T
 
       <Pressable style={styles.tab} onPress={activeTab === "me" ? undefined : onPressMe}>
         <View style={styles.iconSlot}>
-          <Ionicons
+          <Icon
             name="person-outline"
             size={24}
             color={activeTab === "me" ? theme.colors.accentStrong : theme.colors.textMuted}

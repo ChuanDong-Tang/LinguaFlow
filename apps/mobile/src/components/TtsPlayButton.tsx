@@ -1,6 +1,6 @@
 import React from "react";
 import { ActivityIndicator, Alert, Pressable, StyleSheet, type StyleProp, type ViewStyle } from "react-native";
-import Ionicons from "@expo/vector-icons/Ionicons";
+import { Icon } from "./Icon";
 import { getMessageTtsAsset, type TtsSourceKey } from "../services/api/ttsApi";
 import { beginTtsPlaybackSession, getTtsPlaybackState, isTtsPlaybackSessionCurrent, playTtsAudio, subscribeTtsPlayback, toggleTtsPlayback } from "../services/tts/ttsPlayback";
 import { t } from "../i18n";
@@ -116,7 +116,7 @@ export function TtsPlayButton({
       {loading || isPlaybackLoading ? (
         <ActivityIndicator size="small" color={color} />
       ) : (
-        <Ionicons name={isPlaying ? "pause" : "play"} size={size} color={canPlay ? color : theme.colors.textFaint} />
+        <Icon name={isPlaying ? "pause" : "play"} size={size} color={canPlay ? color : theme.colors.textFaint} />
       )}
     </Pressable>
   );

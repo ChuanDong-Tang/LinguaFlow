@@ -2,6 +2,7 @@ import React from "react";
 import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { Text, TextInput } from "../components/Typography";
 import Ionicons from "@expo/vector-icons/Ionicons";
+import { Icon } from "../components/Icon";
 import { SafeAreaView } from "react-native-safe-area-context";
 import type { AcquisitionSource } from "@lf/core/ports/repository/UserPreferenceRepository";
 import { t, tf } from "../i18n";
@@ -34,7 +35,7 @@ export function PreLoginOnboardingScreen({ step, draft, onChangeDraft, onBack, o
         <View style={styles.headerSide}>
           {step > 0 ? (
             <Pressable disabled={busy} accessibilityRole="button" accessibilityLabel={t("onboarding.flow.back")} style={styles.backButton} onPress={onBack}>
-              <Ionicons name="chevron-back" size={24} color={theme.colors.text} />
+              <Icon name="chevron-back" size={24} color={theme.colors.text} />
             </Pressable>
           ) : null}
         </View>
@@ -63,7 +64,7 @@ export function PreLoginOnboardingScreen({ step, draft, onChangeDraft, onBack, o
           {step === 4 ? <>
             <Pressable disabled={busy} accessibilityRole="checkbox" accessibilityState={{ checked: Boolean(draft.hasReferralCode) }}
               style={styles.option} onPress={() => onChangeDraft({ ...draft, hasReferralCode: !draft.hasReferralCode })}>
-              <Ionicons name={draft.hasReferralCode ? "checkbox" : "square-outline"} size={24} color={theme.colors.accentStrong} />
+              <Icon name={draft.hasReferralCode ? "checkbox" : "square-outline"} size={24} color={theme.colors.accentStrong} />
               <Text style={[styles.optionLabel, { marginLeft: 12 }]}>{t("onboarding.referral.checkbox")}</Text>
             </Pressable>
             {draft.hasReferralCode ? <TextInput accessibilityLabel={t("onboarding.referral.placeholder")}
@@ -86,7 +87,7 @@ export function PreLoginOnboardingScreen({ step, draft, onChangeDraft, onBack, o
                 onPress={() => onChangeDraft(updateDraft(step, draft, option.value))}
               >
                 <View style={[styles.optionIcon, active && styles.optionIconActive]}>
-                  <Ionicons name={option.icon} size={20} color={active ? "#FFFFFF" : theme.colors.textSecondary} />
+                  <Icon name={option.icon} size={20} color={active ? "#FFFFFF" : theme.colors.textSecondary} />
                 </View>
                 <View style={styles.optionCopy}>
                   <Text style={[styles.optionLabel, active && styles.optionLabelActive]}>{option.label}</Text>
@@ -109,7 +110,7 @@ export function PreLoginOnboardingScreen({ step, draft, onChangeDraft, onBack, o
           onPress={onContinue}
         >
           <Text style={styles.continueText}>{step === 4 ? t("onboarding.flow.finish") : t("common.continue")}</Text>
-          <Ionicons name="arrow-forward" size={19} color={theme.colors.onAccent} />
+          <Icon name="arrow-forward" size={19} color={theme.colors.onAccent} />
         </Pressable>
       </View>
       </KeyboardAvoidingView>

@@ -3,6 +3,7 @@ import { restoreTutorialCard } from "../services/api/cardApi";
 import { Alert, Image, Linking, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { Text } from "../components/Typography";
 import Ionicons from "@expo/vector-icons/Ionicons";
+import { Icon } from "../components/Icon";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { PRIVACY_URL, TERMS_URL } from "../constants/legalUrls";
 import * as Application from "expo-application";
@@ -54,7 +55,7 @@ export function AboutScreen({ onBack }: AboutScreenProps) {
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
         <Pressable style={styles.backButton} onPress={onBack} hitSlop={10}>
-          <Ionicons name="chevron-back" size={24} color={theme.colors.text} />
+          <Icon name="chevron-back" size={24} color={theme.colors.text} />
         </Pressable>
         <Text style={styles.headerTitle}>{t("about.title")}</Text>
         <View style={styles.backButton} />
@@ -126,13 +127,13 @@ function InfoRow({
       disabled={!onPress}
       accessibilityRole={onPress ? "button" : undefined}
     >
-      <Ionicons name={icon} size={19} color={theme.colors.text} />
+      <Icon name={icon} size={19} color={theme.colors.text} />
       <View style={styles.rowLabelWrap}>
         <Text style={styles.rowLabel}>{label}</Text>
         {showDot && <View style={styles.updateDot} />}
       </View>
       {!!value && <Text style={styles.rowValue}>{value}</Text>}
-      <Ionicons name="chevron-forward" size={17} color={theme.colors.textStrong} />
+      <Icon name="chevron-forward" size={17} color={theme.colors.textStrong} />
     </Pressable>
   );
 }

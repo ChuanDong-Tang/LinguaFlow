@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { Icon } from "../../components/Icon";
 import { Modal, Pressable, StyleSheet, View } from "react-native";
 import { Text } from "../../components/Typography";
 import { getLanguage, t } from "../../i18n";
@@ -9,7 +10,7 @@ export function MemorySetMenu({ title, count, disabled, onChange }: { title: str
   const [open, setOpen] = useState(false);
   const labels = { "zh-CN": "每组照片", "zh-TW": "每組照片", "en-US": "Photos per set", "ja-JP": "セットの枚数" };
   return <>
-    <Pressable accessibilityRole="button" accessibilityState={{ disabled: Boolean(disabled), expanded: open }} disabled={disabled} onPress={() => setOpen(true)} style={styles.pill}><Text style={styles.label}>{title} · {count}</Text><Ionicons name="chevron-down" size={14} color={theme.colors.text} /></Pressable>
+    <Pressable accessibilityRole="button" accessibilityState={{ disabled: Boolean(disabled), expanded: open }} disabled={disabled} onPress={() => setOpen(true)} style={styles.pill}><Text style={styles.label}>{title} · {count}</Text><Icon name="chevron-down" size={14} color={theme.colors.text} /></Pressable>
     <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
       <View style={styles.overlay}><Pressable style={StyleSheet.absoluteFill} onPress={() => setOpen(false)} accessibilityLabel={t("common.cancel")} />
         <View style={styles.sheet} accessibilityViewIsModal onAccessibilityEscape={() => setOpen(false)}>

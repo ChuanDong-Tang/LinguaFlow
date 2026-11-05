@@ -2,6 +2,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useR
 import { Animated, Pressable, StyleSheet, View, useWindowDimensions } from "react-native";
 import { Text } from "../../components/Typography";
 import Ionicons from "@expo/vector-icons/Ionicons";
+import { Icon } from "../../components/Icon";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { theme } from "../../theme";
 
@@ -191,10 +192,10 @@ export function FloatingNoticeProvider({ children }: { children: React.ReactNode
                     ],
                   }}
                 >
-                  <Ionicons name="sync-outline" size={17} color={palette.iconColor} />
+                  <Icon name="sync-outline" size={17} color={palette.iconColor} />
                 </Animated.View>
               ) : (
-                <Ionicons name={palette.icon} size={17} color={palette.iconColor} />
+                <Icon name={palette.icon} size={17} color={palette.iconColor} />
               )}
               <Text numberOfLines={2} style={styles.message}>
                 {notice.message}

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, View } from "react-native";
 import { Text } from "../../components/Typography";
-import Ionicons from "@expo/vector-icons/Ionicons";
+import { Icon } from "../../components/Icon";
 import { t } from "../../i18n";
 import { theme } from "../../theme";
 
@@ -48,7 +48,7 @@ export function BlockingLoading({
       <View style={styles.panel}>
         {canCancel ? (
           <Pressable style={styles.closeButton} onPress={options.onCancel} hitSlop={8}>
-            <Ionicons name="close" size={18} color={theme.colors.textSecondary} />
+            <Icon name="close" size={18} color={theme.colors.textSecondary} />
           </Pressable>
         ) : null}
         <ActivityIndicator size="large" color={theme.colors.accent} />

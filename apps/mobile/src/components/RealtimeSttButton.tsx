@@ -1,6 +1,6 @@
 import React from "react";
 import { ActivityIndicator, Pressable, StyleSheet, View, type StyleProp, type ViewStyle } from "react-native";
-import Ionicons from "@expo/vector-icons/Ionicons";
+import { Icon } from "./Icon";
 import type { RealtimeSttInputStatus } from "../hooks/useRealtimeSttInput";
 import { theme } from "../theme";
 import { t } from "../i18n";
@@ -26,7 +26,7 @@ export function RealtimeSttButton({ status, audioLevel = 0, disabled = false, on
       ? <ActivityIndicator size="small" color={theme.colors.danger} />
       : status === "recording"
         ? <View style={styles.waveform}>{[0.62, 1, 0.78, 0.52].map((weight, index) => <View key={index} style={[styles.waveformBar, { height: 4 + audioLevel * 17 * weight }]} />)}</View>
-        : <Ionicons name="mic-outline" size={iconSize} color={theme.colors.textSecondary} />}
+        : <Icon name="mic-outline" size={iconSize} color={theme.colors.textSecondary} />}
     {status === "recording" ? <View style={styles.recordingDot} /> : null}
   </Pressable>;
 }

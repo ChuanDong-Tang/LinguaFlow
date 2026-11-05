@@ -1,7 +1,7 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Alert, Animated, AppState, DevSettings, Image, Linking, Modal, Pressable, StyleSheet, View } from "react-native";
 import { Text, TextInput } from "./components/Typography";
-import Ionicons from "@expo/vector-icons/Ionicons";
+import { Icon } from "./components/Icon";
 import * as AuthSession from "expo-auth-session";
 import * as SplashScreen from "expo-splash-screen";
 import * as Updates from "expo-updates";
@@ -1151,7 +1151,7 @@ function QuotaExhaustionDialog({
         <Pressable accessibilityLabel={t("common.cancel")} style={StyleSheet.absoluteFill} onPress={onClose} />
         <View style={styles.quotaDialogPanel}>
           <Pressable accessibilityRole="button" accessibilityLabel={t("common.cancel")} hitSlop={10} style={styles.quotaDialogClose} onPress={onClose}>
-            <Ionicons name="close" size={21} color={theme.colors.textSecondary} />
+            <Icon name="close" size={21} color={theme.colors.textSecondary} />
           </Pressable>
           <Text style={styles.quotaDialogMessage}>{value?.message ?? ""}</Text>
           {value?.showMembership ? (

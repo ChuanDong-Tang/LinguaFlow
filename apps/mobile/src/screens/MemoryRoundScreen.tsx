@@ -1,4 +1,4 @@
-import Ionicons from "@expo/vector-icons/Ionicons";
+import { Icon } from "../components/Icon";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Haptics from "expo-haptics";
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -889,7 +889,7 @@ export function MemoryRoundScreen({
 
   if (phase === "loading") return <SafeAreaView style={styles.page}><Header onClose={onClose} /><View style={styles.center}><ActivityIndicator color={theme.colors.success} /><Text style={styles.loadingText}>{t("memory_round.loading")}</Text></View></SafeAreaView>;
   if (phase === "error") return <SafeAreaView style={styles.page}><Header onClose={onClose} /><View style={styles.center}><Text style={styles.emptyTitle}>{t("memory_round.load_failed")}</Text><Pressable style={({ pressed }) => [styles.lightButton, pressed && styles.controlPressed]} onPress={() => void start()}><Text style={styles.lightButtonText}>{t("common.retry")}</Text></Pressable></View></SafeAreaView>;
-  if (phase === "empty") return <SafeAreaView style={styles.page}><Header onClose={onClose} /><View style={styles.center}><View style={styles.emptyGlyph}><Ionicons name="albums-outline" size={28} color={theme.colors.accent} /></View><Text style={styles.emptyTitle}>{t("memory_round.empty_title")}</Text><Text style={styles.emptyText}>{t("memory_round.empty_text")}</Text><Pressable style={({ pressed }) => [styles.lightButton, pressed && styles.controlPressed]} onPress={onOpenLibrary}><Text style={styles.lightButtonText}>{t("memory_round.go_cards")}</Text><Ionicons name="arrow-forward" size={17} color={theme.colors.textSecondary} /></Pressable></View></SafeAreaView>;
+  if (phase === "empty") return <SafeAreaView style={styles.page}><Header onClose={onClose} /><View style={styles.center}><View style={styles.emptyGlyph}><Icon name="albums-outline" size={28} color={theme.colors.accent} /></View><Text style={styles.emptyTitle}>{t("memory_round.empty_title")}</Text><Text style={styles.emptyText}>{t("memory_round.empty_text")}</Text><Pressable style={({ pressed }) => [styles.lightButton, pressed && styles.controlPressed]} onPress={onOpenLibrary}><Text style={styles.lightButtonText}>{t("memory_round.go_cards")}</Text><Icon name="arrow-forward" size={17} color={theme.colors.textSecondary} /></Pressable></View></SafeAreaView>;
   if (phase === "retry_offer") return (
     <SafeAreaView style={styles.summaryPage}>
       <Header onClose={onClose} />
@@ -897,13 +897,13 @@ export function MemoryRoundScreen({
         <View style={styles.retryCelebration}>
           <View style={[styles.retryConfetti, styles.retryConfettiLeft]} />
           <View style={[styles.retryConfetti, styles.retryConfettiRight]} />
-          <View style={styles.retryOfferIcon}><Ionicons name="flag" size={36} color={theme.colors.onAccent} /></View>
+          <View style={styles.retryOfferIcon}><Icon name="flag" size={36} color={theme.colors.onAccent} /></View>
         </View>
         <Text style={styles.retryOfferTitle}>{t("memory_round.retry_skipped_title")}</Text>
         <Text style={styles.retryOfferDetail}>{t("memory_round.retry_skipped_detail").replace("{count}", String(summaryWrong.length))}</Text>
         <View style={styles.retryOfferActions}>
           <Pressable style={({ pressed }) => [styles.gamePrimaryButton, pressed && styles.gameButtonPressed]} onPress={() => void retryWrongQuestions()}>
-            <Ionicons name="refresh" size={20} color={theme.colors.onAccent} />
+            <Icon name="refresh" size={20} color={theme.colors.onAccent} />
             <Text style={styles.gamePrimaryButtonText}>{t("memory_round.retry_skipped_action")}</Text>
           </Pressable>
           <Pressable style={({ pressed }) => [styles.gameSecondaryButton, pressed && styles.gameButtonPressed]} onPress={() => void finishAfterRetryOffer()}>
@@ -924,29 +924,29 @@ export function MemoryRoundScreen({
       <SafeAreaView style={styles.summaryPage}>
         <Header onClose={onClose} />
         <ScrollView contentContainerStyle={styles.cardCompleteBody}>
-          <View style={styles.cardCompleteIcon}><Ionicons name="checkmark" size={36} color={theme.colors.onAccent} /></View>
+          <View style={styles.cardCompleteIcon}><Icon name="checkmark" size={36} color={theme.colors.onAccent} /></View>
           <Text style={styles.cardCompleteTitle}>{t("memory_round.card_complete")}</Text>
           {nextCard ? <>
             <Text style={styles.cardCompleteLabel}>{nextCard.relationHint ? t("memory_round.next_related").replace("{topic}", nextCard.relationHint) : t("memory_round.next_card_ready")}</Text>
             <View style={[styles.cardRouteCard, styles.nextCardRouteCard]}>
-              {nextCard.thumbnailUrl ? <Image source={{ uri: nextCard.thumbnailUrl }} style={styles.cardRouteImage} /> : <View style={[styles.cardRouteImage, styles.cardRouteImageFallback]}><Ionicons name="document-text-outline" size={25} color={theme.colors.textSecondary} /></View>}
+              {nextCard.thumbnailUrl ? <Image source={{ uri: nextCard.thumbnailUrl }} style={styles.cardRouteImage} /> : <View style={[styles.cardRouteImage, styles.cardRouteImageFallback]}><Icon name="document-text-outline" size={25} color={theme.colors.textSecondary} /></View>}
               {nextCard.title.trim() ? <View style={styles.cardRouteCopy}><Text numberOfLines={2} style={styles.cardRouteTitle}>{nextCard.title}</Text></View> : null}
             </View>
             <View style={styles.cardCompleteActions}>
               {summaryWrong.length ? <Pressable style={({ pressed }) => [styles.gameSecondaryButton, pressed && styles.gameButtonPressed]} onPress={() => void retryWrongQuestions()}>
-                <Ionicons name="refresh" size={19} color={theme.colors.accent} />
+                <Icon name="refresh" size={19} color={theme.colors.accent} />
                 <Text style={styles.gameSecondaryButtonText}>{t("memory_round.retry_wrong").replace("{count}", String(summaryWrong.length))}</Text>
               </Pressable> : null}
               <Pressable style={({ pressed }) => [styles.gamePrimaryButton, pressed && styles.gameButtonPressed]} onPress={() => void continueToNextCard()}>
-                <Ionicons name="play" size={19} color={theme.colors.onAccent} />
+                <Icon name="play" size={19} color={theme.colors.onAccent} />
                 <Text style={styles.gamePrimaryButtonText}>{t("memory_round.continue_game")}</Text>
               </Pressable>
               {canChangeCard ? <Pressable disabled={changingNextCard} style={({ pressed }) => [styles.gameSecondaryButton, changingNextCard && styles.buttonDisabled, pressed && styles.gameButtonPressed]} onPress={() => void changeNextCard()}>
-                {changingNextCard ? <ActivityIndicator size="small" color={theme.colors.accent} /> : <Ionicons name="shuffle" size={19} color={theme.colors.accent} />}
+                {changingNextCard ? <ActivityIndicator size="small" color={theme.colors.accent} /> : <Icon name="shuffle" size={19} color={theme.colors.accent} />}
                 <Text style={styles.gameSecondaryButtonText}>{t("memory_round.change_card")}</Text>
               </Pressable> : null}
               <Pressable style={({ pressed }) => [styles.gameExitButton, pressed && styles.gameButtonPressed]} onPress={() => void exitAfterCard()}>
-                <Ionicons name="exit-outline" size={19} color={theme.colors.danger} />
+                <Icon name="exit-outline" size={19} color={theme.colors.danger} />
                 <Text style={styles.gameExitButtonText}>{t("memory_round.exit_after_card")}</Text>
               </Pressable>
             </View>
@@ -978,17 +978,17 @@ export function MemoryRoundScreen({
             </Animated.View>
           </Animated.View>
           <View style={[styles.coachBubble, meaningExpanded && meaningStatus === "ready" && styles.coachBubbleExpanded, feedbackState === "correct" && styles.coachBubbleSuccess, feedbackState === "wrong" && styles.coachBubbleWrong]}>
-            {feedbackState === "correct" ? <View style={styles.coachFeedback}><Ionicons name="checkmark-circle" size={19} color={theme.colors.success} /><Text style={styles.coachSuccessText}>{t("memory_round.coach_correct")}</Text></View> : <>
-              {feedbackState === "wrong" ? <View style={styles.coachHintHeading}><Ionicons name="refresh" size={16} color={theme.colors.danger} /><Text style={[styles.coachHintTitle, styles.coachWrongText]}>{t("memory_round.coach_wrong")}</Text></View> : null}
+            {feedbackState === "correct" ? <View style={styles.coachFeedback}><Icon name="checkmark-circle" size={19} color={theme.colors.success} /><Text style={styles.coachSuccessText}>{t("memory_round.coach_correct")}</Text></View> : <>
+              {feedbackState === "wrong" ? <View style={styles.coachHintHeading}><Icon name="refresh" size={16} color={theme.colors.danger} /><Text style={[styles.coachHintTitle, styles.coachWrongText]}>{t("memory_round.coach_wrong")}</Text></View> : null}
               {question.task !== "meaning_sentence" ? <View style={styles.coachHintActions}>
                 <Pressable accessibilityRole="button" accessibilityLabel={t("memory_round.play_audio")} disabled={audioLoading || speechBusy} style={({ pressed }) => [styles.coachHintButton, styles.coachAudioButton, (audioLoading || speechBusy) && styles.buttonDisabled, pressed && styles.controlPressed]} onPress={() => void playSentence()}>
-                  <Ionicons name="volume-medium-outline" size={17} color={theme.colors.textSecondary} />
+                  <Icon name="volume-medium-outline" size={17} color={theme.colors.textSecondary} />
                   <AudioWaveform active={sentenceAudioActive} progress={audioWaveProgress} reduceMotion={reduceMotion} />
                 </Pressable>
                 <Pressable accessibilityRole="button" accessibilityLabel={t("memory_round.native_meaning")} disabled={meaningStatus === "loading"} style={({ pressed }) => [styles.meaningIconButton, meaningExpanded && styles.meaningIconButtonActive, meaningStatus === "loading" && styles.buttonDisabled, pressed && styles.controlPressed]} onPress={() => void revealNativeMeaning()}>
-                  {meaningStatus === "loading" ? <ActivityIndicator size="small" color={theme.colors.textSecondary} /> : <Ionicons name={meaningExpanded ? "bulb" : "bulb-outline"} size={19} color={theme.colors.textSecondary} />}
+                  {meaningStatus === "loading" ? <ActivityIndicator size="small" color={theme.colors.textSecondary} /> : <Icon name={meaningExpanded ? "bulb" : "bulb-outline"} size={19} color={theme.colors.textSecondary} />}
                 </Pressable>
-              </View> : meaningStatus === "loading" ? <View style={styles.meaningDots}>{meaningDots.map((dot, index) => <Animated.View key={index} style={[styles.meaningDot, { opacity: dot }]} />)}</View> : meaningStatus === "error" ? <Pressable accessibilityRole="button" accessibilityLabel={t("memory_round.meaning_retry")} style={({ pressed }) => [styles.meaningRetryIcon, pressed && styles.controlPressed]} onPress={() => void revealNativeMeaning()}><Ionicons name="refresh" size={17} color={theme.colors.danger} /></Pressable> : null}
+              </View> : meaningStatus === "loading" ? <View style={styles.meaningDots}>{meaningDots.map((dot, index) => <Animated.View key={index} style={[styles.meaningDot, { opacity: dot }]} />)}</View> : meaningStatus === "error" ? <Pressable accessibilityRole="button" accessibilityLabel={t("memory_round.meaning_retry")} style={({ pressed }) => [styles.meaningRetryIcon, pressed && styles.controlPressed]} onPress={() => void revealNativeMeaning()}><Icon name="refresh" size={17} color={theme.colors.danger} /></Pressable> : null}
               {audioUnavailable ? <Text style={styles.coachHintError}>{t("memory_round.audio_unavailable")}</Text> : null}
               {meaningUnavailable ? <Text style={styles.coachHintError}>{t("memory_round.meaning_unavailable")}</Text> : null}
               {meaningExpanded && meaningStatus === "ready" && nativeMeaning ? <ScrollView style={styles.coachMeaningScroll} contentContainerStyle={styles.coachMeaningScrollContent} nestedScrollEnabled showsVerticalScrollIndicator persistentScrollbar>
@@ -999,12 +999,12 @@ export function MemoryRoundScreen({
         </View>
         <Animated.View style={{ transform: [{ translateX: wrongOffset.interpolate({ inputRange: [-1, 1], outputRange: [-6, 6] }) }] }}>
         {question.kind === "speech" ? question.completed ? <View style={styles.completedSentenceCard}><Text style={[styles.completedSentence, sentenceTypography]}>{question.sentence}</Text></View> : <>
-          {question.task === "blind_speech" && !blindSubtitleRevealed ? <View style={styles.blindSpeechCard}><Ionicons name="ear-outline" size={34} color={theme.colors.success} /><Text style={styles.blindSpeechText}>{t("memory_round.blind_speech_prompt")}</Text><Pressable style={({ pressed }) => [styles.revealSubtitleButton, pressed && styles.secondaryPressed]} onPress={() => setBlindSubtitleRevealed(true)}><Text style={styles.revealSubtitleText}>{t("memory_round.show_subtitle")}</Text></Pressable></View> : <View style={styles.speechSentenceCard}><GuidedSpeechSentence sentence={question.sentence} recognizedText={pronunciation.recognizedText} completed={question.completed} typography={sentenceTypography} /></View>}
+          {question.task === "blind_speech" && !blindSubtitleRevealed ? <View style={styles.blindSpeechCard}><Icon name="ear-outline" size={34} color={theme.colors.success} /><Text style={styles.blindSpeechText}>{t("memory_round.blind_speech_prompt")}</Text><Pressable style={({ pressed }) => [styles.revealSubtitleButton, pressed && styles.secondaryPressed]} onPress={() => setBlindSubtitleRevealed(true)}><Text style={styles.revealSubtitleText}>{t("memory_round.show_subtitle")}</Text></Pressable></View> : <View style={styles.speechSentenceCard}><GuidedSpeechSentence sentence={question.sentence} recognizedText={pronunciation.recognizedText} completed={question.completed} typography={sentenceTypography} /></View>}
           <View style={styles.speechPanel}>
             <Text style={styles.speechStatus}>{t(`memory_round.speech_${pronunciation.status}`)}</Text>
             {pronunciation.status === "evaluating" || pronunciation.status === "preparing" ? <ActivityIndicator size="small" color={theme.colors.success} style={styles.speechSpinner} /> : null}
             <Pressable disabled={pronunciation.status === "preparing" || pronunciation.status === "evaluating"} style={({ pressed }) => [styles.speechButton, (pronunciation.status === "preparing" || pronunciation.status === "evaluating") && styles.buttonDisabled, pronunciation.status === "recording" && styles.speechButtonRecording, pressed && styles.gameButtonPressed]} onPress={() => { if (pronunciation.status === "recording") void pronunciation.stop(); else { sentenceAudioRequestRef.current += 1; stopTtsAudio({ resetControls: true }); setAudioLoading(false); void pronunciation.start(); } }}>
-              <Ionicons name={pronunciation.status === "recording" ? "stop" : "mic"} size={19} color={theme.colors.onAccent} />
+              <Icon name={pronunciation.status === "recording" ? "stop" : "mic"} size={19} color={theme.colors.onAccent} />
               <Text style={styles.checkButtonText}>{pronunciation.status === "recording" ? t("memory_round.speech_finish") : pronunciation.status === "retry" || pronunciation.status === "error" ? t("memory_round.try_again") : t("memory_round.speech_start")}</Text>
             </Pressable>
             <Pressable style={({ pressed }) => [styles.speechSkip, pressed && styles.gameButtonPressed]} onPress={() => skipCurrentQuestion()}><Text style={styles.speechSkipText}>{t("memory_round.speech_skip")}</Text></Pressable>
@@ -1029,7 +1029,7 @@ export function MemoryRoundScreen({
           <View style={styles.options}>{question.options.map((option) => {
             const disabled = question.disabledOptions.includes(option);
             const isAnswer = question.completed && normalizeAnswer(option) === normalizeAnswer(question.answer);
-            return <Pressable key={option} disabled={disabled || question.completed || checking} style={({ pressed }) => [styles.option, pressed && styles.optionPressed, disabled && styles.optionWrong, isAnswer && styles.optionCorrect]} onPress={() => void chooseOption(option)}><Text style={[styles.optionText, memoryOptionTypography(option), disabled && styles.optionWrongText, isAnswer && styles.optionCorrectText]}>{option}</Text>{disabled ? <Ionicons name="close" size={20} color={theme.colors.danger} /> : isAnswer ? <Ionicons name="checkmark" size={20} color={theme.colors.success} /> : null}</Pressable>;
+            return <Pressable key={option} disabled={disabled || question.completed || checking} style={({ pressed }) => [styles.option, pressed && styles.optionPressed, disabled && styles.optionWrong, isAnswer && styles.optionCorrect]} onPress={() => void chooseOption(option)}><Text style={[styles.optionText, memoryOptionTypography(option), disabled && styles.optionWrongText, isAnswer && styles.optionCorrectText]}>{option}</Text>{disabled ? <Icon name="close" size={20} color={theme.colors.danger} /> : isAnswer ? <Icon name="checkmark" size={20} color={theme.colors.success} /> : null}</Pressable>;
           })}</View>
         </> : question.kind === "input" ? question.completed ? <View style={styles.completedSentenceCard}><Text style={[styles.completedSentence, sentenceTypography]}>{question.before}<Text style={question.skipped ? styles.revealedInputAnswer : styles.blank}>{question.answer}</Text>{question.after}</Text></View> : <>
           <View style={styles.sentenceSurface}><Text accessibilityLabel={`${question.before} … ${question.after}`} style={[styles.sentence, sentenceTypography]}>{question.before}<Text style={styles.inputBlank}>{memoryAnswerBlank(question.answer)}</Text>{question.after}</Text></View>
@@ -1061,7 +1061,7 @@ export function MemoryRoundScreen({
               }}
               onSubmitEditing={checkInputAnswer}
             />
-            {inputAnswer && !sentenceIncorrect ? <Pressable accessibilityRole="button" accessibilityLabel={t("memory_round.clear_answer")} hitSlop={8} style={({ pressed }) => [styles.inputClear, pressed && styles.headerPressed]} onPress={() => { void Haptics.selectionAsync().catch(() => undefined); setInputAnswer(""); setSentenceIncorrect(false); setFeedbackState("idle"); inputAnswerRef.current?.focus(); }}><Ionicons name="close-circle" size={20} color={theme.colors.textMuted} /></Pressable> : null}
+            {inputAnswer && !sentenceIncorrect ? <Pressable accessibilityRole="button" accessibilityLabel={t("memory_round.clear_answer")} hitSlop={8} style={({ pressed }) => [styles.inputClear, pressed && styles.headerPressed]} onPress={() => { void Haptics.selectionAsync().catch(() => undefined); setInputAnswer(""); setSentenceIncorrect(false); setFeedbackState("idle"); inputAnswerRef.current?.focus(); }}><Icon name="close-circle" size={20} color={theme.colors.textMuted} /></Pressable> : null}
           </View>
           {sentenceIncorrect ? <View style={styles.inputWrongActions}>
             <Pressable disabled={checking} style={({ pressed }) => [styles.inputRetryButton, checking && styles.buttonDisabled, pressed && styles.gameButtonPressed]} onPress={retryInputAnswer}><Text style={styles.inputRetryButtonText}>{t("memory_round.try_again")}</Text></Pressable>
@@ -1080,14 +1080,14 @@ export function MemoryRoundScreen({
           {!answerRevealCompletion ? <>
             <View style={styles.completionHandle} />
             <View style={styles.completionHeading}>
-              <View style={[styles.successMark, question.skipped && styles.skippedMark]}><Ionicons name={question.skipped ? "play-skip-forward" : "checkmark"} size={20} color={theme.colors.onAccent} /></View>
+              <View style={[styles.successMark, question.skipped && styles.skippedMark]}><Icon name={question.skipped ? "play-skip-forward" : "checkmark"} size={20} color={theme.colors.onAccent} /></View>
               <View style={styles.completionCopy}>
                 <Text style={[styles.completionTitle, question.skipped && styles.completionTitleSkipped]}>{question.skipped ? t("memory_round.skipped_feedback") : memoryPraise(question.id)}</Text>
                 <Text style={styles.completionDetail}>{question.skipped ? t("memory_round.skipped_detail") : t("memory_round.correct_detail")}</Text>
               </View>
             </View>
           </> : null}
-          <Pressable style={({ pressed }) => [styles.continueButton, question.skipped && styles.skippedContinueButton, answerRevealCompletion && styles.answerRevealContinueButton, pressed && styles.gameButtonPressed]} onPress={() => void continueRound()}><Text style={styles.primaryButtonText}>{t("common.continue")}</Text><Ionicons name="arrow-forward" size={18} color={theme.colors.onAccent} /></Pressable>
+          <Pressable style={({ pressed }) => [styles.continueButton, question.skipped && styles.skippedContinueButton, answerRevealCompletion && styles.answerRevealContinueButton, pressed && styles.gameButtonPressed]} onPress={() => void continueRound()}><Text style={styles.primaryButtonText}>{t("common.continue")}</Text><Icon name="arrow-forward" size={18} color={theme.colors.onAccent} /></Pressable>
         </View>
       </Animated.View> : null}
     </Animated.View>
@@ -1095,7 +1095,7 @@ export function MemoryRoundScreen({
 }
 
 function Header({ onClose, onOpenCard }: { onClose: () => void; onOpenCard?: () => void }) {
-  return <View style={styles.header}><Pressable accessibilityRole="button" style={({ pressed }) => [styles.headerButton, pressed && styles.headerPressed]} onPress={onClose}><Ionicons name="close" size={24} color={theme.colors.text} /></Pressable><Text style={styles.headerTitle}>{t("memory_round.title")}</Text>{onOpenCard ? <Pressable accessibilityRole="button" accessibilityLabel={t("memory_round.view_card")} style={({ pressed }) => [styles.headerCardButton, pressed && styles.headerPressed]} onPress={onOpenCard}><Text style={styles.headerCardButtonText}>{t("memory_round.original_card")}</Text></Pressable> : <View style={styles.headerButton} />}</View>;
+  return <View style={styles.header}><Pressable accessibilityRole="button" style={({ pressed }) => [styles.headerButton, pressed && styles.headerPressed]} onPress={onClose}><Icon name="close" size={24} color={theme.colors.text} /></Pressable><Text style={styles.headerTitle}>{t("memory_round.title")}</Text>{onOpenCard ? <Pressable accessibilityRole="button" accessibilityLabel={t("memory_round.view_card")} style={({ pressed }) => [styles.headerCardButton, pressed && styles.headerPressed]} onPress={onOpenCard}><Text style={styles.headerCardButtonText}>{t("memory_round.original_card")}</Text></Pressable> : <View style={styles.headerButton} />}</View>;
 }
 
 function AudioWaveform({ active, progress, reduceMotion }: { active: boolean; progress: Animated.Value; reduceMotion: boolean }) {
@@ -1108,7 +1108,7 @@ function AudioWaveform({ active, progress, reduceMotion }: { active: boolean; pr
 }
 
 function Progress({ total, current, currentCompleted, pulse, completion, colors }: { total: number; current: number; currentCompleted: boolean; pulse: Animated.Value; completion: Animated.Value; colors: string[] }) {
-  return <View style={styles.progress}>{Array.from({ length: total }, (_, index) => <React.Fragment key={index}>{index > 0 ? <View style={[styles.connector, index <= current && { backgroundColor: colors[(index - 1) % colors.length] }]} /> : null}<Animated.View style={[styles.progressNode, index <= current && { backgroundColor: colors[index % colors.length] }, index === current && !currentCompleted && { transform: [{ scale: pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.22] }) }], opacity: pulse.interpolate({ inputRange: [0, 1], outputRange: [0.68, 1] }) }, index === current && currentCompleted && { transform: [{ scale: completion.interpolate({ inputRange: [0, 0.58, 1], outputRange: [0.82, 1.28, 1], extrapolate: "clamp" }) }] }]}>{index < current || index === current && currentCompleted ? <Ionicons name="checkmark" size={10} color={theme.colors.onAccent} /> : null}</Animated.View></React.Fragment>)}</View>;
+  return <View style={styles.progress}>{Array.from({ length: total }, (_, index) => <React.Fragment key={index}>{index > 0 ? <View style={[styles.connector, index <= current && { backgroundColor: colors[(index - 1) % colors.length] }]} /> : null}<Animated.View style={[styles.progressNode, index <= current && { backgroundColor: colors[index % colors.length] }, index === current && !currentCompleted && { transform: [{ scale: pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.22] }) }], opacity: pulse.interpolate({ inputRange: [0, 1], outputRange: [0.68, 1] }) }, index === current && currentCompleted && { transform: [{ scale: completion.interpolate({ inputRange: [0, 0.58, 1], outputRange: [0.82, 1.28, 1], extrapolate: "clamp" }) }] }]}>{index < current || index === current && currentCompleted ? <Icon name="checkmark" size={10} color={theme.colors.onAccent} /> : null}</Animated.View></React.Fragment>)}</View>;
 }
 
 function GuidedSpeechSentence({ sentence, recognizedText, completed, typography }: { sentence: string; recognizedText: string; completed: boolean; typography: { fontSize: number; lineHeight: number } }) {

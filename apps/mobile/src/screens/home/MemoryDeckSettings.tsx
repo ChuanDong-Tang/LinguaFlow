@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { Icon } from "../../components/Icon";
 import { Modal, Pressable, StyleSheet, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { Text } from "../../components/Typography";
@@ -21,7 +22,7 @@ export function MemoryDeckSettings({ count, visible, disabled, onApply }: {
   return <>
     <Pressable accessibilityRole="button" accessibilityLabel={copy[0]} accessibilityState={{ expanded: open, disabled }} disabled={disabled}
       style={styles.trigger} onPress={() => { setDraft({ count, visible }); setOpen(true); }}>
-      <Text style={styles.caption}>{copy[2]} · {count}</Text><Ionicons name="chevron-down" size={14} color={theme.colors.textSecondary} />
+      <Text style={styles.caption}>{copy[2]} · {count}</Text><Icon name="chevron-down" size={14} color={theme.colors.textSecondary} />
     </Pressable>
     <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
       <View style={styles.overlay}>

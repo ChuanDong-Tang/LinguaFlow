@@ -1,7 +1,7 @@
 import React from "react";
 import { ActivityIndicator, Alert, Image, Pressable, StyleSheet, View } from "react-native";
 import { Text } from "../../components/Typography";
-import Ionicons from "@expo/vector-icons/Ionicons";
+import { Icon } from "../../components/Icon";
 import { getDictionaryTermAudio, type DictionaryLookupResult } from "../../services/api/dictionaryApi";
 import { playTtsAudio } from "../../services/tts/ttsPlayback";
 import { t } from "../../i18n";
@@ -73,7 +73,7 @@ export function DictionarySearchResultCard({ term, loading, error, result, targe
               style={({ pressed }) => [styles.audioButton, pressed && styles.audioButtonPressed]}
               onPress={() => void playPronunciation()}
             >
-              {playing ? <ActivityIndicator size="small" color={theme.colors.textStrong} /> : <Ionicons name="volume-high-outline" size={20} color={theme.colors.textStrong} />}
+              {playing ? <ActivityIndicator size="small" color={theme.colors.textStrong} /> : <Icon name="volume-high-outline" size={20} color={theme.colors.textStrong} />}
             </Pressable>
           ) : null}
         </View>
@@ -84,7 +84,7 @@ export function DictionarySearchResultCard({ term, loading, error, result, targe
           </View>
         ) : error ? (
           <View style={styles.errorRow}>
-            <Ionicons name="alert-circle-outline" size={17} color={theme.colors.textMuted} />
+            <Icon name="alert-circle-outline" size={17} color={theme.colors.textMuted} />
             <Text style={styles.errorText}>{error}</Text>
           </View>
         ) : result ? (

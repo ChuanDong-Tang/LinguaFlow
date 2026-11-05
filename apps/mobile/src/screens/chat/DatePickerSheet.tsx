@@ -1,7 +1,7 @@
 import React, { useMemo } from "react";
 import { Modal, Pressable, StyleSheet, View } from "react-native";
 import { Text } from "../../components/Typography";
-import Ionicons from "@expo/vector-icons/Ionicons";
+import { Icon } from "../../components/Icon";
 import { t, tf } from "../../i18n";
 import { theme } from "../../theme";
 
@@ -73,7 +73,7 @@ export function DatePickerSheet({ visible, monthCursor, selectedDate, onClose, o
 
           <View style={styles.topRow}>
             <Pressable style={styles.closeBtn} onPress={onClose}>
-              <Ionicons name="close" size={26} color={theme.colors.text} />
+              <Icon name="close" size={26} color={theme.colors.text} />
             </Pressable>
             <Text style={styles.title}>{t("chat.date.select")}</Text>
             <View style={styles.closeBtn} />
@@ -82,15 +82,15 @@ export function DatePickerSheet({ visible, monthCursor, selectedDate, onClose, o
           <View style={styles.monthRow}>
             <View style={styles.monthTitleWrap}>
               <Text style={styles.monthTitle}>{title}</Text>
-              <Ionicons name="chevron-down" size={16} color={theme.colors.textSecondary} />
+              <Icon name="chevron-down" size={16} color={theme.colors.textSecondary} />
             </View>
 
             <View style={styles.monthActions}>
               <Pressable onPress={onPrevMonth} style={styles.arrowBtn}>
-                <Ionicons name="chevron-back" size={24} color={theme.colors.text} />
+                <Icon name="chevron-back" size={24} color={theme.colors.text} />
               </Pressable>
               <Pressable onPress={onNextMonth} style={styles.arrowBtn}>
-                <Ionicons name="chevron-forward" size={24} color={theme.colors.text} />
+                <Icon name="chevron-forward" size={24} color={theme.colors.text} />
               </Pressable>
             </View>
           </View>

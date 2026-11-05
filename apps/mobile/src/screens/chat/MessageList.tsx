@@ -1,7 +1,7 @@
 import React from "react";
 import { Animated, FlatList, Keyboard, Platform, Pressable, StyleSheet, View } from "react-native";
 import { Text } from "../../components/Typography";
-import Ionicons from "@expo/vector-icons/Ionicons";
+import { Icon } from "../../components/Icon";
 import type { ChatMessage } from "../../domain/chat/types";
 import { getChatContact, type ChatContact } from "../../domain/chat/contacts";
 import type { AutoCopyMode } from "../../services/preferences/assistantPreferences";
@@ -451,7 +451,7 @@ const AssistantMessageRow = React.memo(function AssistantMessageRow({
                     setAnswersVisible((value) => !value);
                   }}
                 >
-                  <Ionicons name={answersVisible ? "eye-off-outline" : "eye-outline"} size={22} color={theme.colors.text} />
+                  <Icon name={answersVisible ? "eye-off-outline" : "eye-outline"} size={22} color={theme.colors.text} />
                 </Pressable>
               ) : (
                 <View />
@@ -463,7 +463,7 @@ const AssistantMessageRow = React.memo(function AssistantMessageRow({
                   style={styles.convertCardButton}
                   onPress={() => onConvertMessageToCard(message)}
                 >
-                  <Ionicons name="document-text-outline" size={16} color={theme.colors.text} />
+                  <Icon name="document-text-outline" size={16} color={theme.colors.text} />
                   <Text style={styles.convertCardText}>{t("chat.save_card")}</Text>
                 </Pressable>
                 {canUseTts ? (
@@ -516,7 +516,7 @@ const AssistantMessageRow = React.memo(function AssistantMessageRow({
                   }}
                   disabled={!message.text.trim()}
                 >
-                  <Ionicons name="copy-outline" size={22} color={!message.text.trim() ? "#C1C5CE" : "#111111"} />
+                  <Icon name="copy-outline" size={22} color={!message.text.trim() ? "#C1C5CE" : "#111111"} />
                 </Pressable>
                 </View>
               </View>

@@ -15,7 +15,7 @@ import { logEvent } from "../services/logger";
 import { refreshEntitlementAndSessionSafe } from "../services/entitlement/entitlementSync";
 import { PRIVACY_URL, TERMS_URL } from "../constants/legalUrls";
 import type { User } from "@lf/core/types";
-import Ionicons from "@expo/vector-icons/Ionicons";
+import { Icon } from "../components/Icon";
 import { useMountedGuard } from "../hooks/useMountedGuard";
 import { theme } from "../theme";
 
@@ -252,7 +252,7 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
                   accessibilityRole="button"
                   accessibilityLabel={passwordVisible ? t("auth.login.hide_password") : t("auth.login.show_password")}
                 >
-                  <Ionicons name={passwordVisible ? "eye-off-outline" : "eye-outline"} size={21} color={theme.colors.textSecondary} />
+                  <Icon name={passwordVisible ? "eye-off-outline" : "eye-outline"} size={21} color={theme.colors.textSecondary} />
                 </Pressable>
               </>
             ) : (
@@ -314,7 +314,7 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
               accessibilityLabel={t("auth.login.agreement_checkbox")}
             >
               <View style={[styles.checkbox, agreed && styles.checkboxChecked]}>
-                {agreed ? <Ionicons name="checkmark" size={18} color={theme.colors.text} /> : null}
+                {agreed ? <Icon name="checkmark" size={18} color={theme.colors.text} /> : null}
               </View>
             </Pressable>
             <Text style={styles.agreeText}>

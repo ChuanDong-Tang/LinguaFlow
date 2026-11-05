@@ -1,7 +1,7 @@
 import React from "react";
 import { ActivityIndicator, Animated, Easing, PanResponder, Pressable, StyleSheet, View, useWindowDimensions } from "react-native";
 import { Text } from "./Typography";
-import Ionicons from "@expo/vector-icons/Ionicons";
+import { Icon } from "./Icon";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   cycleTtsPlaybackRate,
@@ -190,7 +190,7 @@ export function TtsMiniPlayer({ storageKey }: TtsMiniPlayerProps) {
           disabled={!canNavigatePrevious}
           onPress={navigateTtsPrevious}
         >
-          <Ionicons name="play-skip-back" size={16} color={canNavigatePrevious ? "#111111" : "#AEB4C0"} />
+          <Icon name="play-skip-back" size={16} color={canNavigatePrevious ? "#111111" : "#AEB4C0"} />
         </Pressable>
       );
     }
@@ -205,7 +205,7 @@ export function TtsMiniPlayer({ storageKey }: TtsMiniPlayerProps) {
         >
           {isLoading
             ? <ActivityIndicator size="small" color={theme.colors.onAccent} />
-            : <Ionicons name={isPlaying ? "pause" : "play"} size={18} color={theme.colors.onAccent} />}
+            : <Icon name={isPlaying ? "pause" : "play"} size={18} color={theme.colors.onAccent} />}
         </Pressable>
       );
     }
@@ -218,7 +218,7 @@ export function TtsMiniPlayer({ storageKey }: TtsMiniPlayerProps) {
           disabled={!canNavigateNext}
           onPress={navigateTtsNext}
         >
-          <Ionicons name="play-skip-forward" size={16} color={canNavigateNext ? "#111111" : "#AEB4C0"} />
+          <Icon name="play-skip-forward" size={16} color={canNavigateNext ? "#111111" : "#AEB4C0"} />
         </Pressable>
       );
     }
@@ -237,7 +237,7 @@ export function TtsMiniPlayer({ storageKey }: TtsMiniPlayerProps) {
           onPress={toggleTtsLoop}
         >
           <Animated.View style={{ transform: [{ rotate: loopRotation.interpolate({ inputRange: [0, 1], outputRange: ["0deg", "360deg"] }) }] }}>
-            <Ionicons
+            <Icon
               name="sync-outline"
               size={28}
               color={canLoop && playback.loopMode !== "off" ? "#FFFFFF" : canLoop ? "#4D5361" : "#AEB4C0"}
@@ -288,7 +288,7 @@ export function TtsMiniPlayer({ storageKey }: TtsMiniPlayerProps) {
         ]}
         onPress={() => setExpanded((value) => !value)}
       >
-        <Ionicons
+        <Icon
           name={expanded ? (opensLeft ? "chevron-forward" : "chevron-back") : visualDockSide === "right" ? "chevron-back" : "chevron-forward"}
           size={expanded ? 18 : 16}
           color={expanded ? "#4D5361" : "#FFFFFF"}

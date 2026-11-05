@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { ActivityIndicator, Alert, KeyboardAvoidingView, Platform, Pressable, StyleSheet, View } from "react-native";
 import { Text, TextInput } from "../components/Typography";
-import Ionicons from "@expo/vector-icons/Ionicons";
+import { Icon } from "../components/Icon";
 import * as Application from "expo-application";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { getLanguage, t } from "../i18n";
@@ -58,7 +58,7 @@ export function FeedbackScreen({ onBack }: FeedbackScreenProps) {
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
         <Pressable style={styles.headerButton} onPress={onBack} hitSlop={10} disabled={submitting}>
-          <Ionicons name="chevron-back" size={24} color={theme.colors.text} />
+          <Icon name="chevron-back" size={24} color={theme.colors.text} />
         </Pressable>
         <Text style={styles.headerTitle}>{t("feedback.title")}</Text>
         <View style={styles.headerButton} />

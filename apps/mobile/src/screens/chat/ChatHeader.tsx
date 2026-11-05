@@ -1,7 +1,7 @@
 import React from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { Text } from "../../components/Typography";
-import Ionicons from "@expo/vector-icons/Ionicons";
+import { Icon } from "../../components/Icon";
 import { getChatContactDescription, getChatContactName, type ChatContact } from "../../domain/chat/contacts";
 import { t } from "../../i18n";
 import OioCharacter from "../../../assets/app/oio-character.svg";
@@ -18,7 +18,7 @@ export function ChatHeader({ contact, onBack, onOpenCalendar, onOpenMenu }: Chat
   return (
     <View style={styles.header}>
       <Pressable onPress={onBack} style={styles.backButton} hitSlop={8}>
-        <Ionicons name="chevron-back" size={24} color={theme.colors.text} />
+        <Icon name="chevron-back" size={24} color={theme.colors.text} />
       </Pressable>
 
       <View style={[styles.headerAvatarWrap, contact.id === "curious_companion" && styles.characterAvatarWrap]}>
@@ -33,12 +33,12 @@ export function ChatHeader({ contact, onBack, onOpenCalendar, onOpenMenu }: Chat
       </View>
 
       <Pressable accessibilityLabel={t("chat.date.select")} style={styles.calendarButton} hitSlop={8} onPress={onOpenCalendar}>
-        <Ionicons name="calendar-outline" size={22} color={theme.colors.text} />
+        <Icon name="calendar-outline" size={22} color={theme.colors.text} />
       </Pressable>
 
       {onOpenMenu ? (
         <Pressable style={styles.menuButton} hitSlop={8} onPress={onOpenMenu}>
-          <Ionicons name="ellipsis-horizontal" size={22} color={theme.colors.text} />
+          <Icon name="ellipsis-horizontal" size={22} color={theme.colors.text} />
         </Pressable>
       ) : null}
     </View>

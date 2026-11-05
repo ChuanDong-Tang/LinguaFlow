@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Alert, Image, Modal, Platform, Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from "react-native";
 import { Text, TextInput } from "../components/Typography";
 import Ionicons from "@expo/vector-icons/Ionicons";
+import { Icon } from "../components/Icon";
 import * as Updates from "expo-updates";
 import * as ImagePicker from "expo-image-picker";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -209,7 +210,7 @@ export function MeScreen({ isActive, onOpenAbout, onApplyAppLocale, sessionRevis
           <View style={styles.sheetClose} />
           <Text style={styles.sheetTitle}>{t("me.title")}</Text>
           <Pressable accessibilityLabel={t("me.a11y.close")} style={styles.sheetClose} onPress={onClose}>
-            <Ionicons name="close" size={24} color={theme.colors.text} />
+            <Icon name="close" size={24} color={theme.colors.text} />
           </Pressable>
         </View>
       ) : null}
@@ -220,7 +221,7 @@ export function MeScreen({ isActive, onOpenAbout, onApplyAppLocale, sessionRevis
           onLongPress={() => { if (isAdmin) setDevDebugVisible(true); }}
         >
           <View style={styles.profileAvatar}>
-            {profile?.avatar ? <Image source={{ uri: profile.avatar.thumbnailUrl }} style={styles.profileAvatarImage} /> : <Ionicons name="person-outline" size={24} color={theme.colors.textSecondary} />}
+            {profile?.avatar ? <Image source={{ uri: profile.avatar.thumbnailUrl }} style={styles.profileAvatarImage} /> : <Icon name="person-outline" size={24} color={theme.colors.textSecondary} />}
           </View>
           <View style={styles.profileBody}>
             <Text style={styles.profileName}>{userName}</Text>
@@ -281,7 +282,7 @@ export function MeScreen({ isActive, onOpenAbout, onApplyAppLocale, sessionRevis
             onPress={() => setLanguageSettingsVisible(true)}
           />
           <View style={fontStyles.row}>
-            <View style={fontStyles.label}><Ionicons name="text-outline" size={20} color={theme.colors.textSecondary} /><Text>{t("me.font_size")}</Text></View>
+            <View style={fontStyles.label}><Icon name="text-outline" size={20} color={theme.colors.textSecondary} /><Text>{t("me.font_size")}</Text></View>
             <View style={fontStyles.options}>
               {FONT_SIZES.map(size => <Pressable key={size} accessibilityRole="radio" accessibilityLabel={`${t("me.font_size")}: ${t(`me.font_size.${size}`)}`} accessibilityState={{ checked: fontSize === size }} onPress={() => {
                 void fontSizePreference.set(size).catch(() => Alert.alert(t("me.language.save_failed_title"), t("me.language.save_failed_message")));
@@ -480,11 +481,11 @@ function ProfileEditModal({ visible, profile, onClose, onSaved }: {
           <View style={styles.profileModalHeader}>
             <Text style={styles.profileModalTitle}>{t("me.profile.edit")}</Text>
             <Pressable hitSlop={10} onPress={onClose} disabled={saving || avatarSaving}>
-              <Ionicons name="close" size={22} color={theme.colors.text} />
+              <Icon name="close" size={22} color={theme.colors.text} />
             </Pressable>
           </View>
           <View style={styles.profileEditAvatar}>
-            {profile?.avatar ? <Image source={{ uri: profile.avatar.url }} style={styles.profileEditAvatarImage} /> : <Ionicons name="person-outline" size={31} color={theme.colors.textSecondary} />}
+            {profile?.avatar ? <Image source={{ uri: profile.avatar.url }} style={styles.profileEditAvatarImage} /> : <Icon name="person-outline" size={31} color={theme.colors.textSecondary} />}
             {avatarSaving ? <View style={styles.profileAvatarBusy}><ActivityIndicator color={theme.colors.surface} /></View> : null}
           </View>
           <View style={styles.profileAvatarActions}>
@@ -525,7 +526,7 @@ function BindingsModal({ visible, bindings, onClose, onDismiss, onBindEmail }: {
         <View style={styles.profileModalPanel}>
           <View style={styles.profileModalHeader}>
             <Text style={styles.profileModalTitle}>{t("me.bindings.title")}</Text>
-            <Pressable hitSlop={10} onPress={onClose}><Ionicons name="close" size={22} color={theme.colors.text} /></Pressable>
+            <Pressable hitSlop={10} onPress={onClose}><Icon name="close" size={22} color={theme.colors.text} /></Pressable>
           </View>
           {!bindings ? <ActivityIndicator color={theme.colors.accentStrong} style={styles.bindingsLoading} /> : <>
             {isPhoneRegistration ? <BindingRow label={t("me.bindings.phone")} item={bindings.phone} /> : null}
@@ -557,7 +558,7 @@ function BindingRow({ label, item, onBind }: {
       {canBind ? (
         <View style={styles.bindingButton}>
           <Text style={styles.bindingButtonText}>{t("me.bind_email")}</Text>
-          <Ionicons name="chevron-forward" size={18} color={theme.colors.accentStrong} />
+          <Icon name="chevron-forward" size={18} color={theme.colors.accentStrong} />
         </View>
       ) : null}
     </Pressable>
@@ -670,7 +671,7 @@ function LanguageSettingsModal({
           <View style={styles.languageHeader}>
             <Text style={styles.languageTitle}>{t("me.language_settings")}</Text>
             <Pressable onPress={onClose} hitSlop={8}>
-              <Ionicons name="close" size={22} color={theme.colors.text} />
+              <Icon name="close" size={22} color={theme.colors.text} />
             </Pressable>
           </View>
           <ScrollView style={styles.languageForm} contentContainerStyle={styles.languageFormContent} showsVerticalScrollIndicator alwaysBounceVertical={false}>
@@ -744,7 +745,7 @@ function LanguageSettingsModal({
               <Text style={styles.languageFieldTitle}>{t("me.language.learning_advanced")}</Text>
               <Pressable style={styles.languageToggleRow} onPress={() => setAutoClozeEnabled((value) => !value)}>
                 <View style={[styles.languageToggleBox, autoClozeEnabled && styles.languageToggleBoxActive]}>
-                  {autoClozeEnabled ? <Ionicons name="checkmark" size={16} color={theme.colors.onAccent} /> : null}
+                  {autoClozeEnabled ? <Icon name="checkmark" size={16} color={theme.colors.onAccent} /> : null}
                 </View>
                 <View style={styles.languageToggleTextWrap}>
                   <Text style={styles.languageToggleTitle}>{t("me.language.auto_cloze")}</Text>
@@ -774,7 +775,7 @@ function LanguageSettingsModal({
                 onPress={() => setMultilingualRecognitionEnabled((value) => !value)}
               >
                 <View style={[styles.languageToggleBox, multilingualRecognitionEnabled && styles.languageToggleBoxActive]}>
-                  {multilingualRecognitionEnabled ? <Ionicons name="checkmark" size={16} color={theme.colors.onAccent} /> : null}
+                  {multilingualRecognitionEnabled ? <Icon name="checkmark" size={16} color={theme.colors.onAccent} /> : null}
                 </View>
                 <View style={styles.languageToggleTextWrap}>
                   <Text style={styles.languageToggleTitle}>{t("me.language.stt_multilingual")}</Text>
@@ -857,7 +858,7 @@ function SelectField({
           {option.label}
         </Text>
       </View>
-      {option.active ? <Ionicons name="checkmark" size={18} color={theme.colors.onAccent} /> : null}
+      {option.active ? <Icon name="checkmark" size={18} color={theme.colors.onAccent} /> : null}
     </Pressable>
   ));
 
@@ -877,7 +878,7 @@ function SelectField({
         <Text style={[styles.selectButtonText, !valueLabel && styles.selectButtonTextMuted]} numberOfLines={1}>
           {valueLabel || "-"}
         </Text>
-        <Ionicons name={open ? "chevron-up" : "chevron-down"} size={18} color={disabled ? "#B4BBC7" : "#343A45"} />
+        <Icon name={open ? "chevron-up" : "chevron-down"} size={18} color={disabled ? "#B4BBC7" : "#343A45"} />
       </Pressable>
       <Modal visible={open && !disabled && Boolean(anchor)} transparent animationType="none" onRequestClose={onClose}>
         <View style={styles.selectMenuOverlay}>
@@ -911,7 +912,7 @@ function DeveloperDebugModal({
           <View style={styles.languageHeader}>
             <Text style={styles.languageTitle}>{t("me.debug.title")}</Text>
             <Pressable onPress={onClose} hitSlop={8}>
-              <Ionicons name="close" size={22} color={theme.colors.text} />
+              <Icon name="close" size={22} color={theme.colors.text} />
             </Pressable>
           </View>
           <View style={styles.settingsCard}>
@@ -958,7 +959,7 @@ function UpdatesDebugModal({
           <View style={styles.updatesDebugHeader}>
             <Text style={styles.updatesDebugTitle}>{t("me.debug.updates")}</Text>
             <Pressable onPress={onClose} hitSlop={8}>
-              <Ionicons name="close" size={22} color={theme.colors.text} />
+              <Icon name="close" size={22} color={theme.colors.text} />
             </Pressable>
           </View>
           <ScrollView style={styles.updatesDebugBody} contentContainerStyle={styles.updatesDebugContent} alwaysBounceVertical={false}>
@@ -1147,10 +1148,10 @@ function SettingsRow({
 
   return (
     <Pressable style={[styles.settingsRow, !isLast && styles.settingsRowBorder]} onPress={onPress}>
-      <Ionicons name={icon} size={20} color={color} />
+      <Icon name={icon} size={20} color={color} />
       <Text style={[styles.settingsLabel, tone === "danger" && styles.settingsLabelDanger]}>{label}</Text>
       {value ? <Text style={styles.settingsValue} numberOfLines={1}>{value}</Text> : null}
-      <Ionicons name="chevron-forward" size={18} color={color} />
+      <Icon name="chevron-forward" size={18} color={color} />
     </Pressable>
   );
 }

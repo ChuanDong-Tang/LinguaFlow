@@ -1,7 +1,7 @@
 import React from "react";
 import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from "react-native";
 import { Text } from "../../components/Typography";
-import Ionicons from "@expo/vector-icons/Ionicons";
+import { Icon } from "../../components/Icon";
 import { TtsPlayButton } from "../../components/TtsPlayButton";
 import { DictionaryTranslation } from "../../components/DictionaryTranslation";
 import { getDictionaryTermAudio, type DictionaryLookupResult } from "../../services/api/dictionaryApi";
@@ -112,11 +112,11 @@ export function DictionaryPopover({
               />
             ) : result?.audioUrl || canUseTts ? (
               <Pressable accessibilityLabel={t("dictionary.a11y.play_pronunciation")} style={styles.ttsButton} onPress={() => void playDictionaryAudio()} disabled={playingDictionaryAudio}>
-                {playingDictionaryAudio ? <ActivityIndicator size="small" color={theme.colors.textStrong} /> : <Ionicons name="volume-high-outline" size={18} color={theme.colors.textStrong} />}
+                {playingDictionaryAudio ? <ActivityIndicator size="small" color={theme.colors.textStrong} /> : <Icon name="volume-high-outline" size={18} color={theme.colors.textStrong} />}
               </Pressable>
             ) : null}
             <Pressable accessibilityRole="button" accessibilityLabel={t("common.cancel")} style={styles.iconButton} onPress={onClose}>
-              <Ionicons name="close" size={22} color={theme.colors.text} />
+              <Icon name="close" size={22} color={theme.colors.text} />
             </Pressable>
           </View>
         </View>

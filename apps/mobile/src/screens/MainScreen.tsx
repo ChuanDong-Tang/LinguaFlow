@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { ActivityIndicator, Alert, Animated, AppState, Easing, FlatList, Image, Keyboard, Modal, PanResponder, Platform, Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from "react-native";
 import { Text, TextInput } from "../components/Typography";
 import Ionicons from "@expo/vector-icons/Ionicons";
+import { Icon } from "../components/Icon";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Crypto from "expo-crypto";
 import * as Haptics from "expo-haptics";
@@ -16,7 +17,7 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { KeyboardAwareScrollView, useReanimatedKeyboardAnimation } from "react-native-keyboard-controller";
 import Reanimated, { useAnimatedRef, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
 import OioCharacter from "../../assets/app/oio-character.svg";
-import OioRecall from "../../assets/app/oio-recall.svg";
+import { ChatCircleDots, ClockCounterClockwise, Gift, SunHorizon, TrayArrowDown } from "phosphor-react-native";
 import Sortable from "react-native-sortables";
 import {
   createCardEntry,
@@ -1616,19 +1617,19 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
           Keyboard.dismiss();
           setSidebarVisible(true);
         }}>
-          <Ionicons name={selectingRecords ? "close" : "menu-outline"} size={27} color={theme.colors.text} />
+          <Icon name={selectingRecords ? "close" : "menu-outline"} size={27} color={theme.colors.text} />
         </Pressable>
         {selectingRecords
           ? <Text style={styles.selectionHeaderTitle}>{selectedRecordIds.size}</Text>
-          : <Pressable style={styles.homeSectionTabs} onPress={chooseLibraryAction}><Text numberOfLines={1} style={styles.homeHeaderTitle}>{headerTitle}</Text><Ionicons name="chevron-down" size={16} color={theme.colors.textMuted} /></Pressable>}
+          : <Pressable style={styles.homeSectionTabs} onPress={chooseLibraryAction}><Text numberOfLines={1} style={styles.homeHeaderTitle}>{headerTitle}</Text><Icon name="chevron-down" size={16} color={theme.colors.textMuted} /></Pressable>}
         <View style={styles.headerActions}>
           {!selectingRecords ? <Pressable accessibilityRole="button" accessibilityLabel={t("contact.curious_companion.name")} hitSlop={8} style={({ pressed }) => [styles.headerCharacter, pressed && { opacity: 0.55 }]} onPress={() => void openAssistant()}><OioCharacter width={27} height={26} /></Pressable> : null}
-          {selectingRecords ? <Pressable accessibilityRole="button" accessibilityLabel={gridLayout ? homeCopy.list : homeCopy.grid} style={styles.headerIconButton} onPress={() => setHomeLayout(gridLayout ? "list" : "grid")}><Ionicons name={gridLayout ? "list-outline" : "grid-outline"} size={22} color={theme.colors.text} /></Pressable> : <Pressable
+          {selectingRecords ? <Pressable accessibilityRole="button" accessibilityLabel={gridLayout ? homeCopy.list : homeCopy.grid} style={styles.headerIconButton} onPress={() => setHomeLayout(gridLayout ? "list" : "grid")}><Icon name={gridLayout ? "list-outline" : "grid-outline"} size={22} color={theme.colors.text} /></Pressable> : <Pressable
             accessibilityLabel={t("quick_note.a11y.search")}
             style={styles.headerIconButton}
             onPress={openSearch}
           >
-            <Ionicons name="search-outline" size={23} color={theme.colors.text} />
+            <Icon name="search-outline" size={23} color={theme.colors.text} />
           </Pressable>}
           {!selectingRecords && searchDictionaryHintVisible ? <Pressable accessibilityRole="button" accessibilityLabel={t("main.search.new_hint")} style={styles.searchDictionaryCoachmark} onPress={openSearch}>
             <Text style={styles.searchDictionaryCoachmarkText}>{t("main.search.new_hint")}</Text>
@@ -1641,11 +1642,11 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
       {!selectingRecords && libraryView !== TRASH_VIEW ? <View style={styles.memoryTabs}>
         {(["memory", "today", "blind"] as const).map((tab) => <Pressable key={tab} accessibilityRole="tab" accessibilityState={{ selected: homeTab === tab }} style={[styles.memoryTab, homeTab === tab && styles.memoryTabActive]} onPress={() => setHomeTab(tab)}><Text style={[styles.memoryTabText, homeTab === tab && styles.memoryTabSelected]}>{homeCopy[tab]}</Text><View style={[styles.memoryTabIndicator, homeTab !== tab && { opacity: 0 }]} /></Pressable>)}
       </View> : null}
-      {!selectingRecords && editorialHome ? <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 16 }}><View style={{ flex: 1, minWidth: 0 }}><MemoryCollectionFilters editorial={editorialHome} collections={collections} selected={libraryView} onSelect={selectLibraryView} onTouching={value => { touchingCollectionFilters.current = value; }} /></View>{editorialHome ? <Pressable accessibilityRole="button" accessibilityLabel={gridLayout ? homeCopy.list : homeCopy.grid} style={[styles.headerIconButton, { marginRight: 14, marginBottom: 8 }]} onPress={() => setHomeLayout(gridLayout ? "list" : "grid")}><Ionicons name={gridLayout ? "list-outline" : "grid-outline"} size={19} color={theme.colors.textSecondary} /></Pressable> : null}</View> : null}
+      {!selectingRecords && editorialHome ? <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 16 }}><View style={{ flex: 1, minWidth: 0 }}><MemoryCollectionFilters editorial={editorialHome} collections={collections} selected={libraryView} onSelect={selectLibraryView} onTouching={value => { touchingCollectionFilters.current = value; }} /></View>{editorialHome ? <Pressable accessibilityRole="button" accessibilityLabel={gridLayout ? homeCopy.list : homeCopy.grid} style={[styles.headerIconButton, { marginRight: 14, marginBottom: 8 }]} onPress={() => setHomeLayout(gridLayout ? "list" : "grid")}><Icon name={gridLayout ? "list-outline" : "grid-outline"} size={19} color={theme.colors.textSecondary} /></Pressable> : null}</View> : null}
       {homeTab === "blind" && libraryView !== TRASH_VIEW && !selectingRecords ? <ScrollView style={{ flex: 1, minHeight: 0 }} contentContainerStyle={styles.memoryLanding}>
         <MemoryArchiveDeck key={`${libraryView}:${sortMode}`} records={recordsScope === queryScope ? records : []} loading={loading || loadingMore} hasMore={recordsScope === queryScope && Boolean(nextCursor)} onThumbnailError={recoverFailedThumbnail} onLoadMore={() => void loadMore()} onOpen={(ids, onBrowseSetFinished) => { if (ids[0]) onOpenCard(ids[0], "review", undefined, { browseRecordIds: ids, onBrowseSetFinished }); }} />
       </ScrollView> : <>
-      {!selectingRecords && libraryView !== TRASH_VIEW && !editorialHome ? <View style={styles.memoryToolbar}>{homeTab === "today" ? <Text style={{ color: theme.colors.textSecondary, fontSize: 14 }}>{localDay}</Text> : <View />}<Pressable accessibilityRole="button" accessibilityLabel={gridLayout ? homeCopy.list : homeCopy.grid} style={styles.headerIconButton} onPress={() => setHomeLayout(gridLayout ? "list" : "grid")}><Ionicons name={gridLayout ? "list-outline" : "grid-outline"} size={22} color={theme.colors.text} /></Pressable></View> : null}
+      {!selectingRecords && libraryView !== TRASH_VIEW && !editorialHome ? <View style={styles.memoryToolbar}>{homeTab === "today" ? <Text style={{ color: theme.colors.textSecondary, fontSize: 14 }}>{localDay}</Text> : <View />}<Pressable accessibilityRole="button" accessibilityLabel={gridLayout ? homeCopy.list : homeCopy.grid} style={styles.headerIconButton} onPress={() => setHomeLayout(gridLayout ? "list" : "grid")}><Icon name={gridLayout ? "list-outline" : "grid-outline"} size={22} color={theme.colors.text} /></Pressable></View> : null}
 
       <FlatList
         key={`${gridLayout ? "grid" : "list"}:${dateScope ?? "all"}`}
@@ -1701,13 +1702,13 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
             left: Math.min(windowSize.width - 140, Math.max(12, recordActionMenu.anchor.x + recordActionMenu.anchor.width - 128)),
           },
         ]}>
-          {libraryView === TRASH_VIEW ? <><Pressable style={styles.recordActionItem} onPress={() => { const id = recordActionMenu.record.id; setRecordActionMenu(null); restoreFromTrash(id); }}><Ionicons name="arrow-undo-outline" size={16} color={theme.colors.textSecondary} /><Text style={styles.recordActionText}>{t("library.restore")}</Text></Pressable><View style={styles.recordActionDivider} /></> : recordActionMenu.record.source === "card" && !recordActionMenu.record.isSample ? <>
+          {libraryView === TRASH_VIEW ? <><Pressable style={styles.recordActionItem} onPress={() => { const id = recordActionMenu.record.id; setRecordActionMenu(null); restoreFromTrash(id); }}><Icon name="arrow-undo-outline" size={16} color={theme.colors.textSecondary} /><Text style={styles.recordActionText}>{t("library.restore")}</Text></Pressable><View style={styles.recordActionDivider} /></> : recordActionMenu.record.source === "card" && !recordActionMenu.record.isSample ? <>
             <Pressable style={styles.recordActionItem} onPress={() => {
               const record = recordActionMenu.record;
               setRecordActionMenu(null);
               openMoveActions(record);
             }}>
-              <Ionicons name="folder-outline" size={16} color={theme.colors.textSecondary} />
+              <Icon name="folder-outline" size={16} color={theme.colors.textSecondary} />
               <Text style={styles.recordActionText}>{t("library.move_to")}</Text>
             </Pressable>
             <View style={styles.recordActionDivider} />
@@ -1717,38 +1718,38 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
             setRecordActionMenu(null);
             confirmDelete(recordId);
           }}>
-            <Ionicons name="trash-outline" size={16} color={theme.colors.danger} />
+            <Icon name="trash-outline" size={16} color={theme.colors.danger} />
             <Text style={[styles.recordActionText, styles.recordActionDanger]}>{t(recordActionMenu.record.isSample ? "tutorial.hide" : "common.delete")}</Text>
           </Pressable>
         </View>
       </View> : null}
       {!selectingRecords && libraryView !== TRASH_VIEW && !quickNoteExpanded ? <View style={[styles.memoryEntryDock, { bottom: Math.max(screenInsets.bottom + 10, 14) }]}>
         <Pressable accessibilityRole="button" accessibilityLabel={homeCopy.todayPhotos} style={styles.memoryPhotoShortcut} onPress={() => { Keyboard.dismiss(); setPhotoBrowser("today"); }}>
-          <Ionicons name="today-outline" size={23} color={theme.colors.text} />
+          <SunHorizon size={25} color={theme.colors.text} weight="duotone" />
           <Text style={styles.memoryEntryLabel}>{homeCopy.todayPhotos}</Text>
         </Pressable>
         <Pressable accessibilityRole="button" accessibilityLabel={t("quick_note.expand_editor")} style={[styles.memoryEntryButton, styles.memoryPhotoEntry]} onPress={() => setQuickNoteExpanded(true)}>
-          <Ionicons name="add" size={29} color={theme.colors.surface} />
+          <Icon name="add" size={29} color={theme.colors.surface} />
           {draft.text || draft.images.length ? <View style={styles.memoryDraftDot} /> : null}
         </Pressable>
         <Pressable accessibilityRole="button" accessibilityLabel={homeCopy.randomPhotos} style={styles.memoryPhotoShortcut} onPress={() => { Keyboard.dismiss(); setPhotoBrowser("random"); }}>
-          <Ionicons name="images-outline" size={23} color={theme.colors.text} />
+          <Gift size={25} color={theme.colors.text} weight="duotone" />
           <Text style={styles.memoryEntryLabel}>{homeCopy.randomPhotos}</Text>
         </Pressable>
       </View> : null}
       {!selectingRecords && libraryView !== TRASH_VIEW && quickNoteExpanded ? <Reanimated.View style={[styles.unifiedComposerDock, { bottom: Math.max(screenInsets.bottom + 10, 14) }, quickNoteKeyboardDockStyle]}>
-        <Pressable accessibilityRole="button" accessibilityLabel={t("card_detail.a11y.close")} disabled={quickNoteStt.status !== "idle" || quickNoteCreating || preparingDraftImageCount > 0} style={styles.memoryCollapseInput} onPress={() => { Keyboard.dismiss(); setQuickNoteAddMenuVisible(false); setQuickNoteExpanded(false); }}><Ionicons name="chevron-down" size={20} color={theme.colors.textSecondary} /></Pressable>
+        <Pressable accessibilityRole="button" accessibilityLabel={t("card_detail.a11y.close")} disabled={quickNoteStt.status !== "idle" || quickNoteCreating || preparingDraftImageCount > 0} style={styles.memoryCollapseInput} onPress={() => { Keyboard.dismiss(); setQuickNoteAddMenuVisible(false); setQuickNoteExpanded(false); }}><Icon name="chevron-down" size={20} color={theme.colors.textSecondary} /></Pressable>
         <View style={styles.unifiedComposerBar}>
           {draft.images.length || preparingDraftImageCount > 0 ? <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={styles.quickNoteAttachmentRow}>
             {draft.images.map((image) => <View key={image.localUri} style={styles.quickNoteAttachment}>
               <Image source={{ uri: image.localUri }} style={styles.quickNoteAttachmentImage} />
               {image.status !== "ready" ? <View style={styles.quickNoteAttachmentOverlay}>
                 {image.status === "failed"
-                  ? <Ionicons name="alert-circle" size={20} color={theme.colors.surface} />
+                  ? <Icon name="alert-circle" size={20} color={theme.colors.surface} />
                   : <ActivityIndicator size="small" color={theme.colors.surface} />}
               </View> : null}
               <Pressable accessibilityLabel={t("common.remove")} hitSlop={6} style={styles.quickNoteAttachmentRemove} onPress={() => removeDraftImage(image.localUri)}>
-                <Ionicons name="close" size={13} color={theme.colors.surface} />
+                <Icon name="close" size={13} color={theme.colors.surface} />
               </Pressable>
             </View>)}
             {preparingDraftImageCount > 0 ? <View style={[styles.quickNoteAttachment, styles.quickNoteAttachmentPreparing]}><ActivityIndicator size="small" color={theme.colors.textMuted} /></View> : null}
@@ -1763,7 +1764,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
               void Haptics.selectionAsync().catch(() => undefined);
               void updateDraftImageDescription(!draft.generateImageDescription);
             }}
-          ><Text style={[styles.imageDescriptionChoiceText, draft.generateImageDescription && styles.imageDescriptionChoiceTextActive]}>{t("quick_note.image_description_on")}</Text><Ionicons name={draft.generateImageDescription ? "checkmark-circle" : "ellipse-outline"} size={17} color={draft.generateImageDescription ? "#52796C" : theme.colors.textMuted} /></Pressable> : null}
+          ><Text style={[styles.imageDescriptionChoiceText, draft.generateImageDescription && styles.imageDescriptionChoiceTextActive]}>{t("quick_note.image_description_on")}</Text><Icon name={draft.generateImageDescription ? "checkmark-circle" : "ellipse-outline"} size={17} color={draft.generateImageDescription ? "#52796C" : theme.colors.textMuted} /></Pressable> : null}
           {quickNoteAddMenuVisible ? <View style={styles.quickNoteAddMenu}>
             {(["camera", "library"] as const).map((source) => <Pressable
               key={source}
@@ -1772,7 +1773,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
               style={styles.quickNoteAddMenuItem}
               onPress={() => { setQuickNoteAddMenuVisible(false); Keyboard.dismiss(); void pickImage(source); }}
             >
-              <Ionicons name={source === "camera" ? "camera-outline" : "image-outline"} size={22} color={theme.colors.textSecondary} />
+              <Icon name={source === "camera" ? "camera-outline" : "image-outline"} size={22} color={theme.colors.textSecondary} />
               <Text style={styles.quickNoteAddMenuText}>{t(source === "camera" ? "card_detail.photo.camera" : "card_detail.photo.library")}</Text>
             </Pressable>)}
           </View> : null}
@@ -1785,7 +1786,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
                 </View>
               </Pressable> : null}
               <View style={styles.unifiedComposerRailSpacer} />
-              <Pressable accessibilityRole="button" accessibilityLabel={t("quick_note.add_attachment")} accessibilityState={{ expanded: quickNoteAddMenuVisible, disabled: quickNoteCreating }} disabled={quickNoteCreating} hitSlop={6} style={styles.unifiedComposerTool} onPress={() => setQuickNoteAddMenuVisible((visible) => !visible)}><Ionicons name={quickNoteAddMenuVisible ? "close" : "add"} size={25} color={theme.colors.textSecondary} /></Pressable>
+              <Pressable accessibilityRole="button" accessibilityLabel={t("quick_note.add_attachment")} accessibilityState={{ expanded: quickNoteAddMenuVisible, disabled: quickNoteCreating }} disabled={quickNoteCreating} hitSlop={6} style={styles.unifiedComposerTool} onPress={() => setQuickNoteAddMenuVisible((visible) => !visible)}><Icon name={quickNoteAddMenuVisible ? "close" : "add"} size={25} color={theme.colors.textSecondary} /></Pressable>
             </View>
             <Reanimated.View style={[styles.unifiedComposerInputArea, Platform.OS === "android"
               ? { height: androidQuickNoteInputHeight }
@@ -1839,39 +1840,39 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
                 }}
               />
               <Pressable accessibilityRole="button" accessibilityLabel={t("quick_note.a11y.send")} accessibilityState={{ disabled: quickNoteSendDisabled }} hitSlop={8} disabled={quickNoteSendDisabled} style={[styles.unifiedComposerSend, quickNoteSendDisabled && styles.unifiedComposerSendDisabled]} onPress={() => { setQuickNoteAddMenuVisible(false); void sendQuickNote(); }}>
-                {quickNoteCreating ? <ActivityIndicator size="small" color={theme.colors.surface} /> : <Ionicons name="arrow-up" size={16} color={theme.colors.surface} />}
+                {quickNoteCreating ? <ActivityIndicator size="small" color={theme.colors.surface} /> : <Icon name="arrow-up" size={16} color={theme.colors.surface} />}
               </Pressable>
             </View>
           </View>
         </View>
       </Reanimated.View> : null}
-      {selectingRecords && selectedRecordIds.size ? <View style={[styles.batchActionBar, libraryView === TRASH_VIEW && styles.batchActionBarCentered, { paddingBottom: Math.max(screenInsets.bottom, 10) }]}>{libraryView !== TRASH_VIEW ? <Pressable style={styles.batchAction} onPress={() => setBatchMoveVisible(true)}><Ionicons name="folder-open-outline" size={22} color={theme.colors.text} /><Text style={styles.batchActionText}>{t("library.move")}</Text></Pressable> : null}<Pressable style={styles.batchAction} onPress={confirmBatchDelete}><Ionicons name="trash-outline" size={22} color={theme.colors.danger} /><Text style={[styles.batchActionText, { color: theme.colors.danger }]}>{libraryView === TRASH_VIEW ? "彻底删除" : t("common.delete")}</Text></Pressable></View> : null}
+      {selectingRecords && selectedRecordIds.size ? <View style={[styles.batchActionBar, libraryView === TRASH_VIEW && styles.batchActionBarCentered, { paddingBottom: Math.max(screenInsets.bottom, 10) }]}>{libraryView !== TRASH_VIEW ? <Pressable style={styles.batchAction} onPress={() => setBatchMoveVisible(true)}><Icon name="folder-open-outline" size={22} color={theme.colors.text} /><Text style={styles.batchActionText}>{t("library.move")}</Text></Pressable> : null}<Pressable style={styles.batchAction} onPress={confirmBatchDelete}><Icon name="trash-outline" size={22} color={theme.colors.danger} /><Text style={[styles.batchActionText, { color: theme.colors.danger }]}>{libraryView === TRASH_VIEW ? "彻底删除" : t("common.delete")}</Text></Pressable></View> : null}
       <Modal visible={libraryMenuVisible} transparent animationType="fade" onRequestClose={() => setLibraryMenuVisible(false)}>
         <Pressable style={styles.libraryMenuBackdrop} onPress={() => setLibraryMenuVisible(false)}>
           <Pressable style={[styles.libraryMenuPanel, { top: screenInsets.top + 55 }]} onPress={() => undefined}>
             {libraryMenuPage === "main" ? <>
               <Pressable style={styles.libraryMenuRow} onPress={enterRecordSelection}>
-                <View style={styles.libraryMenuLeadingIcon}><Ionicons name="checkmark-circle-outline" size={24} color={theme.colors.text} /></View>
+                <View style={styles.libraryMenuLeadingIcon}><Icon name="checkmark-circle-outline" size={24} color={theme.colors.text} /></View>
                 <View style={styles.libraryMenuTextBlock}><Text style={styles.libraryMenuTitle}>{t("library.multi_select")}</Text></View>
-                <Ionicons name="chevron-forward" size={18} color={theme.colors.textMuted} />
+                <Icon name="chevron-forward" size={18} color={theme.colors.textMuted} />
               </Pressable>
             </> : <>
               <Pressable style={styles.libraryMenuRow} onPress={() => setLibraryMenuPage("main")}>
-                <View style={styles.libraryMenuLeadingIcon}><Ionicons name="chevron-back" size={22} color={theme.colors.text} /></View>
+                <View style={styles.libraryMenuLeadingIcon}><Icon name="chevron-back" size={22} color={theme.colors.text} /></View>
                 <View style={styles.libraryMenuTextBlock}><Text style={styles.libraryMenuTitle}>{t("library.sort_title")}</Text></View>
                 <View style={styles.libraryMenuTrailingIcon} />
               </Pressable>
               <View style={styles.libraryMenuDivider} />
               <Pressable style={styles.libraryMenuRow} onPress={() => selectLibrarySort("newest")}>
-                <View style={styles.libraryMenuLeadingIcon}><Ionicons name="arrow-down-outline" size={22} color={theme.colors.text} /></View>
+                <View style={styles.libraryMenuLeadingIcon}><Icon name="arrow-down-outline" size={22} color={theme.colors.text} /></View>
                 <View style={styles.libraryMenuTextBlock}><Text style={styles.libraryMenuOptionText}>{t("library.sort_newest")}</Text></View>
-                <View style={styles.libraryMenuTrailingIcon}>{sortMode === "newest" ? <Ionicons name="checkmark" size={21} color={theme.colors.text} /> : null}</View>
+                <View style={styles.libraryMenuTrailingIcon}>{sortMode === "newest" ? <Icon name="checkmark" size={21} color={theme.colors.text} /> : null}</View>
               </Pressable>
               <View style={styles.libraryMenuDivider} />
               <Pressable style={styles.libraryMenuRow} onPress={() => selectLibrarySort("oldest")}>
-                <View style={styles.libraryMenuLeadingIcon}><Ionicons name="arrow-up-outline" size={22} color={theme.colors.text} /></View>
+                <View style={styles.libraryMenuLeadingIcon}><Icon name="arrow-up-outline" size={22} color={theme.colors.text} /></View>
                 <View style={styles.libraryMenuTextBlock}><Text style={styles.libraryMenuOptionText}>{t("library.sort_oldest")}</Text></View>
-                <View style={styles.libraryMenuTrailingIcon}>{sortMode === "oldest" ? <Ionicons name="checkmark" size={21} color={theme.colors.text} /> : null}</View>
+                <View style={styles.libraryMenuTrailingIcon}>{sortMode === "oldest" ? <Icon name="checkmark" size={21} color={theme.colors.text} /> : null}</View>
               </Pressable>
             </>}
           </Pressable>
@@ -2012,7 +2013,7 @@ function MemoryRoundShortcut({ active, resume, onPress }: { active: boolean; res
   return <Pressable accessibilityRole="button" accessibilityLabel={t(resume ? "memory_round.resume" : "memory_round.start")} style={({ pressed }) => [styles.memoryRoundBanner, pressed && { opacity: 0.72 }]} onPress={onPress}>
     <Animated.View style={[styles.memoryRoundDot, { transform: [{ scale: pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.35] }) }], opacity: pulse.interpolate({ inputRange: [0, 1], outputRange: [0.6, 1] }) }]} />
     <Text numberOfLines={1} style={styles.memoryRoundBannerTitle}>{t(resume ? "memory_round.resume" : "memory_round.start")}</Text>
-    <Ionicons name="chevron-forward" size={17} color={theme.colors.accent} />
+    <Icon name="chevron-forward" size={17} color={theme.colors.accent} />
   </Pressable>;
 }
 
@@ -2426,7 +2427,7 @@ function LibrarySidebar({ visible, activeView, collections, profile, entitlement
         <Pressable accessibilityLabel={t("main.collection.a11y.finish_create")} disabled={!newCollectionName.trim() || savingCollection} hitSlop={8} onPress={() => void createCollection()}>
           {savingCollection
             ? <ActivityIndicator size="small" color={theme.colors.textSecondary} />
-            : <Ionicons name="checkmark-outline" size={22} color={newCollectionName.trim() ? theme.colors.text : theme.colors.textMuted} />}
+            : <Icon name="checkmark-outline" size={22} color={newCollectionName.trim() ? theme.colors.text : theme.colors.textMuted} />}
         </Pressable>
         <Pressable
           accessibilityLabel={t("sidebar.a11y.cancel_new_collection")}
@@ -2438,7 +2439,7 @@ function LibrarySidebar({ visible, activeView, collections, profile, entitlement
             setSidebarInlineCreating(false);
           }}
         >
-          <Ionicons name="close-outline" size={22} color={theme.colors.textMuted} />
+          <Icon name="close-outline" size={22} color={theme.colors.textMuted} />
         </Pressable>
       </View>
     );
@@ -2498,22 +2499,22 @@ function LibrarySidebar({ visible, activeView, collections, profile, entitlement
                 style={styles.collectionManagerDisclosure}
                 onPress={() => toggleManagerCollectionExpanded(collection.id)}
               >
-                <Ionicons name={expanded ? "chevron-down" : "chevron-forward"} size={14} color={theme.colors.textMuted} />
+                <Icon name={expanded ? "chevron-down" : "chevron-forward"} size={14} color={theme.colors.textMuted} />
               </Pressable>
             ) : <View style={styles.collectionManagerDisclosure} />}
             <Text numberOfLines={1} style={styles.collectionRowName}>{collection.name}</Text>
             {reorderSavingId === collection.id ? <ActivityIndicator size="small" color={theme.colors.accentStrong} /> : null}
             <Pressable accessibilityLabel={t("main.collection.new_child")} hitSlop={7} style={styles.collectionManagerRowAction} onPress={() => startCreatingChild(collection)}>
-              <Ionicons name="add-circle-outline" size={19} color={theme.colors.textMuted} />
+              <Icon name="add-circle-outline" size={19} color={theme.colors.textMuted} />
             </Pressable>
             <Pressable accessibilityLabel={t("main.collection.rename")} hitSlop={7} style={styles.collectionManagerRowAction} onPress={() => startRenaming(collection)}>
-              <Ionicons name="create-outline" size={19} color={theme.colors.textMuted} />
+              <Icon name="create-outline" size={19} color={theme.colors.textMuted} />
             </Pressable>
             <Pressable accessibilityLabel={t("main.collection.move_to")} hitSlop={7} style={styles.collectionManagerRowAction} onPress={() => startMovingCollection(collection)}>
-              <Ionicons name="move-outline" size={19} color={theme.colors.textMuted} />
+              <Icon name="move-outline" size={19} color={theme.colors.textMuted} />
             </Pressable>
             <Pressable accessibilityLabel={t("common.delete")} hitSlop={7} style={styles.collectionManagerRowAction} onPress={() => confirmDeleteCollection(collection)}>
-              <Ionicons name="trash-outline" size={19} color={theme.colors.danger} />
+              <Icon name="trash-outline" size={19} color={theme.colors.danger} />
             </Pressable>
           </Pressable>
         </View>
@@ -2535,10 +2536,10 @@ function LibrarySidebar({ visible, activeView, collections, profile, entitlement
             <Pressable disabled={!newCollectionName.trim() || savingCollection} hitSlop={7} style={styles.collectionManagerInlineAction} onPress={() => void createCollection()}>
               {savingCollection
                 ? <ActivityIndicator size="small" color={theme.colors.accentStrong} />
-                : <Ionicons name="checkmark-circle-outline" size={22} color={newCollectionName.trim() ? theme.colors.accentStrong : theme.colors.textMuted} />}
+                : <Icon name="checkmark-circle-outline" size={22} color={newCollectionName.trim() ? theme.colors.accentStrong : theme.colors.textMuted} />}
             </Pressable>
             <Pressable disabled={savingCollection} hitSlop={7} style={styles.collectionManagerInlineAction} onPress={() => { setCreatingParentId(undefined); setNewCollectionName(""); }}>
-              <Ionicons name="close-outline" size={22} color={theme.colors.textMuted} />
+              <Icon name="close-outline" size={22} color={theme.colors.textMuted} />
             </Pressable>
           </View>
         ) : null}
@@ -2556,7 +2557,7 @@ function LibrarySidebar({ visible, activeView, collections, profile, entitlement
               <View style={styles.sidebarAvatar}>
                 {profile?.avatar?.thumbnailUrl
                   ? <Image source={{ uri: profile.avatar.thumbnailUrl }} style={styles.sidebarAvatarImage} />
-                  : <Ionicons name="person-outline" size={19} color={theme.colors.textSecondary} />}
+                  : <Icon name="person-outline" size={19} color={theme.colors.textSecondary} />}
               </View>
               <View style={styles.sidebarAccountText}>
                 <View style={styles.sidebarAccountNameRow}>
@@ -2570,7 +2571,7 @@ function LibrarySidebar({ visible, activeView, collections, profile, entitlement
               </View>
             </Pressable>
             <Pressable accessibilityLabel={t("sidebar.settings")} style={styles.sidebarSettingsButton} onPress={onOpenAccount}>
-              <Ionicons name="settings-outline" size={21} color={theme.colors.textSecondary} />
+              <Icon name="settings-outline" size={21} color={theme.colors.textSecondary} />
             </Pressable>
           </View>
           <View ref={sidebarScrollViewportRef} collapsable={false} style={styles.sidebarCollectionScroller}>
@@ -2590,13 +2591,13 @@ function LibrarySidebar({ visible, activeView, collections, profile, entitlement
           <CalendarSidebarPreview onPress={onOpenCalendar} />
           <View style={styles.sidebarFixedContent}>
             <SidebarRow
-              leading={<OioCharacter width={27} height={25} />}
+              leading={<ChatCircleDots size={22} color={theme.colors.textStrong} weight="duotone" />}
               label={t("contact.curious_companion.name")}
               muted={!assistantAvailable}
               onPress={assistantAvailable ? onOpenAssistant : () => Alert.alert(t("sidebar.assistant_members_only_title"), t("sidebar.assistant_members_only_message"))}
             />
-            <SidebarRow leading={<OioRecall width={27} height={25} />} label={t("sidebar.recall")} onPress={onOpenRecall} />
-            <SidebarRow icon="document-text-outline" label={t("sidebar.import_corpus")} muted={entitlement?.tier !== "pro"} onPress={entitlement?.tier === "pro" ? onOpenCorpus : () => Alert.alert(t("sidebar.pro_required_title"), t("sidebar.pro_required_message"))} />
+            <SidebarRow leading={<ClockCounterClockwise size={22} color={theme.colors.textStrong} weight="duotone" />} label={t("sidebar.recall")} onPress={onOpenRecall} />
+            <SidebarRow leading={<TrayArrowDown size={22} color={theme.colors.textStrong} weight="duotone" />} label={t("sidebar.import_corpus")} muted={entitlement?.tier !== "pro"} onPress={entitlement?.tier === "pro" ? onOpenCorpus : () => Alert.alert(t("sidebar.pro_required_title"), t("sidebar.pro_required_message"))} />
           </View>
 
           <View style={[styles.sidebarCollectionSection, styles.sidebarCollectionContent]}>
@@ -2606,7 +2607,7 @@ function LibrarySidebar({ visible, activeView, collections, profile, entitlement
                       style={styles.sidebarSectionToggle}
                       onPress={() => setFavoritesExpanded((expanded) => !expanded)}
                     >
-                      <Ionicons name={favoritesExpanded ? "chevron-down" : "chevron-forward"} size={14} color={theme.colors.textMuted} />
+                      <Icon name={favoritesExpanded ? "chevron-down" : "chevron-forward"} size={14} color={theme.colors.textMuted} />
                       <Text style={styles.sidebarSectionTitle}>{t("sidebar.favorites")}</Text>
                     </Pressable>
                   </View>
@@ -2637,7 +2638,7 @@ function LibrarySidebar({ visible, activeView, collections, profile, entitlement
                       style={styles.sidebarSectionDisclosureButton}
                       onPress={() => setCollectionsExpanded((expanded) => !expanded)}
                     >
-                      <Ionicons name={collectionsExpanded ? "chevron-down" : "chevron-forward"} size={14} color={theme.colors.textMuted} />
+                      <Icon name={collectionsExpanded ? "chevron-down" : "chevron-forward"} size={14} color={theme.colors.textMuted} />
                     </Pressable>
                     <Pressable accessibilityLabel={t("sidebar.collections")} style={styles.sidebarSectionSelect} onPress={() => onSelect("all")}>
                       <Text style={[styles.sidebarSectionTitle, activeView === "all" && styles.sidebarSectionTitleSelected]}>{t("sidebar.collections")}</Text>
@@ -2649,7 +2650,7 @@ function LibrarySidebar({ visible, activeView, collections, profile, entitlement
                         hitSlop={8}
                         onPress={() => { setCollectionsExpanded(true); beginSidebarCreating(null); }}
                       >
-                        <Ionicons name="add-outline" size={23} color={theme.colors.text} />
+                        <Icon name="add-outline" size={23} color={theme.colors.text} />
                       </Pressable>
                     </View>
                   </View>
@@ -2694,13 +2695,13 @@ function LibrarySidebar({ visible, activeView, collections, profile, entitlement
                   ["create-outline", t("main.collection.edit")],
                 ].map(([icon, label], index) => (
                   <Pressable key={label} style={styles.collectionActionRow} onPress={() => selectCollectionAction(index)}>
-                    <Ionicons name={icon as React.ComponentProps<typeof Ionicons>["name"]} size={18} color={theme.colors.textSecondary} />
+                    <Icon name={icon as React.ComponentProps<typeof Ionicons>["name"]} size={18} color={theme.colors.textSecondary} />
                     <Text style={styles.collectionActionText}>{label}</Text>
                   </Pressable>
                 ))}
                 <View style={styles.collectionActionDivider} />
                 <Pressable style={styles.collectionActionRow} onPress={() => selectCollectionAction(2)}>
-                  <Ionicons name="trash-outline" size={18} color={theme.colors.danger} />
+                  <Icon name="trash-outline" size={18} color={theme.colors.danger} />
                   <Text style={[styles.collectionActionText, styles.collectionActionDanger]}>{t("common.delete")}</Text>
                 </Pressable>
               </Pressable>
@@ -2793,9 +2794,9 @@ function LibrarySidebar({ visible, activeView, collections, profile, entitlement
             {movingCollection ? (
               <View style={styles.collectionManagerMoveList}>
                 <Pressable style={styles.collectionManagerMoveRow} disabled={movingCollectionSaving} onPress={() => void moveCollectionFromManager(null)}>
-                  <Ionicons name="albums-outline" size={20} color={theme.colors.textSecondary} />
+                  <Icon name="albums-outline" size={20} color={theme.colors.textSecondary} />
                   <Text style={styles.collectionRowName}>{t("main.collection.top_level")}</Text>
-                  {movingCollection.parentId === null ? <Ionicons name="checkmark" size={20} color={theme.colors.accentStrong} /> : null}
+                  {movingCollection.parentId === null ? <Icon name="checkmark" size={20} color={theme.colors.accentStrong} /> : null}
                 </Pressable>
                 {collectionMoveTargets.map(({ collection, depth }) => (
                   <Pressable
@@ -2804,9 +2805,9 @@ function LibrarySidebar({ visible, activeView, collections, profile, entitlement
                     disabled={movingCollectionSaving}
                     onPress={() => void moveCollectionFromManager(collection.id)}
                   >
-                    <Ionicons name="folder-outline" size={20} color={theme.colors.textSecondary} />
+                    <Icon name="folder-outline" size={20} color={theme.colors.textSecondary} />
                     <Text style={styles.collectionRowName}>{collection.name}</Text>
-                    {movingCollection.parentId === collection.id ? <Ionicons name="checkmark" size={20} color={theme.colors.accentStrong} /> : null}
+                    {movingCollection.parentId === collection.id ? <Icon name="checkmark" size={20} color={theme.colors.accentStrong} /> : null}
                   </Pressable>
                 ))}
                 {movingCollectionSaving ? <ActivityIndicator style={styles.collectionManagerMoveSaving} color={theme.colors.accentStrong} /> : null}
@@ -2943,9 +2944,9 @@ function SidebarRow({ icon, leading, label, count, selected = false, muted = fal
     >
       {selected ? <View pointerEvents="none" style={styles.sidebarSelectionMark} /> : null}
       <Pressable accessibilityLabel={expanded ? t("sidebar.a11y.collapse_collection") : t("sidebar.a11y.expand_collection")} disabled={!expandable} style={styles.sidebarDisclosure} onPress={(event) => { event.stopPropagation(); onToggle?.(); }}>
-        {expandable ? <Ionicons name={expanded ? "chevron-down" : "chevron-forward"} size={14} color={theme.colors.textMuted} /> : null}
+        {expandable ? <Icon name={expanded ? "chevron-down" : "chevron-forward"} size={14} color={theme.colors.textMuted} /> : null}
       </Pressable>
-      {icon ? <Ionicons name={icon} size={19} color={muted ? theme.colors.textMuted : selected ? "#111111" : "#555555"} /> : null}
+      {icon ? <Icon name={icon} size={19} color={muted ? theme.colors.textMuted : selected ? "#111111" : "#555555"} /> : null}
       {leading ? <View style={muted && styles.sidebarLeadingMuted}>{leading}</View> : null}
       <Text numberOfLines={1} style={[styles.sidebarRowLabel, muted && styles.sidebarRowLabelMuted, selected && styles.sidebarRowLabelSelected]}>{label}</Text>
       {count !== undefined ? <Text style={styles.sidebarRowCount}>{count}</Text> : null}
@@ -2962,7 +2963,7 @@ function SidebarRow({ icon, leading, label, count, selected = false, muted = fal
         >
           {favoriteSaving
             ? <ActivityIndicator size="small" color={theme.colors.textMuted} />
-            : <Ionicons name={favorite ? "star" : "star-outline"} size={18} color={favorite ? "#C89B2B" : theme.colors.textMuted} />}
+            : <Icon name={favorite ? "star" : "star-outline"} size={18} color={favorite ? "#C89B2B" : theme.colors.textMuted} />}
         </Pressable>
       ) : null}
       {onMore ? (
@@ -2981,7 +2982,7 @@ function SidebarRow({ icon, leading, label, count, selected = false, muted = fal
             });
           }}
         >
-          <Ionicons name="ellipsis-horizontal" size={19} color={theme.colors.textMuted} />
+          <Icon name="ellipsis-horizontal" size={19} color={theme.colors.textMuted} />
         </Pressable>
       ) : null}
     </Pressable>
@@ -3032,23 +3033,23 @@ function CardSearchScreen({ query, results, searching, dictionarySearch, collect
   const dictionaryVisuals = Array.from(new Map(dictionaryVisualCandidates.map((visual) => [visual.url, visual])).values()).slice(0, 2);
   return <SafeAreaView style={styles.searchPage}>
     <View style={styles.searchPageHeader}>
-      <Pressable accessibilityLabel={t("card_detail.back")} style={styles.searchBackButton} onPress={onClose}><Ionicons name="chevron-back" size={25} color={theme.colors.text} /></Pressable>
+      <Pressable accessibilityLabel={t("card_detail.back")} style={styles.searchBackButton} onPress={onClose}><Icon name="chevron-back" size={25} color={theme.colors.text} /></Pressable>
       <View style={styles.searchBox}>
-        <Ionicons name="search" size={18} color={theme.colors.textMuted} />
+        <Icon name="search" size={18} color={theme.colors.textMuted} />
         <TextInput ref={inputRef} value={query} onChangeText={onQueryChange} onSubmitEditing={onSearch} returnKeyType="search" placeholder={t("main.search.placeholder")} placeholderTextColor={theme.colors.textMuted} style={styles.searchPageInput} />
-        {query ? <Pressable accessibilityLabel={t("main.search.clear")} hitSlop={8} onPress={() => onQueryChange("")}><Ionicons name="close-circle" size={19} color={theme.colors.textMuted} /></Pressable> : null}
+        {query ? <Pressable accessibilityLabel={t("main.search.clear")} hitSlop={8} onPress={() => onQueryChange("")}><Icon name="close-circle" size={19} color={theme.colors.textMuted} /></Pressable> : null}
       </View>
       <Pressable accessibilityLabel={t("main.search.action")} disabled={!query.trim() || searching} style={[styles.searchPageSubmit, (!query.trim() || searching) && styles.searchPageSubmitDisabled]} onPress={onSearch}>
-        {searching ? <ActivityIndicator size="small" color={theme.colors.onAccent} /> : <Ionicons name="arrow-forward" size={19} color={theme.colors.onAccent} />}
+        {searching ? <ActivityIndicator size="small" color={theme.colors.onAccent} /> : <Icon name="arrow-forward" size={19} color={theme.colors.onAccent} />}
       </Pressable>
     </View>
     <View style={styles.searchFilters}>
       <Text style={styles.searchCapabilities}>{t("main.search.capabilities")}</Text>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.searchFilterContent}>
         <Pressable style={[styles.searchFilterChip, collectionId !== undefined && styles.searchFilterChipActive]} onPress={() => setCollectionPickerVisible(true)}>
-          <Ionicons name={collectionId === undefined ? "apps-outline" : "folder-outline"} size={14} color={collectionId !== undefined ? theme.colors.text : theme.colors.textSecondary} />
+          <Icon name={collectionId === undefined ? "apps-outline" : "folder-outline"} size={14} color={collectionId !== undefined ? theme.colors.text : theme.colors.textSecondary} />
           <Text numberOfLines={1} style={[styles.searchFilterText, collectionId !== undefined && styles.searchFilterTextActive]}>{collectionLabel}</Text>
-          <Ionicons name="chevron-down" size={13} color={theme.colors.textMuted} />
+          <Icon name="chevron-down" size={13} color={theme.colors.textMuted} />
         </Pressable>
       </ScrollView>
     </View>
@@ -3057,7 +3058,7 @@ function CardSearchScreen({ query, results, searching, dictionarySearch, collect
       {results ? <>
         <Text style={styles.searchSectionTitle}>{t("main.search.cards_title")}</Text>
         <Text style={styles.searchSummary}>{results.length ? tf("main.search.result_count", { count: results.length }) : t("main.search.empty_hint")}</Text>
-      </> : dictionarySearch ? null : <View style={styles.searchStart}><Ionicons name="search-outline" size={30} color={theme.colors.textFaint} /><Text style={styles.searchStartText}>{t("main.search.description")}</Text></View>}
+      </> : dictionarySearch ? null : <View style={styles.searchStart}><Icon name="search-outline" size={30} color={theme.colors.textFaint} /><Text style={styles.searchStartText}>{t("main.search.description")}</Text></View>}
       {results?.map((result) => <SearchResultCard key={result.recordId} result={result} query={query} onPress={() => onOpenResult(result.recordId)} />)}
     </ScrollView>
     <CollectionPickerModal visible={collectionPickerVisible} title={t("main.search.choose_category")} collections={collections} value={collectionId} includeAll onClose={() => setCollectionPickerVisible(false)} onSelect={(value) => { setCollectionPickerVisible(false); onCollectionChange(value); }} onCreateCollection={onCreateCollection} />
@@ -3113,7 +3114,7 @@ function SearchResultCard({ result, query, onPress }: { result: RecallCandidate;
           <View style={styles.cardFooter}>
             <Text style={styles.cardTime}>{formatSearchResultDate(result.recordedAt ?? result.createdAt)}</Text>
             <Text style={styles.searchMatchLabel}>{fieldLabel}{match?.matchType === "variant" ? ` · ${t("main.search.variant")}` : ""}</Text>
-            <Ionicons name="chevron-forward" size={16} color={theme.colors.textMuted} />
+            <Icon name="chevron-forward" size={16} color={theme.colors.textMuted} />
           </View>
         </View>
       </View>
@@ -3215,7 +3216,7 @@ function CardCard({ record, grid = false, collectionName, selecting = false, sel
   return (
     <Pressable ref={cardRef} style={[styles.card, grid && styles.memoryGridCard, selected && styles.cardSelected]} disabled={processing} accessibilityState={{ disabled: processing, selected }} onPress={open}>
       <View style={[styles.cardContent, grid && styles.memoryGridContent]}>
-        {selecting ? <View style={[styles.cardSelectionIcon, grid && { position: "absolute", top: 8, right: 8, zIndex: 2, borderRadius: 18, backgroundColor: theme.colors.surface, padding: 3 }]}><Ionicons name={selected ? "checkmark-circle" : "ellipse-outline"} size={23} color={selected ? theme.colors.text : theme.colors.textMuted} /></View> : null}
+        {selecting ? <View style={[styles.cardSelectionIcon, grid && { position: "absolute", top: 8, right: 8, zIndex: 2, borderRadius: 18, backgroundColor: theme.colors.surface, padding: 3 }]}><Icon name={selected ? "checkmark-circle" : "ellipse-outline"} size={23} color={selected ? theme.colors.text : theme.colors.textMuted} /></View> : null}
         {record.thumbnail ? <View ref={thumbnailRef} collapsable={false} style={grid ? [styles.memoryGridCover, { aspectRatio: Math.max(0.75, Math.min(1.25, record.thumbnail.width / Math.max(1, record.thumbnail.height))) }] : styles.thumbnailFrame}>{grid ? <Image source={{ uri: record.thumbnail.url }} style={StyleSheet.absoluteFill} resizeMode="cover" onError={onThumbnailError} /> : <FocusedCardThumbnail thumbnail={record.thumbnail} onError={onThumbnailError} />}</View> : grid ? <View style={[styles.memoryGridCover, styles.memoryTextCover]}><Text style={styles.memoryTextCoverTitle} numberOfLines={6}>{record.originalPreview || record.displayTitle}</Text></View> : null}
         <View style={styles.cardTextColumn}>
           {processing ? (
@@ -3244,7 +3245,7 @@ function CardCard({ record, grid = false, collectionName, selecting = false, sel
                 event.stopPropagation();
                 moreButtonRef.current?.measureInWindow((x, y, width, height) => onOpenActions({ x, y, width, height }));
               }}>
-                <Ionicons name="ellipsis-horizontal" size={17} color={theme.colors.textFaint} />
+                <Icon name="ellipsis-horizontal" size={17} color={theme.colors.textFaint} />
               </Pressable>
             ) : null}
           </View>

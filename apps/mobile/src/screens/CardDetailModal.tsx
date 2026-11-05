@@ -10,6 +10,7 @@ import { ActivityIndicator, Alert, Animated, Easing, FlatList, Image, Keyboard, 
 import { Text, TextInput } from "../components/Typography";
 import { useFontSize } from "../services/preferences/fontSizePreference";
 import Ionicons from "@expo/vector-icons/Ionicons";
+import { Icon } from "../components/Icon";
 import * as Haptics from "expo-haptics";
 import * as MediaLibrary from "expo-media-library/legacy";
 import { File, Paths } from "expo-file-system";
@@ -619,8 +620,8 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
       <SafeAreaView style={styles.page}>
         <View style={styles.header}>
           <View style={styles.historyButtons}>
-            <Pressable accessibilityLabel={returnLabel ?? (recallPosition && tab === "review" ? t("recall.exit") : tab === "dictation" || canGoBack && onBack ? t("card_detail.a11y.back") : t("card_detail.a11y.close"))} style={styles.historyButton} onPress={recallPosition && tab === "review" ? () => leaveCard(onClose, false) : tab === "dictation" ? () => setTab("review") : canGoBack && onBack ? () => leaveCard(onBack, false) : () => leaveCard(onClose, true)}><Ionicons name="chevron-back" size={22} color={theme.colors.text} /></Pressable>
-            {practiceMode && canGoForward && onForward ? <Pressable accessibilityLabel={t("card_detail.a11y.forward")} style={styles.historyButton} onPress={onForward}><Ionicons name="chevron-forward" size={22} color={theme.colors.text} /></Pressable> : null}
+            <Pressable accessibilityLabel={returnLabel ?? (recallPosition && tab === "review" ? t("recall.exit") : tab === "dictation" || canGoBack && onBack ? t("card_detail.a11y.back") : t("card_detail.a11y.close"))} style={styles.historyButton} onPress={recallPosition && tab === "review" ? () => leaveCard(onClose, false) : tab === "dictation" ? () => setTab("review") : canGoBack && onBack ? () => leaveCard(onBack, false) : () => leaveCard(onClose, true)}><Icon name="chevron-back" size={22} color={theme.colors.text} /></Pressable>
+            {practiceMode && canGoForward && onForward ? <Pressable accessibilityLabel={t("card_detail.a11y.forward")} style={styles.historyButton} onPress={onForward}><Icon name="chevron-forward" size={22} color={theme.colors.text} /></Pressable> : null}
           </View>
           {tab === "review" && detail && (!recallPosition || recallPosition.kind === "browse") ? <View style={styles.cardModeSwitch}>
             <Pressable accessibilityRole="button" accessibilityState={{ selected: !playbackMode }} style={styles.cardModeOption} onPress={() => changePlaybackMode(false)}>
@@ -632,13 +633,13 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
           </View> : <Text numberOfLines={1} style={styles.title}>{practiceMode ? t("card_detail.tab.dictation") : recallPosition ? `${recallPosition.index + 1} / ${recallPosition.total}` : ""}</Text>}
           <View style={styles.headerEnd}>
             {tab === "review" ? languageButton : null}
-            {tab === "review" && (onUpdateContent || onEditCard) ? <Pressable accessibilityLabel="卡片操作" style={styles.iconHeaderButton} onPress={() => setDetailActionMenuVisible(true)}><Ionicons name="ellipsis-horizontal" size={23} color={theme.colors.text} /></Pressable> : null}
+            {tab === "review" && (onUpdateContent || onEditCard) ? <Pressable accessibilityLabel="卡片操作" style={styles.iconHeaderButton} onPress={() => setDetailActionMenuVisible(true)}><Icon name="ellipsis-horizontal" size={23} color={theme.colors.text} /></Pressable> : null}
           </View>
         </View>
         {recallPosition && tab === "review" ? recallPosition.kind === "browse"
           ? <MemoryBrowseControl hasNextSet={Boolean(onRecallFinish)} index={recallPosition.index} total={recallPosition.total} disabled={loading || editing || imageAdding || recallInteractionLocked || playbackMode} onPrevious={onRecallPrevious ? () => leaveCard(onRecallPrevious, false) : undefined} onNext={onRecallNext ? () => leaveCard(onRecallNext, false) : undefined} onExit={() => leaveCard(onRecallFinish ?? onClose, false)} />
           : <Text numberOfLines={1} style={[styles.recallContextLabel, !recallContextLabel && styles.recallContextLabelHidden]}>{recallContextLabel ?? " "}</Text> : null}
-        {detailActionMenuVisible ? <View style={styles.detailActionLayer}><Pressable style={StyleSheet.absoluteFill} onPress={() => setDetailActionMenuVisible(false)} /><View style={styles.detailActionMenu}><Pressable style={styles.detailActionItem} onPress={() => { setDetailActionMenuVisible(false); (onEditCard ?? (() => setEditing(true)))(); }}><Ionicons name="create-outline" size={17} color={theme.colors.textSecondary} /><Text style={styles.detailActionText}>编辑</Text></Pressable><View style={styles.detailActionDivider} /><Pressable style={styles.detailActionItem} onPress={() => { setDetailActionMenuVisible(false); Alert.alert("移入回收站？", "卡片将在回收站保留 30 天，期间可以随时恢复。", [{ text: t("common.cancel"), style: "cancel" }, { text: "移入回收站", style: "destructive", onPress: () => { if (detail) void deleteCardRecord(detail.id).then(onClose); } }]); }}><Ionicons name="trash-outline" size={17} color={theme.colors.danger} /><Text style={[styles.detailActionText, { color: theme.colors.danger }]}>删除</Text></Pressable></View></View> : null}
+        {detailActionMenuVisible ? <View style={styles.detailActionLayer}><Pressable style={StyleSheet.absoluteFill} onPress={() => setDetailActionMenuVisible(false)} /><View style={styles.detailActionMenu}><Pressable style={styles.detailActionItem} onPress={() => { setDetailActionMenuVisible(false); (onEditCard ?? (() => setEditing(true)))(); }}><Icon name="create-outline" size={17} color={theme.colors.textSecondary} /><Text style={styles.detailActionText}>编辑</Text></Pressable><View style={styles.detailActionDivider} /><Pressable style={styles.detailActionItem} onPress={() => { setDetailActionMenuVisible(false); Alert.alert("移入回收站？", "卡片将在回收站保留 30 天，期间可以随时恢复。", [{ text: t("common.cancel"), style: "cancel" }, { text: "移入回收站", style: "destructive", onPress: () => { if (detail) void deleteCardRecord(detail.id).then(onClose); } }]); }}><Icon name="trash-outline" size={17} color={theme.colors.danger} /><Text style={[styles.detailActionText, { color: theme.colors.danger }]}>删除</Text></Pressable></View></View> : null}
         {loading && !detail ? <ActivityIndicator color={theme.colors.accentStrong} style={styles.loader} /> : null}
         {practiceDetail && contentBinding && tab === "review" ? <Review onLanguageControlChange={updateLanguageControl} hidePhraseRecommendation={hidePhraseRecommendation} key={practiceDetail.id} detail={practiceDetail} imageAdding={imageAdding} contentBinding={contentBinding} playbackMode={playbackMode} practiceEnabled={canPracticeActiveBlock} canUseDictation={!detail?.isSample && hasProAccess === true} autoStartClozePractice={clozeEntryModeRef.current.autoStart} clozeState={resolvedClozeState} clozeVersion={resolvedClozeVersion} onClozeChange={updateCloze} onLearningContentClozeChange={updateLearningContentCloze} onSelectLearningContent={setSelectedLearningContentType} onActivateLearningContent={onActivateLearningContent} onSaveOriginal={onUpdateContent ? async (originalText) => { const accepted = await onUpdateContent({ title: practiceDetail.title ?? null, originalText, collectionId: practiceDetail.collectionId ?? null, selectedTargets: practiceDetail.mode === "corpus" ? [] : practiceDetail.replyText ? ["expression", "reply"] : ["expression"] }); if (accepted === false) throw new Error(t("card_detail.error.try_again")); } : undefined} onUpdateMetadata={onUpdateMetadata} onRemoveImage={onRemoveImage} onCoverPositionChange={onCoverPositionChange} relations={relations} onOpenRelated={onOpenRelated} relationFocusSentence={relationFocusSentence} onOpenDictation={() => setTab("dictation")} pendingGenerationTargets={pendingGenerationTargets} failedGenerationTargets={failedGenerationTargets} retryingGenerationTarget={retryingGenerationTarget} onRetryGeneration={onRetryGeneration} onGeneratePhraseRecommendation={onGeneratePhraseRecommendation} onRecallFinish={recallPosition?.kind === "browse" ? undefined : onRecallFinish} onClozeAttempt={onClozeAttempt} onPendingClozeCheckHandlerChange={registerPendingClozeCheck} onInteractionLockChange={(locked) => { setDetailInteractionLocked(locked); if (recallPosition) setRecallInteractionLocked(locked); }} onImageSwipeContextChange={(active, index) => { imageSwipeContextRef.current = { active, index }; }} focusLearningContent={clozeTipEligible && clozeGuideStep === 1} onLearningTargetReady={handleClozeLearningTargetReady} focusActionBar={clozeTipEligible && clozeGuideStep === 2} onActionBarTargetReady={handleClozeActionBarTargetReady} /> : null}
         {practiceDetail && contentBinding && tab === "dictation" && hasProAccess === true ? <Dictation detail={practiceDetail} contentBinding={contentBinding} /> : null}
@@ -733,7 +734,7 @@ function ClozeOnboardingOverlay({ step, target, windowWidth, windowHeight, onAdv
         <View style={styles.clozeGuideButtonShadow} />
         <View style={styles.clozeGuideButton}>
           <Text style={styles.clozeGuideButtonText}>{step === 1 ? t("common.continue") : t("common.got_it")}</Text>
-          <Ionicons name="arrow-forward" size={17} color={theme.colors.text} />
+          <Icon name="arrow-forward" size={17} color={theme.colors.text} />
         </View>
       </Pressable>
     </Animated.View>
@@ -753,7 +754,7 @@ function ClozeActionGuide() {
     <View style={styles.clozeActionGuideGrid}>
       {actions.map((action) => <View key={action.label} style={styles.clozeActionGuideItem}>
         <View style={styles.clozeActionGuideIcon}>
-          {action.icon ? <Ionicons name={action.icon} size={16} color={theme.colors.onAccent} /> : <Text style={styles.clozeActionGuideTextIcon}>{action.textIcon}</Text>}
+          {action.icon ? <Icon name={action.icon} size={16} color={theme.colors.onAccent} /> : <Text style={styles.clozeActionGuideTextIcon}>{action.textIcon}</Text>}
         </View>
         <View style={styles.clozeActionGuideItemCopy}>
           <Text numberOfLines={1} style={styles.clozeActionGuideLabel}>{action.label}</Text>
@@ -775,7 +776,7 @@ function RecallAdjacentCard({ detail, position, contextLabel, canUseDictation }:
   const contentBinding = { contentType: learningBlock.contentType, contentVersion: learningBlock.contentVersion };
   const practiceEnabled = learningBlock.contentType !== "original" || canUseDictation;
   return <SafeAreaView style={styles.recallAdjacentSafeArea}>
-    <View style={styles.header}><View style={styles.historyButtons}><View style={styles.historyButton} /></View><Text style={styles.title}>{position.index + 1} / {position.total}</Text><View style={styles.headerEnd}><View style={styles.iconHeaderButton}><Ionicons name="close" size={23} color={theme.colors.text} /></View></View></View>
+    <View style={styles.header}><View style={styles.historyButtons}><View style={styles.historyButton} /></View><Text style={styles.title}>{position.index + 1} / {position.total}</Text><View style={styles.headerEnd}><View style={styles.iconHeaderButton}><Icon name="close" size={23} color={theme.colors.text} /></View></View></View>
     <Text numberOfLines={1} style={[styles.recallContextLabel, !contextLabel && styles.recallContextLabelHidden]}>{contextLabel ?? " "}</Text>
     <Review
       key={`${detail.id}:${contentBinding.contentType}:${contentBinding.contentVersion}`}
@@ -842,7 +843,7 @@ function CardEditorHeader({ title, disabled, onClose, hideClose = false }: { tit
   return <View style={styles.header}>
     <View style={styles.draftHeaderSide}>
       {!hideClose ? <Pressable accessibilityLabel={t("card_detail.a11y.close")} style={styles.draftCloseButton} disabled={disabled} onPress={onClose}>
-        <Ionicons name="close-outline" size={30} color={theme.colors.text} />
+        <Icon name="close-outline" size={30} color={theme.colors.text} />
       </Pressable> : null}
     </View>
     <Text style={styles.draftCreateTitle}>{title}</Text>
@@ -1250,7 +1251,7 @@ function RecentPhotoLayer({ assets, loading, maxSelection, onDismiss, onSelect, 
     <Animated.View style={[styles.photoLayerPanel, { transform: [{ translateY: progress.interpolate({ inputRange: [0, 1], outputRange: [Math.max(330, height * 0.58), 0] }) }] }]}>
       <View style={styles.photoLayerHeader}>
         <Text style={styles.photoLayerTitle}>{t("card_detail.photo.recent")}</Text>
-        {selectedIds.length ? <Pressable hitSlop={8} style={styles.photoLayerDone} onPress={() => dismiss(() => onSelect(selectedIds.map((id) => assets.find((asset) => asset.id === id)).filter((asset): asset is MediaLibrary.Asset => Boolean(asset))))}><Text style={styles.photoLayerDoneText}>{t("common.confirm")} ({selectedIds.length})</Text></Pressable> : <Pressable accessibilityLabel={t("card_detail.a11y.close_recent_photos")} hitSlop={8} style={styles.photoLayerClose} onPress={() => dismiss()}><Ionicons name="close" size={21} color={theme.colors.text} /></Pressable>}
+        {selectedIds.length ? <Pressable hitSlop={8} style={styles.photoLayerDone} onPress={() => dismiss(() => onSelect(selectedIds.map((id) => assets.find((asset) => asset.id === id)).filter((asset): asset is MediaLibrary.Asset => Boolean(asset))))}><Text style={styles.photoLayerDoneText}>{t("common.confirm")} ({selectedIds.length})</Text></Pressable> : <Pressable accessibilityLabel={t("card_detail.a11y.close_recent_photos")} hitSlop={8} style={styles.photoLayerClose} onPress={() => dismiss()}><Icon name="close" size={21} color={theme.colors.text} /></Pressable>}
       </View>
       <ScrollView style={styles.photoGridScroll} contentContainerStyle={styles.photoGrid} showsVerticalScrollIndicator={false}>
         {loading ? <View style={styles.photoGridLoading}><ActivityIndicator color={theme.colors.textMuted} /></View> : null}
@@ -1265,11 +1266,11 @@ function RecentPhotoLayer({ assets, loading, maxSelection, onDismiss, onSelect, 
       </ScrollView>
       <View style={styles.photoLayerActions}>
         <Pressable accessibilityLabel={t("card_detail.a11y.take_photo")} style={styles.photoLayerAction} onPress={() => dismiss(onTakePhoto)}>
-          <Ionicons name="camera-outline" size={20} color={theme.colors.text} />
+          <Icon name="camera-outline" size={20} color={theme.colors.text} />
           <Text style={styles.photoLayerActionText}>{t("card_detail.photo.camera")}</Text>
         </Pressable>
         <Pressable accessibilityLabel={t("card_detail.a11y.open_all_photos")} style={styles.photoLayerAction} onPress={() => dismiss(onOpenAll)}>
-          <Ionicons name="images-outline" size={20} color={theme.colors.text} />
+          <Icon name="images-outline" size={20} color={theme.colors.text} />
           <Text style={styles.photoLayerActionText}>{t("card_detail.photo.library")}</Text>
         </Pressable>
       </View>
@@ -1422,9 +1423,9 @@ function DictationPracticeView({ sentences, onPlay }: {
             }} style={styles.dictationSentenceInput} placeholder="" placeholderTextColor={theme.colors.textMuted} selectionColor={theme.colors.accentStrong} textAlignVertical="top" />
           </View>
           <View style={styles.dictationSentenceActions}>
-            <Pressable accessibilityLabel={tf("card_detail.a11y.check_sentence", { index: index + 1 })} disabled={!answer.trim()} style={[styles.dictationSentenceAction, !answer.trim() && styles.dictationSentenceActionDisabled]} onPress={() => checkSentence(sentence)}><Ionicons name={result === "correct" ? "checkmark-circle" : "checkmark-circle-outline"} size={21} color={result === "correct" ? theme.colors.success : theme.colors.textSecondary} /></Pressable>
-            <Pressable accessibilityLabel={tf("card_detail.a11y.show_sentence_answer", { index: index + 1 })} style={styles.dictationSentenceAction} onPress={() => setRevealed((current) => ({ ...current, [sentence.key]: !current[sentence.key] }))}><Ionicons name={revealed[sentence.key] ? "eye-off-outline" : "eye-outline"} size={21} color={theme.colors.textSecondary} /></Pressable>
-            <Pressable accessibilityLabel={tf("card_detail.a11y.play_sentence_number", { index: index + 1 })} style={styles.dictationSentenceAction} disabled={Boolean(speakingKey)} onPress={() => void play(sentence)}>{speakingKey === sentence.key ? <ActivityIndicator size="small" color={theme.colors.accentStrong} /> : <Ionicons name="volume-high-outline" size={20} color={theme.colors.textSecondary} />}</Pressable>
+            <Pressable accessibilityLabel={tf("card_detail.a11y.check_sentence", { index: index + 1 })} disabled={!answer.trim()} style={[styles.dictationSentenceAction, !answer.trim() && styles.dictationSentenceActionDisabled]} onPress={() => checkSentence(sentence)}><Icon name={result === "correct" ? "checkmark-circle" : "checkmark-circle-outline"} size={21} color={result === "correct" ? theme.colors.success : theme.colors.textSecondary} /></Pressable>
+            <Pressable accessibilityLabel={tf("card_detail.a11y.show_sentence_answer", { index: index + 1 })} style={styles.dictationSentenceAction} onPress={() => setRevealed((current) => ({ ...current, [sentence.key]: !current[sentence.key] }))}><Icon name={revealed[sentence.key] ? "eye-off-outline" : "eye-outline"} size={21} color={theme.colors.textSecondary} /></Pressable>
+            <Pressable accessibilityLabel={tf("card_detail.a11y.play_sentence_number", { index: index + 1 })} style={styles.dictationSentenceAction} disabled={Boolean(speakingKey)} onPress={() => void play(sentence)}>{speakingKey === sentence.key ? <ActivityIndicator size="small" color={theme.colors.accentStrong} /> : <Icon name="volume-high-outline" size={20} color={theme.colors.textSecondary} />}</Pressable>
           </View>
           {revealed[sentence.key] ? <Text selectable style={styles.dictationSentenceAnswer}>{sentence.text}</Text> : null}
         </View>
@@ -1445,9 +1446,9 @@ function CollectionPickerRow({ collections, value, onChange, onCreateCollection,
   const selected = collections.find((collection) => collection.id === value);
   return <>
     <Pressable accessibilityLabel={t("card_detail.a11y.choose_collection")} style={styles.collectionPickerRow} onPress={() => setVisible(true)}>
-      <View style={styles.collectionPickerLabel}><Ionicons name="folder-outline" size={17} color={theme.colors.textMuted} /><Text style={styles.collectionPickerLabelText}>{t("card_detail.collection")}</Text></View>
+      <View style={styles.collectionPickerLabel}><Icon name="folder-outline" size={17} color={theme.colors.textMuted} /><Text style={styles.collectionPickerLabelText}>{t("card_detail.collection")}</Text></View>
       <Text numberOfLines={1} style={styles.collectionPickerValue}>{selected ? collectionPathName(selected, collections) : t("sidebar.unclassified")}</Text>
-      <Ionicons name="chevron-forward" size={17} color={theme.colors.textMuted} />
+      <Icon name="chevron-forward" size={17} color={theme.colors.textMuted} />
     </Pressable>
     <CollectionPickerModal visible={visible} title={t("card_detail.choose_collection")} collections={collections} value={value} onClose={() => setVisible(false)} onSelect={(collectionId) => onChange(collectionId ?? null)} onCreateCollection={onCreateCollection} onRenameCollection={onRenameCollection} onDeleteCollection={onDeleteCollection} />
   </>;
@@ -1467,7 +1468,7 @@ function DraftAiOptionsRow({ selected, disabled, onToggle }: {
   ];
   return <View style={[styles.draftAiOptionsRow, stacked && styles.draftAiOptionsRowStacked]}>
     {items.map((item) => <Pressable key={item.key} disabled={disabled} style={[styles.draftAiOption, stacked && styles.draftAiOptionStacked]} onPress={() => onToggle(item.key)}>
-      <Ionicons name={selected[item.key] ? "checkmark-circle" : "ellipse-outline"} size={18} color={selected[item.key] ? theme.colors.accentStrong : theme.colors.textMuted} />
+      <Icon name={selected[item.key] ? "checkmark-circle" : "ellipse-outline"} size={18} color={selected[item.key] ? theme.colors.accentStrong : theme.colors.textMuted} />
       <Text numberOfLines={stacked ? undefined : 1} style={[styles.draftAiOptionLabel, stacked && styles.draftAiOptionLabelStacked, selected[item.key] && styles.draftAiOptionLabelSelected]}>{item.label}</Text>
     </Pressable>)}
   </View>;
@@ -1514,7 +1515,7 @@ function DraftComposerToolbar({ imageCount, hideMedia = false, actionLabel, sttS
       style={[styles.draftComposerTool, compact && styles.draftComposerToolCompact]}
       onPress={tool.onPress}
     >
-      <Ionicons name={tool.icon} size={21} color={theme.colors.text} />
+      <Icon name={tool.icon} size={21} color={theme.colors.text} />
       {tool.count ? <View style={styles.draftComposerBadge}><Text style={styles.draftComposerBadgeText}>{tool.count}</Text></View> : null}
     </Pressable>) : null}
     <RealtimeSttButton status={sttStatus} audioLevel={sttAudioLevel} disabled={disabled} style={[styles.draftComposerTool, compact && styles.draftComposerToolCompact]} onPress={onStt} />
@@ -1725,7 +1726,7 @@ const CardImageGallery = React.memo(function CardImageGallery({ images, loading 
               progressiveRenderingEnabled
             />}
             {image.status === "uploading" || image.status === "moderating" ? <View style={styles.draftImageOverlay}><ActivityIndicator color={theme.colors.surface} /></View> : null}
-            {image.status === "failed" ? <View style={styles.draftImageOverlay}><Ionicons name="alert-circle-outline" size={24} color={theme.colors.surface} /></View> : null}
+            {image.status === "failed" ? <View style={styles.draftImageOverlay}><Icon name="alert-circle-outline" size={24} color={theme.colors.surface} /></View> : null}
             {renderBottomRightAction ? <View style={styles.imageBottomRightAction}>{renderBottomRightAction(image, index)}</View> : null}
           </Pressable>
         )}
@@ -1785,7 +1786,7 @@ function ImageDescriptionToggleAction({ active, loading, onPress }: { active: bo
       void Haptics.selectionAsync().catch(() => undefined);
       onPress();
     }}
-  ><Text style={[styles.imageDescriptionToggleText, active && styles.imageDescriptionToggleTextActive]}>{t("quick_note.image_description_on")}</Text><Ionicons name={active ? "checkmark-circle" : "ellipse-outline"} size={17} color={active ? "#52796C" : theme.colors.textMuted} /></Pressable>;
+  ><Text style={[styles.imageDescriptionToggleText, active && styles.imageDescriptionToggleTextActive]}>{t("quick_note.image_description_on")}</Text><Icon name={active ? "checkmark-circle" : "ellipse-outline"} size={17} color={active ? "#52796C" : theme.colors.textMuted} /></Pressable>;
 }
 
 function CardImagePreview({ images, initialIndex, visible, origin, dateLabel, onClose, onRemove, onCoverPositionChange }: {
@@ -1901,11 +1902,11 @@ function CardImagePreview({ images, initialIndex, visible, origin, dateLabel, on
       <Animated.View
         style={[styles.imagePreviewHeader, { opacity: chromeOpacity }]}
       >
-        <View style={styles.imagePreviewHeaderStart}><Pressable accessibilityLabel={t("card_detail.a11y.back_from_image_preview")} hitSlop={10} style={styles.imagePreviewHeaderButton} onPress={() => close()}><Ionicons name="arrow-back" size={27} color={theme.colors.text} /></Pressable></View>
+        <View style={styles.imagePreviewHeaderStart}><Pressable accessibilityLabel={t("card_detail.a11y.back_from_image_preview")} hitSlop={10} style={styles.imagePreviewHeaderButton} onPress={() => close()}><Icon name="arrow-back" size={27} color={theme.colors.text} /></Pressable></View>
         <Text style={styles.imagePreviewCounter}>{images.length > 1 ? `${index + 1} / ${images.length}` : ""}</Text>
         <View style={styles.imagePreviewHeaderEnd}>
-          <Pressable accessibilityLabel={t("card_detail.a11y.save_image")} disabled={savingImage} hitSlop={10} style={styles.imagePreviewHeaderButton} onPress={() => void saveCurrentImage()}>{savingImage ? <ActivityIndicator size="small" color={theme.colors.text} /> : <Ionicons name="download-outline" size={25} color={theme.colors.text} />}</Pressable>
-          {onRemove && images[index] ? <Pressable accessibilityLabel={t("common.delete")} hitSlop={10} style={styles.imagePreviewHeaderButton} onPress={() => close(() => onRemove(images[index]!.key))}><Ionicons name="trash-outline" size={25} color={theme.colors.danger} /></Pressable> : null}
+          <Pressable accessibilityLabel={t("card_detail.a11y.save_image")} disabled={savingImage} hitSlop={10} style={styles.imagePreviewHeaderButton} onPress={() => void saveCurrentImage()}>{savingImage ? <ActivityIndicator size="small" color={theme.colors.text} /> : <Icon name="download-outline" size={25} color={theme.colors.text} />}</Pressable>
+          {onRemove && images[index] ? <Pressable accessibilityLabel={t("common.delete")} hitSlop={10} style={styles.imagePreviewHeaderButton} onPress={() => close(() => onRemove(images[index]!.key))}><Icon name="trash-outline" size={25} color={theme.colors.danger} /></Pressable> : null}
         </View>
       </Animated.View>
       <Animated.View style={{ height: imageAreaHeight, opacity: fullImageOpacity }}><FlatList
@@ -3323,7 +3324,7 @@ function Review({ onLanguageControlChange, hidePhraseRecommendation = true, deta
         : t("card_detail.playback.loop_off");
     return <View style={styles.cardPlaybackPage}>
       <View style={styles.cardPlaybackContent}>
-        {playbackArtworkUri ? <Image source={{ uri: playbackArtworkUri }} resizeMode="cover" style={styles.cardPlaybackArtwork} /> : <View style={styles.cardPlaybackArtworkPlaceholder}><Ionicons name="musical-notes-outline" size={42} color={theme.colors.textMuted} /></View>}
+        {playbackArtworkUri ? <Image source={{ uri: playbackArtworkUri }} resizeMode="cover" style={styles.cardPlaybackArtwork} /> : <View style={styles.cardPlaybackArtworkPlaceholder}><Icon name="musical-notes-outline" size={42} color={theme.colors.textMuted} /></View>}
         {detail.displayTitle.trim() ? <Text numberOfLines={2} style={styles.cardPlaybackTitle}>{detail.displayTitle}</Text> : null}
       </View>
       <View style={styles.cardPlaybackLyricsStage} onLayout={(event) => { lyricsViewportHeightRef.current = event.nativeEvent.layout.height; }}>
@@ -3357,14 +3358,14 @@ function Review({ onLanguageControlChange, hidePhraseRecommendation = true, deta
         <CardPlaybackSeekBar progress={progress} durationMs={durationMs} enabled={playbackBelongsToCard && durationMs > 0 && !(articleStreaming && playback.activeNavigationKey?.startsWith(articleNavigationPrefix))} loading={progressLoading} />
         <View style={styles.cardPlaybackControls}>
           <Pressable disabled={!playbackBelongsToCard} style={styles.cardPlaybackUtility} onPress={cycleTtsPlaybackRate}><Text style={[styles.cardPlaybackRate, !playbackBelongsToCard && styles.cardPlaybackRateDisabled]}>{playback.playbackRate.toFixed(1)}x</Text></Pressable>
-          <Pressable disabled={!playbackBelongsToCard || !playback.canNavigatePrevious} style={styles.cardPlaybackSideControl} onPress={navigateTtsPrevious}><Ionicons name="play-skip-back" size={22} color={playbackBelongsToCard && playback.canNavigatePrevious ? theme.colors.text : theme.colors.textMuted} /></Pressable>
+          <Pressable disabled={!playbackBelongsToCard || !playback.canNavigatePrevious} style={styles.cardPlaybackSideControl} onPress={navigateTtsPrevious}><Icon name="play-skip-back" size={22} color={playbackBelongsToCard && playback.canNavigatePrevious ? theme.colors.text : theme.colors.textMuted} /></Pressable>
           <Pressable disabled={loading} style={styles.cardPlaybackMainControl} onPress={() => playbackBelongsToCard ? toggleTtsPlayback() : void playArticle()}>
-            {loading ? <ActivityIndicator color={theme.colors.surface} /> : <Ionicons name={playing ? "pause" : "play"} size={28} color={theme.colors.surface} />}
+            {loading ? <ActivityIndicator color={theme.colors.surface} /> : <Icon name={playing ? "pause" : "play"} size={28} color={theme.colors.surface} />}
           </Pressable>
-          <Pressable disabled={!playbackBelongsToCard || !playback.canNavigateNext} style={styles.cardPlaybackSideControl} onPress={navigateTtsNext}><Ionicons name="play-skip-forward" size={22} color={playbackBelongsToCard && playback.canNavigateNext ? theme.colors.text : theme.colors.textMuted} /></Pressable>
+          <Pressable disabled={!playbackBelongsToCard || !playback.canNavigateNext} style={styles.cardPlaybackSideControl} onPress={navigateTtsNext}><Icon name="play-skip-forward" size={22} color={playbackBelongsToCard && playback.canNavigateNext ? theme.colors.text : theme.colors.textMuted} /></Pressable>
           <Pressable accessibilityLabel={loopLabel} style={styles.cardPlaybackLoopControl} onPress={cycleCardLoopMode}>
             <View style={styles.cardPlaybackLoopIcon}>
-              <Ionicons name="sync-outline" size={19} color={playback.loopMode !== "off" ? theme.colors.accent : theme.colors.textMuted} />
+              <Icon name="sync-outline" size={19} color={playback.loopMode !== "off" ? theme.colors.accent : theme.colors.textMuted} />
               {playback.loopMode === "one" ? <Text style={styles.cardPlaybackLoopOne}>1</Text> : null}
             </View>
           </Pressable>
@@ -3511,27 +3512,27 @@ function Review({ onLanguageControlChange, hidePhraseRecommendation = true, deta
           </View>
           {titleEditing ? <View style={styles.inlineTitleEditor}>
             <TextInput autoFocus value={titleDraft} editable={!metadataSaving} maxLength={80} placeholder={t("card_detail.title_optional")} placeholderTextColor={theme.colors.textMuted} style={styles.inlineTitleInput} onChangeText={setTitleDraft} onSubmitEditing={() => void saveInlineTitle()} />
-            <Pressable disabled={metadataSaving} style={styles.inlineTitleAction} onPress={() => { setTitleDraft(detail.title ?? detail.displayTitle); setTitleEditing(false); }}><Ionicons name="close" size={19} color={theme.colors.textMuted} /></Pressable>
-            <Pressable disabled={metadataSaving} style={styles.inlineTitleAction} onPress={() => void saveInlineTitle()}>{metadataSaving ? <ActivityIndicator size="small" color={theme.colors.accentStrong} /> : <Ionicons name="checkmark" size={21} color={theme.colors.accentStrong} />}</Pressable>
+            <Pressable disabled={metadataSaving} style={styles.inlineTitleAction} onPress={() => { setTitleDraft(detail.title ?? detail.displayTitle); setTitleEditing(false); }}><Icon name="close" size={19} color={theme.colors.textMuted} /></Pressable>
+            <Pressable disabled={metadataSaving} style={styles.inlineTitleAction} onPress={() => void saveInlineTitle()}>{metadataSaving ? <ActivityIndicator size="small" color={theme.colors.accentStrong} /> : <Icon name="checkmark" size={21} color={theme.colors.accentStrong} />}</Pressable>
           </View> : detail.displayTitle.trim() ? <Pressable disabled={!showReadingBody || !onUpdateMetadata} style={({ pressed }) => [styles.cardTitleRow, pressed && styles.metadataPressed]} onPress={() => setTitleEditing(true)}>
             <Text numberOfLines={2} style={[styles.cardDisplayTitle, styles.cardDisplayTitleInRow]}>{detail.displayTitle}</Text>
-            {showReadingBody && onUpdateMetadata ? <Ionicons name="create-outline" size={17} color={theme.colors.textMuted} /> : null}
+            {showReadingBody && onUpdateMetadata ? <Icon name="create-outline" size={17} color={theme.colors.textMuted} /> : null}
           </Pressable> : null}
           <View style={styles.cardMetadataRow}>
             <Pressable disabled={!showReadingBody || !onUpdateMetadata} style={({ pressed }) => [styles.recordTimeButton, pressed && styles.metadataPressed]} onPress={() => setRecordTimeEditorVisible(true)}>
               <Text style={styles.date}>{formatDate(detail.dateKey)} · {formatTime(recordedAt)}</Text>
             </Pressable>
             <Pressable disabled={!showReadingBody || !onUpdateMetadata || metadataSaving} style={({ pressed }) => [styles.collectionMetaButton, pressed && styles.metadataPressed]} onPress={() => setCollectionPickerVisible(true)}>
-              <Ionicons name="folder-outline" size={14} color={theme.colors.textMuted} />
+              <Icon name="folder-outline" size={14} color={theme.colors.textMuted} />
               <Text numberOfLines={1} style={styles.collectionMetaText}>{collectionLabel}</Text>
-              {showReadingBody && onUpdateMetadata ? <Ionicons name="chevron-down" size={13} color={theme.colors.textMuted} /> : null}
+              {showReadingBody && onUpdateMetadata ? <Icon name="chevron-down" size={13} color={theme.colors.textMuted} /> : null}
             </Pressable>
           </View>
           {showReadingBody && contentRelations[0] ? <RelationChip onPress={() => setRelationsVisible(true)} /> : null}
           {!showReadingBody ? <View style={{ paddingTop: 20, gap: 18 }}>
             <Pressable accessibilityRole="button" accessibilityState={{ expanded: false }} onPress={() => setReadingExpanded(true)} style={{ minHeight: 48, flexDirection: "row", alignItems: "center", justifyContent: "flex-start", gap: 8 }}>
               <Text style={{ color: theme.colors.accentStrong, fontSize: 15 }}>{memoryReaderCopy(getLanguage())}</Text>
-              <Ionicons name="chevron-down" size={18} color={theme.colors.accentStrong} />
+              <Icon name="chevron-down" size={18} color={theme.colors.accentStrong} />
             </Pressable>
             {detail.originalText.trim() ? <Text numberOfLines={3} style={{ color: theme.colors.textSecondary, fontSize: 16, lineHeight: 25 }}>{detail.originalText.trim()}</Text> : null}
           </View> : null}
@@ -3603,7 +3604,7 @@ function Review({ onLanguageControlChange, hidePhraseRecommendation = true, deta
                 originalInputRef.current?.setNativeProps({ selection: { start: end, end } });
                 setTimeout(() => void originalStt.toggle(), 0);
               }} />
-              <Pressable disabled={!originalDraft.trim() || originalSaving || originalStt.status !== "idle"} style={[styles.moduleComposerSend, (!originalDraft.trim() || originalSaving || originalStt.status !== "idle") && styles.moduleComposerSendDisabled]} onPress={() => void saveOriginalModule()}>{originalSaving ? <ActivityIndicator size="small" color={theme.colors.surface} /> : <Ionicons name="arrow-up" size={18} color={theme.colors.surface} />}</Pressable>
+              <Pressable disabled={!originalDraft.trim() || originalSaving || originalStt.status !== "idle"} style={[styles.moduleComposerSend, (!originalDraft.trim() || originalSaving || originalStt.status !== "idle") && styles.moduleComposerSendDisabled]} onPress={() => void saveOriginalModule()}>{originalSaving ? <ActivityIndicator size="small" color={theme.colors.surface} /> : <Icon name="arrow-up" size={18} color={theme.colors.surface} />}</Pressable>
             </View>
           </View> : null}
           {rewriteBlock || originalBlock || expressionPending || expressionFailed ? <View ref={contentBinding.contentType === "rewrite" || contentBinding.contentType === "original" ? learningTargetRef : undefined} style={styles.flipCardTextBlock} onLayout={contentBinding.contentType === "rewrite" || contentBinding.contentType === "original" ? (event) => { learningTargetLocalYRef.current = event.nativeEvent.layout.y; learningTargetContentYRef.current = readingBodyYRef.current + learningTargetLocalYRef.current; } : undefined}>
@@ -3618,7 +3619,7 @@ function Review({ onLanguageControlChange, hidePhraseRecommendation = true, deta
                   >
                     {replyGenerating
                       ? <ActivityIndicator size="small" color={theme.colors.accent} />
-                      : <Ionicons name={replyFailed ? "refresh-outline" : "chatbubble-ellipses-outline"} size={16} color={theme.colors.accent} />}
+                      : <Icon name={replyFailed ? "refresh-outline" : "chatbubble-ellipses-outline"} size={16} color={theme.colors.accent} />}
                     <Text style={styles.replyGenerateButtonText}>{t(replyGenerating ? "card_detail.generating" : replyFailed ? "common.retry" : "chat.settings.generate_reply")}</Text>
                   </Pressable> : null}
                   <CardSectionCopyButton onPress={() => void copySection(primaryText)} />
@@ -3637,7 +3638,7 @@ function Review({ onLanguageControlChange, hidePhraseRecommendation = true, deta
       </View>
       </View>
     </View>
-    {showReadingBody && onRecallFinish ? <Pressable style={styles.recallFinishButton} onPress={onRecallFinish}><Text style={styles.recallFinishButtonText}>{t("recall.end_node")}</Text><Ionicons name="checkmark" size={18} color={theme.colors.surface} /></Pressable> : null}
+    {showReadingBody && onRecallFinish ? <Pressable style={styles.recallFinishButton} onPress={onRecallFinish}><Text style={styles.recallFinishButtonText}>{t("recall.end_node")}</Text><Icon name="checkmark" size={18} color={theme.colors.surface} /></Pressable> : null}
     {showReadingBody && clozeMode === "choice" && choiceTrayState ? <View style={styles.detailChoiceTray}>
       <ClozeAnswerPuzzleTray
         puzzle={choiceTrayState.puzzle}
@@ -3689,7 +3690,7 @@ function Review({ onLanguageControlChange, hidePhraseRecommendation = true, deta
           <View style={styles.recommendationSheetHeader}>
             <View style={styles.recommendationSheetMark}><OioCharacter width={31} height={30} /></View>
             <Text style={styles.recommendationSheetTitle}>{recommendationStage === "practice" ? t("card_detail.recommendation.practice_title") : t("card_detail.recommendation.title")}</Text>
-            <Pressable accessibilityLabel={t("card_detail.recommendation.close")} disabled={recommendationLoading || savingCloze} hitSlop={8} style={styles.recommendationClose} onPress={() => setRecommendationTaskVisible(false)}><Ionicons name="close" size={21} color={theme.colors.textSecondary} /></Pressable>
+            <Pressable accessibilityLabel={t("card_detail.recommendation.close")} disabled={recommendationLoading || savingCloze} hitSlop={8} style={styles.recommendationClose} onPress={() => setRecommendationTaskVisible(false)}><Icon name="close" size={21} color={theme.colors.textSecondary} /></Pressable>
           </View>
           {recommendationLoading ? <View style={styles.recommendationLoading}>
             <Animated.View style={[styles.recommendationLoadingCharacter, { transform: [{ translateY: recommendationSearching.interpolate({ inputRange: [-1, 1], outputRange: [3, -3] }) }, { rotate: recommendationSearching.interpolate({ inputRange: [-1, 1], outputRange: ["-5deg", "5deg"] }) }] }]}><OioCharacter width={58} height={56} /></Animated.View>
@@ -3762,7 +3763,7 @@ function Review({ onLanguageControlChange, hidePhraseRecommendation = true, deta
           },
         ]}>
           <Pressable style={styles.blankActionMenuButton} onPress={lookupBlankAction}>
-            <Ionicons name="search-outline" size={17} color={theme.colors.text} />
+            <Icon name="search-outline" size={17} color={theme.colors.text} />
             <Text style={styles.blankActionMenuText}>{t("card_detail.lookup")}</Text>
           </Pressable>
           <View style={styles.blankActionMenuDivider} />
@@ -3771,7 +3772,7 @@ function Review({ onLanguageControlChange, hidePhraseRecommendation = true, deta
             setBlankAction(null);
             void removeBlank(action);
           }}>
-            <Ionicons name="trash-outline" size={17} color={theme.colors.danger} />
+            <Icon name="trash-outline" size={17} color={theme.colors.danger} />
             <Text style={styles.blankActionMenuDeleteText}>{t("cloze.delete")}</Text>
           </Pressable>
         </View> : null}
@@ -3865,8 +3866,8 @@ function CollapsibleCardSection({ label, tone = "default", collapsed, onToggle, 
         {action === "loading"
           ? <ActivityIndicator size="small" color={iconColor} />
           : action === "generate"
-            ? <View style={styles.sectionGenerateAction}>{!imageDescriptionGenerate ? <Ionicons name="document-text-outline" size={17} color={iconColor} /> : null}<Text style={[styles.sectionGenerateText, { color: iconColor }]}>{imageDescriptionGenerate ? t("quick_note.image_description_on") : t("card_detail.generate")}</Text></View>
-            : <Ionicons name={collapsed ? "chevron-down" : "chevron-up"} size={17} color={iconColor} />}
+            ? <View style={styles.sectionGenerateAction}>{!imageDescriptionGenerate ? <Icon name="document-text-outline" size={17} color={iconColor} /> : null}<Text style={[styles.sectionGenerateText, { color: iconColor }]}>{imageDescriptionGenerate ? t("quick_note.image_description_on") : t("card_detail.generate")}</Text></View>
+            : <Icon name={collapsed ? "chevron-down" : "chevron-up"} size={17} color={iconColor} />}
       </View>
     </Pressable>
     {action === "toggle" && !collapsed ? <View onTouchStart={onActivate}>{children}</View> : null}
@@ -3916,14 +3917,14 @@ function FailedGenerationSection({ target, showLabel = true, message, retrying, 
       <Text style={styles.failedGenerationText}>{message ?? t("card_detail.not_generated")}</Text>
     </View>
     <Pressable disabled={retrying} style={styles.failedGenerationRetry} onPress={() => onRetry?.(target)}>
-      {retrying ? <ActivityIndicator size="small" color={theme.colors.text} /> : <Ionicons name="refresh" size={18} color={theme.colors.text} />}
+      {retrying ? <ActivityIndicator size="small" color={theme.colors.text} /> : <Icon name="refresh" size={18} color={theme.colors.text} />}
     </Pressable>
   </View>;
 }
 
 function CardSectionCopyButton({ onPress }: { onPress: () => void }) {
   return <Pressable accessibilityLabel={t("card_detail.copy")} hitSlop={8} style={styles.cardSectionCopyButton} onPress={onPress}>
-    <Ionicons name="copy-outline" size={17} color={theme.colors.textMuted} />
+    <Icon name="copy-outline" size={17} color={theme.colors.textMuted} />
   </Pressable>;
 }
 
@@ -3948,8 +3949,8 @@ function DetailActionButton({ label, icon, textIcon, buttonText, active = false,
       : textIcon
         ? <Text style={[styles.clozeToolbarText, active && styles.clozeToolbarTextActive]}>{textIcon}</Text>
         : icon && buttonText
-          ? <View style={styles.detailActionIconText}><Ionicons name={icon} size={16} color={active ? theme.colors.surface : theme.colors.textSecondary} /><Text numberOfLines={1} style={[styles.detailActionButtonCaption, active && styles.detailActionButtonCaptionActive]}>{buttonText}</Text></View>
-          : icon ? <Ionicons name={icon} size={21} color={active ? theme.colors.surface : theme.colors.textSecondary} /> : null}
+          ? <View style={styles.detailActionIconText}><Icon name={icon} size={16} color={active ? theme.colors.surface : theme.colors.textSecondary} /><Text numberOfLines={1} style={[styles.detailActionButtonCaption, active && styles.detailActionButtonCaptionActive]}>{buttonText}</Text></View>
+          : icon ? <Icon name={icon} size={21} color={active ? theme.colors.surface : theme.colors.textSecondary} /> : null}
   </Pressable>;
 }
 
@@ -4057,7 +4058,7 @@ function RelationChip({ onPress }: { onPress: () => void }) {
   return <Animated.View style={[styles.relationChipWrap, { opacity: progress, transform: [{ translateY: progress.interpolate({ inputRange: [0, 1], outputRange: [-5, 0] }) }, { scale: progress.interpolate({ inputRange: [0, 1], outputRange: [0.92, 1] }) }] }]}>
     <Pressable accessibilityRole="button" style={({ pressed }) => [styles.relationChip, pressed && styles.metadataPressed]} onPress={onPress}>
       <Text style={styles.relationChipText}>{t("card_detail.relation.entry")}</Text>
-      <Ionicons name="chevron-forward" size={13} color={theme.colors.accentStrong} />
+      <Icon name="chevron-forward" size={13} color={theme.colors.accentStrong} />
     </Pressable>
   </Animated.View>;
 }
@@ -4072,7 +4073,7 @@ function RelationSheet({ visible, relations, source, onClose, onOpen }: { visibl
   return <Modal visible={visible} transparent animationType="fade" statusBarTranslucent onRequestClose={onClose}>
     <Pressable style={styles.relationModalBackdrop} onPress={onClose}>
       <Pressable style={styles.relationModalSheet} onPress={() => undefined}>
-        <Pressable accessibilityRole="button" accessibilityLabel={t("card_detail.recommendation.close")} hitSlop={10} style={styles.relationModalClose} onPress={onClose}><Ionicons name="close" size={21} color={theme.colors.textMuted} /></Pressable>
+        <Pressable accessibilityRole="button" accessibilityLabel={t("card_detail.recommendation.close")} hitSlop={10} style={styles.relationModalClose} onPress={onClose}><Icon name="close" size={21} color={theme.colors.textMuted} /></Pressable>
         <FlatList
           horizontal
           pagingEnabled
@@ -4576,7 +4577,7 @@ function Cloze({ detail, contentBinding, clozeState, clozeVersion, onClozeChange
   }
   const practice = !embedded && !clozeState.blanks.length ? (
         <View style={styles.emptyPracticeCard}>
-          <Ionicons name="text-outline" size={28} color={theme.colors.accentStrong} />
+          <Icon name="text-outline" size={28} color={theme.colors.accentStrong} />
           <Text style={styles.emptyPracticeTitle}>{t("card_detail.practice_empty")}</Text>
           <Text style={styles.practiceHint}>{t("card_detail.practice_empty_hint")}</Text>
         </View>
@@ -4744,7 +4745,7 @@ function StableCardSentence({ row, contentType, answers, checkedAnswers, reveale
       >
         {loading
           ? <ActivityIndicator size="small" color={theme.colors.textSecondary} />
-          : <Ionicons name={active ? "stop" : "play"} size={14} color={theme.colors.textSecondary} />}
+          : <Icon name={active ? "stop" : "play"} size={14} color={theme.colors.textSecondary} />}
       </Pressable> : null}
     </> : null}
   </View>;
@@ -5046,7 +5047,7 @@ function CardBlankSentenceFlow({ row, answers, checkedAnswers, revealed, saving,
       ]}
       onPress={onOpenLanguageRelation}
     >
-      <Ionicons name="link-outline" size={10} color={theme.colors.accentStrong} />
+      <Icon name="link-outline" size={10} color={theme.colors.accentStrong} />
     </Pressable> : null}
     {keyboardItem && activeKeyboardFrame && displayInputFrame && displayCheckFrame ? <>
       <TextInput
@@ -5087,7 +5088,7 @@ function CardBlankSentenceFlow({ row, answers, checkedAnswers, revealed, saving,
         ]}
         onPress={submitActiveKeyboardAnswer}
       >
-        <Ionicons name="checkmark" size={13} color={theme.colors.textSecondary} />
+        <Icon name="checkmark" size={13} color={theme.colors.textSecondary} />
       </Pressable>
     </> : null}
   </View>;
