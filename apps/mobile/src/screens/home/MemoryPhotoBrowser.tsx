@@ -237,7 +237,7 @@ const styles = StyleSheet.create({
   button: { minHeight: 44, padding: 10, alignItems: "center", justifyContent: "center" },
   noteField: { marginTop: 20, marginBottom: 16, borderWidth: 1, borderColor: theme.colors.borderStrong, borderRadius: 16, backgroundColor: theme.colors.surface },
   createButton: { minHeight: 52, paddingHorizontal: 24, paddingVertical: 14, marginBottom: 20, borderRadius: 16, backgroundColor: theme.colors.ink, alignItems: "center", justifyContent: "center" },
-  nextSet: { minHeight: 50, minWidth: 148, paddingHorizontal: 28, paddingVertical: 12, borderRadius: 25, backgroundColor: theme.colors.ink, alignItems: "center", justifyContent: "center" },
+  nextSet: { minHeight: 50, minWidth: 148, paddingHorizontal: 28, paddingVertical: 12, borderRadius: 25, backgroundColor: theme.colors.accent, alignItems: "center", justifyContent: "center" },
   nextSetText: { color: theme.colors.onAccent, fontSize: 16, fontWeight: "600" },
   center: { flex: 1, justifyContent: "center", alignItems: "center", gap: 20 },
   explanation: { color: theme.colors.textSecondary, fontSize: 15, lineHeight: 24, textAlign: "center" },

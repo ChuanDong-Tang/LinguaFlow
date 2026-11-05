@@ -4,7 +4,7 @@ import { Text } from "../../components/Typography";
 import type { CardRecordSummary } from "../../services/api/cardApi";
 import { getLanguage } from "../../i18n";
 import { memoryArchiveSet } from "./memoryArchiveSet";
-import { memoryDeckPages } from "./memoryDeckPages";
+import { memoryDeckPages, memoryDeckReturnPage } from "./memoryDeckPages";
 import { MemoryDeckSettings } from "./MemoryDeckSettings";
 import { memoryFanLayout } from "./memoryFanLayout";
 import { theme } from "../../theme";
@@ -17,7 +17,9 @@ const labels = {
 };
 export function MemoryArchiveDeck({ records, loading, hasMore, onLoadMore, onOpen, onThumbnailError }: {
   records: CardRecordSummary[]; loading: boolean; hasMore: boolean;
-  onLoadMore: () => void; onOpen: (ids: string[], onFinished?: () => void) => void; onThumbnailError: () => void;
+  onLoadMore: () => void;
+  onOpen: (ids: string[], first: string, handlers: { onFinished: () => void; onClosed: (lastId: string) => void }) => void;
+  onThumbnailError: () => void;
 }) {
   const copy = labels[getLanguage() as keyof typeof labels] ?? labels["en-US"];
   const [count, setCount] = useState(15);
@@ -45,6 +47,20 @@ export function MemoryArchiveDeck({ records, loading, hasMore, onLoadMore, onOpe
     const next = Math.max(0, Math.min(pages.length, index));
     setPage(next); scroller.current?.scrollTo({ x: next * width, animated: true });
   }
+  // Read the whole dealt set from the tapped card; on return, land on the page of
+  // the last card read, or on the next-set page after finishing the final card.
+  function openSet(first: string) {
+    const dealt = ids.filter(id => byId.has(id));
+    const perPage = visible;
+    let finished = false;
+    onOpen(dealt, first, {
+      onFinished: () => { finished = true; },
+      onClosed: (lastId) => {
+        const target = memoryDeckReturnPage(ids, perPage, lastId, finished);
+        if (target !== null) go(target);
+      },
+    });
+  }
   function restart(nextCount = count, nextVisible = visible, previous: string[] = []) {
     setCount(nextCount); setVisible(nextVisible); setIds(memoryArchiveSet(records, nextCount, previous));
     // Remount only when explicitly dealing a new round, so native scroll offset
@@ -66,7 +82,7 @@ export function MemoryArchiveDeck({ records, loading, hasMore, onLoadMore, onOpe
             const layout = memoryFanLayout(width, 285);
             const offset = fan ? slot === 0 ? 0 : slot === 1 ? -1 : 1 : 0;
             return <Pressable key={id} disabled={!card} accessibilityRole="button" accessibilityLabel={card?.displayTitle || copy[8]}
-              onPress={() => { if (card) onOpen([id]); }}
+              onPress={() => { if (card) openSet(id); }}
               style={[styles.card, visible === 1 ? styles.single : visible === 2 ? styles.pair : styles.fan,
                 fan && { width: layout.width, height: layout.height, zIndex: slot === 0 ? 3 : 1, transform: [{ translateX: offset * layout.offset }, { translateY: offset ? -28 : 24 }, { rotate: `${offset * layout.angle}deg` }] }]}>
               {card ? <><ArchiveCover card={card} onError={onThumbnailError} /><Text numberOfLines={2} style={styles.title}>{card.displayTitle || card.originalPreview}</Text><Text style={styles.date}>{card.dateKey}</Text></> : <Text style={styles.muted}>{copy[8]}</Text>}
@@ -95,7 +111,7 @@ function ArchiveCover({ card, onError }: { card: CardRecordSummary; onError: () 
 const styles = StyleSheet.create({
   container: { width: "100%", alignItems: "center" }, header: { width: "100%", alignItems: "flex-start" },
   button: { minHeight: 44, minWidth: 44, padding: 10, justifyContent: "center", alignItems: "center" },
-  nextSet: { minHeight: 50, minWidth: 148, paddingHorizontal: 28, paddingVertical: 12, borderRadius: 25, backgroundColor: theme.colors.ink, alignItems: "center", justifyContent: "center" },
+  nextSet: { minHeight: 50, minWidth: 148, paddingHorizontal: 28, paddingVertical: 12, borderRadius: 25, backgroundColor: theme.colors.accent, alignItems: "center", justifyContent: "center" },
   nextSetPressed: { opacity: 0.7 },
   nextSetText: { color: theme.colors.onAccent, fontSize: 16, fontWeight: "600" },
   navigationSlot: { minHeight: 52, justifyContent: "center" },

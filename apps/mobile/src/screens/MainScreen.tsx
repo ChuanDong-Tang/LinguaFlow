@@ -64,7 +64,7 @@ import {
 } from "../services/card/cardDraftStorage";
 import { theme } from "../theme";
 import { CardDetailModal } from "./CardDetailModal";
-import type { CardDetailRequest } from "./CardDetailNavigator";
+import type { CardBrowseOptions, CardDetailRequest } from "./CardDetailNavigator";
 import {
   prepareCardDraftImage,
   removePersistentDraftImage,
@@ -93,7 +93,7 @@ type MainScreenProps = {
   refreshRevision: number;
   incomingCardDraft?: { id: number; draft: CardDraft } | null;
   onIncomingCardDraftHandled?: (id: number) => void;
-  onOpenCard: (recordId: string, initialTab?: CardDetailRequest["initialTab"], origin?: CardDetailRequest["origin"], options?: { browseRecordIds?: string[]; onBrowseSetFinished?: () => void }) => void;
+  onOpenCard: (recordId: string, initialTab?: CardDetailRequest["initialTab"], origin?: CardDetailRequest["origin"], options?: CardBrowseOptions) => void;
   onOpenRecall: (mode?: "today" | "yesterday" | "recent" | "blind") => void;
   onOpenMemoryRound: () => void;
   memoryRoundResumeAvailable: boolean;
@@ -1644,7 +1644,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
       </View> : null}
       {!selectingRecords && editorialHome ? <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 16 }}><View style={{ flex: 1, minWidth: 0 }}><MemoryCollectionFilters editorial={editorialHome} collections={collections} selected={libraryView} onSelect={selectLibraryView} onTouching={value => { touchingCollectionFilters.current = value; }} /></View>{editorialHome ? <Pressable accessibilityRole="button" accessibilityLabel={gridLayout ? homeCopy.list : homeCopy.grid} style={[styles.headerIconButton, { marginRight: 14, marginBottom: 8 }]} onPress={() => setHomeLayout(gridLayout ? "list" : "grid")}><Icon name={gridLayout ? "list-outline" : "grid-outline"} size={19} color={theme.colors.textSecondary} /></Pressable> : null}</View> : null}
       {homeTab === "blind" && libraryView !== TRASH_VIEW && !selectingRecords ? <ScrollView style={{ flex: 1, minHeight: 0 }} contentContainerStyle={styles.memoryLanding}>
-        <MemoryArchiveDeck key={`${libraryView}:${sortMode}`} records={recordsScope === queryScope ? records : []} loading={loading || loadingMore} hasMore={recordsScope === queryScope && Boolean(nextCursor)} onThumbnailError={recoverFailedThumbnail} onLoadMore={() => void loadMore()} onOpen={(ids, onBrowseSetFinished) => { if (ids[0]) onOpenCard(ids[0], "review", undefined, { browseRecordIds: ids, onBrowseSetFinished }); }} />
+        <MemoryArchiveDeck key={`${libraryView}:${sortMode}`} records={recordsScope === queryScope ? records : []} loading={loading || loadingMore} hasMore={recordsScope === queryScope && Boolean(nextCursor)} onThumbnailError={recoverFailedThumbnail} onLoadMore={() => void loadMore()} onOpen={(ids, first, handlers) => onOpenCard(first, "review", undefined, { browseRecordIds: ids, onBrowseSetFinished: handlers.onFinished, onBrowseClosed: handlers.onClosed, closeOnBrowseFinish: true })} />
       </ScrollView> : <>
       {!selectingRecords && libraryView !== TRASH_VIEW && !editorialHome ? <View style={styles.memoryToolbar}>{homeTab === "today" ? <Text style={{ color: theme.colors.textSecondary, fontSize: 14 }}>{localDay}</Text> : <View />}<Pressable accessibilityRole="button" accessibilityLabel={gridLayout ? homeCopy.list : homeCopy.grid} style={styles.headerIconButton} onPress={() => setHomeLayout(gridLayout ? "list" : "grid")}><Icon name={gridLayout ? "list-outline" : "grid-outline"} size={22} color={theme.colors.text} /></Pressable></View> : null}
 

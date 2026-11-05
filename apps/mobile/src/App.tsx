@@ -40,6 +40,7 @@ import { RecallScreen } from "./screens/RecallScreen";
 import { hasStoredMemoryRound, MemoryRoundScreen } from "./screens/MemoryRoundScreen";
 import {
   CardDetailNavigator,
+  type CardBrowseOptions,
   type CardDetailRequest,
 } from "./screens/CardDetailNavigator";
 import { AboutScreen } from "./screens/AboutScreen";
@@ -398,7 +399,7 @@ export default function App() {
     recordId: string,
     initialTab: CardDetailRequest["initialTab"] = "review",
     origin?: CardDetailRequest["origin"],
-    options?: { returnLabel?: string; browseRecordIds?: string[]; onBrowseSetFinished?: () => void },
+    options?: CardBrowseOptions,
   ): void {
     cardDetailRequestKeyRef.current += 1;
     setCardDetailRequest({
@@ -406,9 +407,7 @@ export default function App() {
       recordId,
       initialTab,
       origin,
-      returnLabel: options?.returnLabel,
-      browseRecordIds: options?.browseRecordIds,
-      onBrowseSetFinished: options?.onBrowseSetFinished,
+      ...options,
     });
   }
 
@@ -1376,7 +1375,7 @@ function TabScreens({
   cardDataRevision: number;
   incomingCardDraft: { id: number; draft: CardDraft } | null;
   onIncomingCardDraftHandled: (id: number) => void;
-  onOpenCard: (recordId: string, initialTab?: CardDetailRequest["initialTab"], origin?: CardDetailRequest["origin"], options?: { returnLabel?: string; browseRecordIds?: string[] }) => void;
+  onOpenCard: (recordId: string, initialTab?: CardDetailRequest["initialTab"], origin?: CardDetailRequest["origin"], options?: CardBrowseOptions) => void;
   onEditRecallCard: (recordId: string) => void;
   onCardChanged: () => void;
   onOpenLibrary: () => void;

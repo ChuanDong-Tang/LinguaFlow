@@ -44,7 +44,12 @@ export type CardDetailRequest = {
   returnLabel?: string;
   browseRecordIds?: string[];
   onBrowseSetFinished?: () => void;
+  /** Leaving the last card (next swipe or button) also closes the reader. */
+  closeOnBrowseFinish?: boolean;
+  /** Called once when the reader closes, with the card shown last. */
+  onBrowseClosed?: (recordId: string) => void;
 };
+export type CardBrowseOptions = Pick<CardDetailRequest, "returnLabel" | "browseRecordIds" | "onBrowseSetFinished" | "closeOnBrowseFinish" | "onBrowseClosed">;
 
 type DetailImage = NonNullable<CardRecordDetail["images"]>[number];
 type CachedCardDetail = {
@@ -312,8 +317,12 @@ export function CardDetailNavigator({
     setDetail(null);
     setHistory([]);
     setHistoryIndex(-1);
+    if (request?.onBrowseClosed) request.onBrowseClosed(request.recordId);
     onClose();
   }
+  const browseFinish = request?.onBrowseSetFinished && browsePosition && browsePosition.index === browsePosition.total - 1
+    ? () => { request.onBrowseSetFinished?.(); if (request.closeOnBrowseFinish) close(); }
+    : undefined;
 
   async function retryGeneration(target: CardGenerationTarget): Promise<void> {
     if (!detail || retryingGenerationTarget) return;
@@ -484,8 +493,8 @@ export function CardDetailNavigator({
       recallPreviousDetail={browseNeighbors.previous}
       recallNextDetail={browseNeighbors.next}
       onRecallPrevious={browsePosition?.previous && onBrowseRecord ? () => { void browseTo(browsePosition.previous!); } : undefined}
-      onRecallNext={browsePosition?.next && onBrowseRecord ? () => { void browseTo(browsePosition.next!); } : undefined}
-      onRecallFinish={request.onBrowseSetFinished && browsePosition && browsePosition.index === browsePosition.total - 1 ? request.onBrowseSetFinished : undefined}
+      onRecallNext={browsePosition?.next && onBrowseRecord ? () => { void browseTo(browsePosition.next!); } : request.closeOnBrowseFinish ? browseFinish : undefined}
+      onRecallFinish={browseFinish}
       onOpenRelated={(recordId, reasons) => void openRelated(recordId, reasons)}
       relationFocusSentence={relationFocusSentence}
       hideRelations={false}
