@@ -431,14 +431,20 @@ export function ProScreen({
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      const session = await getSession();
-      const cached = session?.user.id ? await getCachedEntitlementForUser(session.user.id) : null;
-      if (cached && !cancelled && isScreenAlive()) {
-        applyEntitlementToState(cached.data);
-      }
-      const cachedAutoRenew = session?.user.id ? await loadCachedAutoRenewSubscription(session.user.id) : null;
-      if (cachedAutoRenew && !cancelled && isScreenAlive()) {
-        setAutoRenew(cachedAutoRenew);
+      // Cached state only speeds up first paint; a storage failure must not skip
+      // the live reconcile below, or the purchase controls would stay loading.
+      try {
+        const session = await getSession();
+        const cached = session?.user.id ? await getCachedEntitlementForUser(session.user.id) : null;
+        if (cached && !cancelled && isScreenAlive()) {
+          applyEntitlementToState(cached.data);
+        }
+        const cachedAutoRenew = session?.user.id ? await loadCachedAutoRenewSubscription(session.user.id) : null;
+        if (cachedAutoRenew && !cancelled && isScreenAlive()) {
+          setAutoRenew(cachedAutoRenew);
+        }
+      } catch {
+        // Fall through to the live reconcile.
       }
 
       try {

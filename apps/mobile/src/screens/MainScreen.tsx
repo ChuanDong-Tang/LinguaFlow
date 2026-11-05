@@ -1678,7 +1678,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
             </> : null}
             {libraryView !== TRASH_VIEW ? <Pressable style={styles.emptyAction} onPress={openCardComposer}>
               <Text style={styles.emptyActionText}>{homeCopy.create}</Text>
-            </Pressable> : <Text style={styles.emptyText}>回收站是空的</Text>}
+            </Pressable> : <Text style={styles.emptyText}>{t("library.trash_empty")}</Text>}
           </View>
         )}
         ListFooterComponent={loadingMore ? <ActivityIndicator color={theme.colors.accentStrong} style={styles.loadMoreIndicator} /> : loadMoreError ? <Pressable accessibilityRole="button" onPress={() => void loadMore()} style={{ minHeight: 44, padding: 16, alignItems: "center" }}><Text style={{ color: theme.colors.textMuted }}>{t("main.error.network_retry")}</Text><Text style={{ color: theme.colors.accentStrong }}>{t("common.retry")}</Text></Pressable> : null}
@@ -1701,7 +1701,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
             left: Math.min(windowSize.width - 140, Math.max(12, recordActionMenu.anchor.x + recordActionMenu.anchor.width - 128)),
           },
         ]}>
-          {libraryView === TRASH_VIEW ? <><Pressable style={styles.recordActionItem} onPress={() => { const id = recordActionMenu.record.id; setRecordActionMenu(null); restoreFromTrash(id); }}><Ionicons name="arrow-undo-outline" size={16} color={theme.colors.textSecondary} /><Text style={styles.recordActionText}>恢复</Text></Pressable><View style={styles.recordActionDivider} /></> : recordActionMenu.record.source === "card" && !recordActionMenu.record.isSample ? <>
+          {libraryView === TRASH_VIEW ? <><Pressable style={styles.recordActionItem} onPress={() => { const id = recordActionMenu.record.id; setRecordActionMenu(null); restoreFromTrash(id); }}><Ionicons name="arrow-undo-outline" size={16} color={theme.colors.textSecondary} /><Text style={styles.recordActionText}>{t("library.restore")}</Text></Pressable><View style={styles.recordActionDivider} /></> : recordActionMenu.record.source === "card" && !recordActionMenu.record.isSample ? <>
             <Pressable style={styles.recordActionItem} onPress={() => {
               const record = recordActionMenu.record;
               setRecordActionMenu(null);

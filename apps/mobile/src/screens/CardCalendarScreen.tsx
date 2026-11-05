@@ -197,10 +197,36 @@ function YearPanel({ year, summary, loading, onPrevious, onNext, onSelectMonth, 
 }
 
 function DayCardsModal({ dateKeyValue, onClose, onDismiss, onOpenCard }: { dateKeyValue: string | null; onClose: () => void; onDismiss: () => void; onOpenCard: (recordId: string) => void }) {
-  const [items, setItems] = useState<CardRecordSummary[]>([]); const [cursor, setCursor] = useState<string | null>(null); const [loading, setLoading] = useState(false);
-  useEffect(() => { if (!dateKeyValue) return; setItems([]); setCursor(null); void load(false); }, [dateKeyValue]);
-  async function load(more: boolean): Promise<void> { if (!dateKeyValue || loading) return; setLoading(true); try { const page = await getCardRecordPage({ dateKey: dateKeyValue, cursor: more ? cursor ?? undefined : undefined, limit: 50 }); setItems((current) => more ? [...current, ...page.items] : page.items); setCursor(page.nextCursor); } finally { setLoading(false); } }
-  return <Modal visible={Boolean(dateKeyValue)} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose} onDismiss={onDismiss}><SafeAreaView style={styles.dayPage}><View style={styles.header}><Pressable style={styles.headerButton} onPress={onClose}><Ionicons name="close-outline" size={28} color={theme.colors.text} /></Pressable><Text style={styles.headerTitle}>{dateKeyValue}</Text><View style={styles.headerButton} /></View><ScrollView style={styles.dayListScroller} contentContainerStyle={styles.dayList} onScroll={({ nativeEvent }) => { const distance = nativeEvent.contentSize.height - nativeEvent.layoutMeasurement.height - nativeEvent.contentOffset.y; if (distance < 250 && cursor) void load(true); }} scrollEventThrottle={200}>{items.map((item) => <Pressable key={item.id} style={styles.dayCard} onPress={() => onOpenCard(item.id)}>{item.displayTitle.trim() ? <Text style={styles.dayCardTitle}>{item.displayTitle}</Text> : null}<Text numberOfLines={3} style={styles.dayCardText}>{item.rewrittenPreview?.trim() || item.originalPreview}</Text></Pressable>)}{loading ? <ActivityIndicator color={theme.colors.textMuted} /> : null}</ScrollView></SafeAreaView></Modal>;
+  const [items, setItems] = useState<CardRecordSummary[]>([]);
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [failed, setFailed] = useState(false);
+  // A ref guard prevents scroll bursts from requesting the same page twice; the
+  // generation drops responses that arrive after the date changed or closed.
+  const loadingRef = useRef(false);
+  const generationRef = useRef(0);
+  useEffect(() => {
+    generationRef.current += 1;
+    loadingRef.current = false;
+    setItems([]); setCursor(null); setFailed(false); setLoading(false);
+    if (dateKeyValue) void load(false);
+  }, [dateKeyValue]);
+  async function load(more: boolean): Promise<void> {
+    if (!dateKeyValue || loadingRef.current || (more && !cursor)) return;
+    const generation = generationRef.current;
+    loadingRef.current = true; setLoading(true); setFailed(false);
+    try {
+      const page = await getCardRecordPage({ dateKey: dateKeyValue, cursor: more ? cursor ?? undefined : undefined, limit: 50 });
+      if (generation !== generationRef.current) return;
+      setItems((current) => more ? [...current, ...page.items.filter((item) => !current.some((existing) => existing.id === item.id))] : page.items);
+      setCursor(page.nextCursor);
+    } catch {
+      if (generation === generationRef.current) setFailed(true);
+    } finally {
+      if (generation === generationRef.current) { loadingRef.current = false; setLoading(false); }
+    }
+  }
+  return <Modal visible={Boolean(dateKeyValue)} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose} onDismiss={onDismiss}><SafeAreaView style={styles.dayPage}><View style={styles.header}><Pressable style={styles.headerButton} onPress={onClose}><Ionicons name="close-outline" size={28} color={theme.colors.text} /></Pressable><Text style={styles.headerTitle}>{dateKeyValue}</Text><View style={styles.headerButton} /></View><ScrollView style={styles.dayListScroller} contentContainerStyle={styles.dayList} onScroll={({ nativeEvent }) => { const distance = nativeEvent.contentSize.height - nativeEvent.layoutMeasurement.height - nativeEvent.contentOffset.y; if (distance < 250 && cursor) void load(true); }} scrollEventThrottle={200}>{items.map((item) => <Pressable key={item.id} style={styles.dayCard} onPress={() => onOpenCard(item.id)}>{item.displayTitle.trim() ? <Text style={styles.dayCardTitle}>{item.displayTitle}</Text> : null}<Text numberOfLines={3} style={styles.dayCardText}>{item.rewrittenPreview?.trim() || item.originalPreview}</Text></Pressable>)}{loading ? <ActivityIndicator color={theme.colors.textMuted} /> : failed ? <Pressable accessibilityRole="button" style={{ minHeight: 44, padding: 16, alignItems: "center" }} onPress={() => void load(items.length > 0)}><Text style={{ color: theme.colors.textMuted }}>{t("main.error.network_retry")}</Text><Text style={{ color: theme.colors.accent }}>{t("common.retry")}</Text></Pressable> : null}</ScrollView></SafeAreaView></Modal>;
 }
 function monthKey(date: Date): MonthKey { return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`; }
 function dateKey(date: Date): string { return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`; }
