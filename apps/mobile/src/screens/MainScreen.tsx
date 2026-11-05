@@ -1653,6 +1653,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
         renderItem={({ item: record }) => (
           <CardCard grid={gridLayout} record={record} collectionName={record.collectionId ? collections.find((collection) => collection.id === record.collectionId)?.name : undefined} selecting={selectingRecords} selected={selectedRecordIds.has(record.id)} onPress={(origin) => selectingRecords ? toggleRecordSelection(record.id) : libraryView === TRASH_VIEW ? undefined : void openDetail(record, origin)} onOpenActions={(anchor) => openRecordActions(record, anchor)} onHideTutorial={() => hideTutorial(record.id)} onThumbnailError={recoverFailedThumbnail} />
         )}
+        ListHeaderComponent={homeTab === "memory" && !selectingRecords && libraryView !== TRASH_VIEW ? <MemoryRoundShortcut active={isActive} resume={memoryRoundResumeAvailable} onPress={onOpenMemoryRound} /> : null}
         contentContainerStyle={styles.list}
         alwaysBounceVertical
         bounces
@@ -2002,7 +2003,11 @@ function MemoryRoundShortcut({ active, resume, onPress }: { active: boolean; res
       pulse.stopAnimation();
     };
   }, [active, pulse]);
-  return <Pressable style={[styles.recallShortcut, styles.memoryRoundShortcut]} onPress={onPress}><Animated.View style={[styles.memoryRoundDot, { transform: [{ scale: pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.32] }) }], opacity: pulse.interpolate({ inputRange: [0, 1], outputRange: [.62, 1] }) }]} /><Text style={[styles.recallShortcutTitle, styles.memoryRoundShortcutText]}>{t("memory_round.title")}</Text>{resume ? <Text style={styles.memoryRoundResumeText}>{t("common.continue")}</Text> : null}</Pressable>;
+  return <Pressable accessibilityRole="button" accessibilityLabel={t(resume ? "memory_round.resume" : "memory_round.start")} style={({ pressed }) => [styles.memoryRoundBanner, pressed && { opacity: 0.72 }]} onPress={onPress}>
+    <Animated.View style={[styles.memoryRoundDot, { transform: [{ scale: pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.35] }) }], opacity: pulse.interpolate({ inputRange: [0, 1], outputRange: [0.6, 1] }) }]} />
+    <Text numberOfLines={1} style={styles.memoryRoundBannerTitle}>{t(resume ? "memory_round.resume" : "memory_round.start")}</Text>
+    <Ionicons name="chevron-forward" size={17} color={theme.colors.accent} />
+  </Pressable>;
 }
 
 function LibrarySidebar({ visible, activeView, collections, profile, entitlement, onClose, onSelect, onOpenRecall, onOpenAssistant, onOpenCorpus, onOpenCalendar, onCreateCollection, onRenameCollection, onToggleFavorite, onDeleteCollection, onReorderCollection, onReorderFavoriteCollection, onOpenAccount }: {
@@ -3405,10 +3410,9 @@ const styles = StyleSheet.create({
   list: { paddingHorizontal: theme.gutter, paddingTop: 6, paddingBottom: 120 },
   recallShortcuts: { marginHorizontal: 22, marginBottom: 8, paddingVertical: 6, flexDirection: "row", gap: 7 },
   recallShortcut: { flex: 1, minHeight: 44, paddingHorizontal: 8, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.border, borderRadius: 11, backgroundColor: theme.colors.surface, alignItems: "center", justifyContent: "center" },
-  memoryRoundShortcut: { borderColor: theme.colors.successSoft, backgroundColor: theme.colors.surfaceMuted },
-  memoryRoundShortcutText: { color: theme.colors.success },
-  memoryRoundResumeText: { marginTop: 2, color: theme.colors.success, fontSize: 9, fontWeight: "600" },
-  memoryRoundDot: { position: "absolute", top: 8, right: 9, width: 6, height: 6, borderRadius: 3, backgroundColor: theme.colors.success },
+  memoryRoundBanner: { minHeight: 50, marginBottom: 18, paddingHorizontal: 16, borderRadius: theme.radius.card, backgroundColor: theme.colors.accentFaint, flexDirection: "row", alignItems: "center", gap: 10 },
+  memoryRoundDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: theme.colors.accent },
+  memoryRoundBannerTitle: { flex: 1, color: theme.colors.accentPressed, fontSize: 15, lineHeight: 21, fontWeight: "600" },
   recallShortcutTitle: { color: theme.colors.text, fontSize: 12, fontWeight: "500" },
   batchActionBar: { position: "absolute", left: 0, right: 0, bottom: 0, minHeight: 64, paddingTop: 8, paddingHorizontal: 62, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.border, backgroundColor: theme.colors.surface, flexDirection: "row", justifyContent: "space-between" },
   batchActionBarCentered: { justifyContent: "center" },
