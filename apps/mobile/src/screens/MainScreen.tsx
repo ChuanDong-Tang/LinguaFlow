@@ -17,7 +17,7 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { KeyboardAwareScrollView, useReanimatedKeyboardAnimation } from "react-native-keyboard-controller";
 import Reanimated, { useAnimatedRef, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
 import OioCharacter from "../../assets/app/oio-character.svg";
-import { ChatCircleDots, ClockCounterClockwise, Gift, SunHorizon, TrayArrowDown } from "phosphor-react-native";
+import { ClockCounterClockwise, Gift, SunHorizon, TrayArrowDown } from "phosphor-react-native";
 import Sortable from "react-native-sortables";
 import {
   createCardEntry,
@@ -2591,7 +2591,7 @@ function LibrarySidebar({ visible, activeView, collections, profile, entitlement
           <CalendarSidebarPreview onPress={onOpenCalendar} />
           <View style={styles.sidebarFixedContent}>
             <SidebarRow
-              leading={<ChatCircleDots size={22} color={theme.colors.textStrong} weight="duotone" />}
+              leading={<OioCharacter width={25} height={24} />}
               label={t("contact.curious_companion.name")}
               muted={!assistantAvailable}
               onPress={assistantAvailable ? onOpenAssistant : () => Alert.alert(t("sidebar.assistant_members_only_title"), t("sidebar.assistant_members_only_message"))}

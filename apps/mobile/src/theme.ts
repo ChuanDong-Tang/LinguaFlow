@@ -80,6 +80,8 @@ export const theme = {
     caption: { fontSize: 12, lineHeight: 17, fontWeight: "400" },
     micro: { fontSize: 11, lineHeight: 15, fontWeight: "500", letterSpacing: 0.2 },
   },
+  // Memory game route colors: warm, muted companions to the coral accent.
+  gameRoute: ["#E0533D", "#D4921C", "#5E9C7A", "#6F7FC0"] as readonly string[],
   hairline: StyleSheet.hairlineWidth,
   shadow: {
     // Barely-there lift for floating controls; flat surfaces use no shadow.

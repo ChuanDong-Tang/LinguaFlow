@@ -887,7 +887,7 @@ export function MemoryRoundScreen({
 
   const speechBusy = question?.kind === "speech" && (pronunciation.status === "recording" || pronunciation.status === "evaluating");
 
-  if (phase === "loading") return <SafeAreaView style={styles.page}><Header onClose={onClose} /><View style={styles.center}><ActivityIndicator color={theme.colors.success} /><Text style={styles.loadingText}>{t("memory_round.loading")}</Text></View></SafeAreaView>;
+  if (phase === "loading") return <SafeAreaView style={styles.page}><Header onClose={onClose} /><View style={styles.center}><ActivityIndicator color={theme.colors.accent} /><Text style={styles.loadingText}>{t("memory_round.loading")}</Text></View></SafeAreaView>;
   if (phase === "error") return <SafeAreaView style={styles.page}><Header onClose={onClose} /><View style={styles.center}><Text style={styles.emptyTitle}>{t("memory_round.load_failed")}</Text><Pressable style={({ pressed }) => [styles.lightButton, pressed && styles.controlPressed]} onPress={() => void start()}><Text style={styles.lightButtonText}>{t("common.retry")}</Text></Pressable></View></SafeAreaView>;
   if (phase === "empty") return <SafeAreaView style={styles.page}><Header onClose={onClose} /><View style={styles.center}><View style={styles.emptyGlyph}><Icon name="albums-outline" size={28} color={theme.colors.accent} /></View><Text style={styles.emptyTitle}>{t("memory_round.empty_title")}</Text><Text style={styles.emptyText}>{t("memory_round.empty_text")}</Text><Pressable style={({ pressed }) => [styles.lightButton, pressed && styles.controlPressed]} onPress={onOpenLibrary}><Text style={styles.lightButtonText}>{t("memory_round.go_cards")}</Text><Icon name="arrow-forward" size={17} color={theme.colors.textSecondary} /></Pressable></View></SafeAreaView>;
   if (phase === "retry_offer") return (
@@ -913,7 +913,7 @@ export function MemoryRoundScreen({
       </View>
     </SafeAreaView>
   );
-  if (phase === "summary") return <SafeAreaView style={styles.summaryPage}><Header onClose={onClose} /><View style={styles.summaryBody}><View style={styles.finishRoute}>{Array.from({ length: Math.max(1, summaryTotal) }, (_, index) => { const color = ["#8FD5C2", "#8CC8F0", "#F5BC91", "#B5A1E6"][index % 4]!; return <React.Fragment key={index}>{index ? <View style={[styles.finishConnector, { backgroundColor: color }]} /> : null}<View style={[styles.finishNode, { backgroundColor: color }]} /></React.Fragment>; })}</View><Text style={styles.summaryTitle}>{t("memory_round.finished")}</Text><Text style={styles.summarySubtitle}>{t("memory_round.correct_detail")}</Text><Pressable style={({ pressed }) => [styles.primaryButton, pressed && styles.primaryPressed]} onPress={onClose}><Text style={styles.primaryButtonText}>{t("memory_round.done")}</Text></Pressable></View></SafeAreaView>;
+  if (phase === "summary") return <SafeAreaView style={styles.summaryPage}><Header onClose={onClose} /><View style={styles.summaryBody}><View style={styles.finishRoute}>{Array.from({ length: Math.max(1, summaryTotal) }, (_, index) => { const color = theme.gameRoute[index % 4]!; return <React.Fragment key={index}>{index ? <View style={[styles.finishConnector, { backgroundColor: color }]} /> : null}<View style={[styles.finishNode, { backgroundColor: color }]} /></React.Fragment>; })}</View><Text style={styles.summaryTitle}>{t("memory_round.finished")}</Text><Text style={styles.summarySubtitle}>{t("memory_round.correct_detail")}</Text><Pressable style={({ pressed }) => [styles.primaryButton, pressed && styles.primaryPressed]} onPress={onClose}><Text style={styles.primaryButtonText}>{t("memory_round.done")}</Text></Pressable></View></SafeAreaView>;
   if (!round || !question) return null;
 
   if (phase === "card_complete") {
@@ -956,20 +956,20 @@ export function MemoryRoundScreen({
     );
   }
 
-  const currentColor = ["#8FD5C2", "#8CC8F0", "#F5BC91", "#B5A1E6"][round.currentIndex % 4]!;
+  const currentColor = theme.gameRoute[round.currentIndex % 4]!;
   const sentenceTypography = memorySentenceTypography(question.sentence);
   const answerRevealCompletion = question.kind === "input" && question.skipped && answerRevealed;
   const currentCardQuestions = round.questions.filter((item) => item.recordId === question.recordId);
   const currentCardIndex = Math.max(0, currentCardQuestions.findIndex((item) => item.id === question.id));
-  return <SafeAreaView style={[styles.page, { backgroundColor: `${currentColor}20` }]}>
+  return <SafeAreaView style={styles.page}>
     <Header onClose={onClose} onOpenCard={() => onOpenCard(question.recordId)} />
-    <Progress total={currentCardQuestions.length} current={currentCardIndex} currentCompleted={question.completed} pulse={pulse} completion={success} colors={["#8FD5C2", "#8CC8F0", "#F5BC91", "#B5A1E6"]} />
+    <Progress total={currentCardQuestions.length} current={currentCardIndex} currentCompleted={question.completed} pulse={pulse} completion={success} colors={[...theme.gameRoute]} />
     <Animated.View style={[styles.questionPage, { opacity: transition, transform: [{ translateY: transition.interpolate({ inputRange: [0, 1], outputRange: [14, 0] }) }] }]}>
       <ScrollView ref={questionScrollerRef} style={styles.questionScroller} contentContainerStyle={[styles.questionScroll, compactLayout && styles.questionScrollCompact, keyboardInset > 0 && { paddingBottom: keyboardInset + 28 }]} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets>
         {question.thumbnailUrl && !failedImageQuestionIds.has(question.id) ? <Image source={{ uri: question.thumbnailUrl }} resizeMode="cover" style={[styles.memoryImage, compactLayout && styles.memoryImageCompact]} onError={() => setFailedImageQuestionIds((current) => new Set(current).add(question.id))} /> : question.title.trim() ? <View style={[styles.titlePrompt, compactLayout && styles.titlePromptCompact]}><View style={[styles.titleDot, { backgroundColor: currentColor }]} /><Text style={styles.titlePromptText}>{question.title}</Text></View> : null}
         <View style={styles.taskHeading}><Text style={styles.taskHeadingText}>{t(`memory_round.task_${question.task}`)}</Text><Text style={styles.cardQuestionCount}>{cardQuestionProgress(round, question)}</Text></View>
-        <View style={[styles.coachStage, compactLayout && styles.coachStageCompact, meaningExpanded && meaningStatus === "ready" && styles.coachStageExpanded, { borderColor: `${currentColor}90`, backgroundColor: `${currentColor}24` }]}>
-          <View style={[styles.coachGlow, { backgroundColor: `${currentColor}4D` }]} />
+        <View style={[styles.coachStage, compactLayout && styles.coachStageCompact, meaningExpanded && meaningStatus === "ready" && styles.coachStageExpanded, { borderColor: `${currentColor}40`, backgroundColor: `${currentColor}0F` }]}>
+          <View style={[styles.coachGlow, { backgroundColor: `${currentColor}1F` }]} />
           <Animated.View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={styles.coachCharacter}>
             <Animated.View style={{ transform: [{ translateX: reduceMotion ? 0 : wrongOffset.interpolate({ inputRange: [-1, 1], outputRange: [-4, 4] }) }] }}>
             <Animated.View style={{ transform: [{ translateY: question.completed && !reduceMotion ? success.interpolate({ inputRange: [0, 0.55, 1], outputRange: [5, -7, -2] }) : reduceMotion ? 0 : pulse.interpolate({ inputRange: [0, 1], outputRange: [0, -2.5] }) }, { scale: question.completed && !reduceMotion ? success.interpolate({ inputRange: [0, 0.65, 1], outputRange: [0.96, 1.07, 1] }) : 1 }] }}>
@@ -999,10 +999,10 @@ export function MemoryRoundScreen({
         </View>
         <Animated.View style={{ transform: [{ translateX: wrongOffset.interpolate({ inputRange: [-1, 1], outputRange: [-6, 6] }) }] }}>
         {question.kind === "speech" ? question.completed ? <View style={styles.completedSentenceCard}><Text style={[styles.completedSentence, sentenceTypography]}>{question.sentence}</Text></View> : <>
-          {question.task === "blind_speech" && !blindSubtitleRevealed ? <View style={styles.blindSpeechCard}><Icon name="ear-outline" size={34} color={theme.colors.success} /><Text style={styles.blindSpeechText}>{t("memory_round.blind_speech_prompt")}</Text><Pressable style={({ pressed }) => [styles.revealSubtitleButton, pressed && styles.secondaryPressed]} onPress={() => setBlindSubtitleRevealed(true)}><Text style={styles.revealSubtitleText}>{t("memory_round.show_subtitle")}</Text></Pressable></View> : <View style={styles.speechSentenceCard}><GuidedSpeechSentence sentence={question.sentence} recognizedText={pronunciation.recognizedText} completed={question.completed} typography={sentenceTypography} /></View>}
+          {question.task === "blind_speech" && !blindSubtitleRevealed ? <View style={styles.blindSpeechCard}><Icon name="ear-outline" size={34} color={theme.colors.accent} /><Text style={styles.blindSpeechText}>{t("memory_round.blind_speech_prompt")}</Text><Pressable style={({ pressed }) => [styles.revealSubtitleButton, pressed && styles.secondaryPressed]} onPress={() => setBlindSubtitleRevealed(true)}><Text style={styles.revealSubtitleText}>{t("memory_round.show_subtitle")}</Text></Pressable></View> : <View style={styles.speechSentenceCard}><GuidedSpeechSentence sentence={question.sentence} recognizedText={pronunciation.recognizedText} completed={question.completed} typography={sentenceTypography} /></View>}
           <View style={styles.speechPanel}>
             <Text style={styles.speechStatus}>{t(`memory_round.speech_${pronunciation.status}`)}</Text>
-            {pronunciation.status === "evaluating" || pronunciation.status === "preparing" ? <ActivityIndicator size="small" color={theme.colors.success} style={styles.speechSpinner} /> : null}
+            {pronunciation.status === "evaluating" || pronunciation.status === "preparing" ? <ActivityIndicator size="small" color={theme.colors.accent} style={styles.speechSpinner} /> : null}
             <Pressable disabled={pronunciation.status === "preparing" || pronunciation.status === "evaluating"} style={({ pressed }) => [styles.speechButton, (pronunciation.status === "preparing" || pronunciation.status === "evaluating") && styles.buttonDisabled, pronunciation.status === "recording" && styles.speechButtonRecording, pressed && styles.gameButtonPressed]} onPress={() => { if (pronunciation.status === "recording") void pronunciation.stop(); else { sentenceAudioRequestRef.current += 1; stopTtsAudio({ resetControls: true }); setAudioLoading(false); void pronunciation.start(); } }}>
               <Icon name={pronunciation.status === "recording" ? "stop" : "mic"} size={19} color={theme.colors.onAccent} />
               <Text style={styles.checkButtonText}>{pronunciation.status === "recording" ? t("memory_round.speech_finish") : pronunciation.status === "retry" || pronunciation.status === "error" ? t("memory_round.try_again") : t("memory_round.speech_start")}</Text>
@@ -1048,7 +1048,7 @@ export function MemoryRoundScreen({
               returnKeyType="done"
               placeholder={t("memory_round.type_answer")}
               placeholderTextColor={theme.colors.textMuted}
-              selectionColor={theme.colors.success}
+              selectionColor={theme.colors.accent}
               style={styles.inputAnswer}
               onFocus={() => {
                 requestAnimationFrame(() => questionScrollerRef.current?.scrollToEnd({ animated: true }));
@@ -1542,7 +1542,7 @@ const styles = StyleSheet.create({
   questionScrollCompact: { paddingBottom: 32 },
   memoryImage: { width: "100%", height: 164, marginTop: 8, borderRadius: 22, backgroundColor: theme.colors.surfaceMuted },
   memoryImageCompact: { height: 128, borderRadius: 18 },
-  titlePrompt: { minHeight: 72, marginTop: 8, paddingHorizontal: 18, paddingVertical: 14, borderRadius: 20, backgroundColor: "rgba(255,255,255,0.72)", flexDirection: "row", alignItems: "center", gap: 12 },
+  titlePrompt: { minHeight: 72, marginTop: 8, paddingHorizontal: 18, paddingVertical: 14, borderRadius: 20, backgroundColor: theme.colors.surface, flexDirection: "row", alignItems: "center", gap: 12 },
   titlePromptCompact: { minHeight: 58, paddingVertical: 10, borderRadius: 17 },
   titleDot: { width: 10, height: 10, borderRadius: 5 },
   titlePromptText: { flex: 1, color: theme.colors.text, fontSize: 17, lineHeight: 24, fontWeight: "600" },
@@ -1551,7 +1551,7 @@ const styles = StyleSheet.create({
   coachStageExpanded: { minHeight: 122, alignItems: "center" },
   coachGlow: { position: "absolute", left: 16, width: 78, height: 38, bottom: -23, borderRadius: 39 },
   coachCharacter: { width: 62, alignSelf: "stretch", alignItems: "center", justifyContent: "flex-end" },
-  coachBubble: { flex: 1, minHeight: 58, paddingHorizontal: 12, paddingVertical: 9, borderRadius: 16, borderBottomLeftRadius: 5, borderWidth: 1, borderColor: "rgba(80,100,92,0.13)", backgroundColor: "rgba(255,255,255,0.92)", alignItems: "stretch", justifyContent: "center", shadowColor: "#52645D", shadowOpacity: 0.08, shadowRadius: 7, shadowOffset: { width: 0, height: 3 }, elevation: 1 },
+  coachBubble: { flex: 1, minHeight: 58, paddingHorizontal: 12, paddingVertical: 9, borderRadius: 16, borderBottomLeftRadius: 5, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surface, alignItems: "stretch", justifyContent: "center", shadowColor: "#52645D", shadowOpacity: 0.08, shadowRadius: 7, shadowOffset: { width: 0, height: 3 }, elevation: 1 },
   coachBubbleExpanded: { alignSelf: "stretch" },
   coachBubbleSuccess: { borderColor: theme.colors.successSoft, backgroundColor: theme.colors.surfaceMuted },
   coachBubbleWrong: { borderColor: theme.colors.accentSoft, backgroundColor: theme.colors.surfaceSunken },
@@ -1568,18 +1568,18 @@ const styles = StyleSheet.create({
   coachHintButtonText: { color: theme.colors.textSecondary, fontSize: 12, fontWeight: "600" },
   audioWaveform: { flex: 1, height: 22, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   audioWaveBarTrack: { width: 2, borderRadius: 2, overflow: "hidden", backgroundColor: theme.colors.disabled },
-  audioWaveBarFill: { ...StyleSheet.absoluteFill, backgroundColor: theme.colors.success },
+  audioWaveBarFill: { ...StyleSheet.absoluteFill, backgroundColor: theme.colors.accent },
   coachHintError: { marginTop: 5, color: theme.colors.textMuted, fontSize: 11 },
-  coachMeaningScroll: { maxHeight: 92, marginTop: 8, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "rgba(80,100,92,0.13)" },
+  coachMeaningScroll: { maxHeight: 92, marginTop: 8, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.border },
   coachMeaningScrollContent: { paddingTop: 8, paddingRight: 5, paddingBottom: 2 },
   coachMeaningText: { color: theme.colors.textSecondary, fontSize: 14, lineHeight: 20 },
   controlPressed: { opacity: 0.76, transform: [{ translateY: 1 }, { scale: 0.96 }] },
-  sentenceSurface: { paddingHorizontal: 18, paddingVertical: 17, borderRadius: 20, borderWidth: StyleSheet.hairlineWidth, borderColor: "rgba(78,98,89,0.13)", backgroundColor: "rgba(255,255,255,0.76)" },
+  sentenceSurface: { paddingHorizontal: 18, paddingVertical: 17, borderRadius: 20, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.border, backgroundColor: theme.colors.surface },
   sentence: { color: theme.colors.text, fontSize: 20, lineHeight: 31, fontWeight: "400" },
-  blank: { color: theme.colors.success, textDecorationLine: "underline", textDecorationColor: theme.colors.success },
+  blank: { color: theme.colors.accent, textDecorationLine: "underline", textDecorationColor: theme.colors.accent },
   inputBlank: { color: theme.colors.success },
-  memoryBlankUnit: { color: theme.colors.success, letterSpacing: 1 },
-  inputAnswerShell: { minHeight: 56, marginTop: 14, paddingLeft: 17, paddingRight: 12, borderRadius: 17, borderWidth: 1.5, borderColor: theme.colors.successSoft, backgroundColor: "rgba(255,255,255,0.94)", flexDirection: "row", alignItems: "center", shadowColor: "#52645D", shadowOpacity: 0.06, shadowRadius: 6, shadowOffset: { width: 0, height: 3 }, elevation: 1 },
+  memoryBlankUnit: { color: theme.colors.accent, letterSpacing: 1 },
+  inputAnswerShell: { minHeight: 56, marginTop: 14, paddingLeft: 17, paddingRight: 12, borderRadius: 17, borderWidth: 1.5, borderColor: theme.colors.borderStrong, backgroundColor: theme.colors.surface, flexDirection: "row", alignItems: "center", shadowColor: "#52645D", shadowOpacity: 0.06, shadowRadius: 6, shadowOffset: { width: 0, height: 3 }, elevation: 1 },
   inputAnswerShellWrong: { borderColor: theme.colors.accentSoft, backgroundColor: theme.colors.surfaceSunken },
   inputAnswer: { flex: 1, minHeight: 54, paddingVertical: 10, color: theme.colors.text, fontSize: 18, lineHeight: 24, fontWeight: "500" },
   inputClear: { width: 34, height: 40, alignItems: "flex-end", justifyContent: "center" },
@@ -1592,14 +1592,14 @@ const styles = StyleSheet.create({
   meaningRetryIcon: { width: 32, height: 32, borderRadius: 10, backgroundColor: theme.colors.surfaceMuted, alignItems: "center", justifyContent: "center" },
   meaningDots: { height: 12, marginLeft: 2, flexDirection: "row", alignItems: "center", gap: 4 },
   meaningDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: theme.colors.success },
-  speechSentenceCard: { paddingHorizontal: 18, paddingVertical: 17, borderRadius: 20, borderWidth: 1, borderColor: theme.colors.borderStrong, backgroundColor: "rgba(255,255,255,0.86)" },
-  blindSpeechCard: { minHeight: 112, paddingHorizontal: 24, paddingVertical: 18, borderRadius: 20, borderWidth: 1, borderColor: theme.colors.borderStrong, backgroundColor: "rgba(255,255,255,0.86)", alignItems: "center", justifyContent: "center", gap: 10 },
+  speechSentenceCard: { paddingHorizontal: 18, paddingVertical: 17, borderRadius: 20, borderWidth: 1, borderColor: theme.colors.borderStrong, backgroundColor: theme.colors.surface },
+  blindSpeechCard: { minHeight: 112, paddingHorizontal: 24, paddingVertical: 18, borderRadius: 20, borderWidth: 1, borderColor: theme.colors.borderStrong, backgroundColor: theme.colors.surface, alignItems: "center", justifyContent: "center", gap: 10 },
   blindSpeechText: { color: theme.colors.textSecondary, fontSize: 15, lineHeight: 21, fontWeight: "600", textAlign: "center" },
   revealSubtitleButton: { minHeight: 40, marginTop: 4, paddingHorizontal: 15, borderRadius: 14, borderWidth: 1.5, borderBottomWidth: 4, borderColor: theme.colors.borderStrong, backgroundColor: theme.colors.surface, alignItems: "center", justifyContent: "center" },
   revealSubtitleText: { color: theme.colors.success, fontSize: 13, fontWeight: "600" },
   guidedSentence: { color: theme.colors.textFaint, fontWeight: "500" },
   guidedWordMatched: { color: theme.colors.success },
-  speechPanel: { marginTop: 16, paddingHorizontal: 18, paddingTop: 14, paddingBottom: 12, borderRadius: 22, backgroundColor: "rgba(255,255,255,0.72)", alignItems: "center" },
+  speechPanel: { marginTop: 16, paddingHorizontal: 18, paddingTop: 14, paddingBottom: 12, borderRadius: 22, backgroundColor: theme.colors.surface, alignItems: "center" },
   speechStatus: { minHeight: 32, color: theme.colors.textSecondary, fontSize: 14, lineHeight: 20, textAlign: "center" },
   speechSpinner: { position: "absolute", top: 42 },
   speechButton: { alignSelf: "stretch", minHeight: 58, marginTop: 10, borderRadius: 21, borderBottomWidth: 6, borderBottomColor: theme.colors.successSoft, backgroundColor: theme.colors.success, flexDirection: "row", gap: 8, alignItems: "center", justifyContent: "center" },
@@ -1607,14 +1607,14 @@ const styles = StyleSheet.create({
   speechSkip: { alignSelf: "stretch", minHeight: 52, marginTop: 12, paddingHorizontal: 18, borderRadius: 19, borderWidth: 2, borderBottomWidth: 5, borderColor: theme.colors.borderStrong, backgroundColor: theme.colors.surface, alignItems: "center", justifyContent: "center" },
   speechSkipText: { color: theme.colors.textSecondary, fontSize: 15, fontWeight: "800" },
   options: { marginTop: 14, gap: 10 },
-  option: { minHeight: 54, paddingHorizontal: 17, paddingVertical: 10, borderRadius: 17, borderWidth: 1.25, borderColor: "rgba(93,113,104,0.17)", backgroundColor: "rgba(255,255,255,0.88)", flexDirection: "row", alignItems: "center", justifyContent: "space-between", shadowColor: "#52645D", shadowOpacity: 0.055, shadowRadius: 5, shadowOffset: { width: 0, height: 3 }, elevation: 1 },
+  option: { minHeight: 54, paddingHorizontal: 17, paddingVertical: 10, borderRadius: 17, borderWidth: 1.25, borderColor: theme.colors.border, backgroundColor: theme.colors.surface, flexDirection: "row", alignItems: "center", justifyContent: "space-between", shadowColor: "#52645D", shadowOpacity: 0.055, shadowRadius: 5, shadowOffset: { width: 0, height: 3 }, elevation: 1 },
   optionPressed: { opacity: 0.86, transform: [{ translateY: 2 }, { scale: 0.975 }], shadowOpacity: 0.01, elevation: 0 },
   optionText: { flex: 1, paddingRight: 10, color: theme.colors.text, fontSize: 17, lineHeight: 24, fontWeight: "400" },
   optionWrong: { borderColor: theme.colors.accentSoft, backgroundColor: theme.colors.surfaceMuted },
   optionWrongText: { color: theme.colors.danger, textDecorationLine: "line-through" },
   optionCorrect: { borderColor: theme.colors.successSoft, backgroundColor: theme.colors.surfaceMuted },
   optionCorrectText: { color: theme.colors.success },
-  sentenceTray: { minHeight: 130, padding: 14, borderRadius: 20, borderWidth: 1.5, borderColor: theme.colors.borderStrong, backgroundColor: "rgba(255,255,255,0.78)", justifyContent: "center" },
+  sentenceTray: { minHeight: 130, padding: 14, borderRadius: 20, borderWidth: 1.5, borderColor: theme.colors.borderStrong, backgroundColor: theme.colors.surface, justifyContent: "center" },
   sentenceTrayWrong: { borderColor: theme.colors.accentSoft, backgroundColor: theme.colors.surfaceMuted },
   trayHint: { color: theme.colors.textMuted, fontSize: 15, textAlign: "center" },
   tokenWrap: { flexDirection: "row", flexWrap: "wrap", alignItems: "flex-start", columnGap: 6, rowGap: 9 },
@@ -1623,20 +1623,20 @@ const styles = StyleSheet.create({
   selectedToken: { minHeight: 38, paddingHorizontal: 10, borderRadius: 11, backgroundColor: theme.colors.surfaceMuted, alignItems: "center", justifyContent: "center" },
   selectedTokenText: { color: theme.colors.success, fontSize: 16, fontWeight: "400" },
   tokenPressed: { opacity: 0.78, transform: [{ translateY: 2 }, { scale: 0.96 }] },
-  checkButton: { minHeight: 58, marginTop: 22, borderRadius: 21, borderBottomWidth: 6, borderBottomColor: theme.colors.successSoft, backgroundColor: theme.colors.success, alignItems: "center", justifyContent: "center" },
-  checkButtonWrong: { borderBottomColor: theme.colors.accentSoft, backgroundColor: theme.colors.danger },
-  checkButtonText: { color: theme.colors.onAccent, fontSize: 16, fontWeight: "800" },
-  skipButton: { minHeight: 52, marginTop: 12, borderRadius: 19, borderWidth: 2, borderBottomWidth: 5, borderColor: theme.colors.borderStrong, backgroundColor: theme.colors.surface, alignItems: "center", justifyContent: "center" },
-  skipButtonText: { color: theme.colors.textSecondary, fontSize: 15, fontWeight: "800" },
+  checkButton: { minHeight: 54, marginTop: 22, borderRadius: 16, borderBottomWidth: 3, borderBottomColor: theme.colors.accentPressed, backgroundColor: theme.colors.accent, alignItems: "center", justifyContent: "center" },
+  checkButtonWrong: { borderBottomColor: "#8E1D17", backgroundColor: theme.colors.danger },
+  checkButtonText: { color: theme.colors.onAccent, fontSize: 16, fontWeight: "700", letterSpacing: 0.3 },
+  skipButton: { minHeight: 50, marginTop: 12, borderRadius: 16, borderWidth: 1, borderColor: theme.colors.borderStrong, backgroundColor: "transparent", alignItems: "center", justifyContent: "center" },
+  skipButtonText: { color: theme.colors.textSecondary, fontSize: 15, fontWeight: "600" },
   buttonDisabled: { opacity: 0.35 },
   primaryPressed: { opacity: 0.88, transform: [{ translateY: 2 }, { scale: 0.985 }] },
   secondaryPressed: { opacity: 0.62, transform: [{ scale: 0.97 }] },
-  completedSentenceCard: { marginTop: 8, padding: 18, borderRadius: 20, borderWidth: 1, borderColor: theme.colors.borderStrong, backgroundColor: "rgba(255,255,255,0.84)" },
+  completedSentenceCard: { marginTop: 8, padding: 18, borderRadius: 20, borderWidth: 1, borderColor: theme.colors.borderStrong, backgroundColor: theme.colors.surface },
   completedSentence: { color: theme.colors.success, fontSize: 20, lineHeight: 31, fontWeight: "400" },
   revealedInputAnswer: { color: theme.colors.warning, fontWeight: "700", backgroundColor: theme.colors.highlight, textDecorationLine: "underline", textDecorationColor: theme.colors.warning },
-  completionSheet: { position: "absolute", left: 0, right: 0, bottom: 0, zIndex: 20, paddingHorizontal: 14, paddingTop: 10, paddingBottom: 10, backgroundColor: "rgba(252,250,248,0.96)", borderTopLeftRadius: 28, borderTopRightRadius: 28, shadowColor: "#35473F", shadowOpacity: 0.18, shadowRadius: 18, shadowOffset: { width: 0, height: -7 }, elevation: 16 },
+  completionSheet: { position: "absolute", left: 0, right: 0, bottom: 0, zIndex: 20, paddingHorizontal: 14, paddingTop: 10, paddingBottom: 10, backgroundColor: theme.colors.canvas, borderTopLeftRadius: 28, borderTopRightRadius: 28, shadowColor: "#35473F", shadowOpacity: 0.18, shadowRadius: 18, shadowOffset: { width: 0, height: -7 }, elevation: 16 },
   completionActions: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 16, borderRadius: 22, borderWidth: 1, borderColor: theme.colors.successSoft, backgroundColor: theme.colors.surfaceMuted },
-  completionHandle: { width: 38, height: 4, marginBottom: 10, borderRadius: 2, backgroundColor: "rgba(88,108,99,0.22)", alignSelf: "center" },
+  completionHandle: { width: 38, height: 4, marginBottom: 10, borderRadius: 2, backgroundColor: theme.colors.borderStrong, alignSelf: "center" },
   completionActionsSkipped: { borderColor: theme.colors.accentSoft, backgroundColor: theme.colors.surfaceSunken },
   completionActionsAnswerReveal: { paddingHorizontal: 0, paddingTop: 0, paddingBottom: 0, borderWidth: 0, backgroundColor: "transparent" },
   completionHeading: { minHeight: 48, marginBottom: 14, flexDirection: "row", alignItems: "center", gap: 11 },
@@ -1645,20 +1645,20 @@ const styles = StyleSheet.create({
   completionTitleSkipped: { color: theme.colors.danger },
   completionTitleAnswerReveal: { color: theme.colors.warning },
   completionDetail: { marginTop: 2, color: theme.colors.textSecondary, fontSize: 13, lineHeight: 18 },
-  successMark: { width: 38, height: 38, borderRadius: 19, borderWidth: 3, borderColor: theme.colors.border, backgroundColor: theme.colors.success, alignItems: "center", justifyContent: "center", shadowColor: "#477766", shadowOpacity: 0.16, shadowRadius: 6, shadowOffset: { width: 0, height: 3 }, elevation: 2 },
-  skippedMark: { backgroundColor: theme.colors.danger, shadowColor: "#985F55" },
-  answerRevealMark: { backgroundColor: theme.colors.warning, shadowColor: "#9A743C" },
+  successMark: { width: 38, height: 38, borderRadius: 19, borderWidth: 3, borderColor: theme.colors.border, backgroundColor: theme.colors.success, alignItems: "center", justifyContent: "center", shadowColor: "#1F1E1C", shadowOpacity: 0.16, shadowRadius: 6, shadowOffset: { width: 0, height: 3 }, elevation: 2 },
+  skippedMark: { backgroundColor: theme.colors.danger, shadowColor: "#1F1E1C" },
+  answerRevealMark: { backgroundColor: theme.colors.warning, shadowColor: "#1F1E1C" },
   continueButton: { minHeight: 58, paddingHorizontal: 22, borderRadius: 21, borderBottomWidth: 6, borderBottomColor: theme.colors.successSoft, backgroundColor: theme.colors.success, flexDirection: "row", gap: 8, alignItems: "center", justifyContent: "center" },
   skippedContinueButton: { borderBottomColor: theme.colors.accentSoft, backgroundColor: theme.colors.danger },
   answerRevealContinueButton: { borderBottomColor: theme.colors.warningSoft, backgroundColor: theme.colors.warning },
-  primaryButton: { minHeight: 54, marginTop: 20, paddingHorizontal: 28, borderRadius: 18, backgroundColor: theme.colors.ink, alignItems: "center", justifyContent: "center" },
+  primaryButton: { minHeight: 54, marginTop: 20, paddingHorizontal: 28, borderRadius: 16, backgroundColor: theme.colors.accent, alignItems: "center", justifyContent: "center" },
   primaryButtonText: { color: theme.colors.onAccent, fontSize: 16, fontWeight: "600" },
   againButton: { minHeight: 48, marginTop: 10, alignItems: "center", justifyContent: "center" },
   againButtonText: { color: theme.colors.accent, fontSize: 15, fontWeight: "500" },
   summaryBody: { flex: 1, paddingHorizontal: 36, alignItems: "stretch", justifyContent: "center" },
   retryOfferBody: { flex: 1, paddingHorizontal: 30, paddingBottom: 48, alignItems: "stretch", justifyContent: "center" },
   retryCelebration: { height: 112, marginBottom: 18, alignItems: "center", justifyContent: "center" },
-  retryOfferIcon: { width: 86, height: 86, borderRadius: 32, borderWidth: 5, borderColor: theme.colors.warningSoft, backgroundColor: theme.colors.warning, alignItems: "center", justifyContent: "center", shadowColor: "#A8663D", shadowOpacity: 0.22, shadowRadius: 0, shadowOffset: { width: 0, height: 7 }, elevation: 5 },
+  retryOfferIcon: { width: 86, height: 86, borderRadius: 32, borderWidth: 5, borderColor: theme.colors.warningSoft, backgroundColor: theme.colors.warning, alignItems: "center", justifyContent: "center", shadowColor: "#1F1E1C", shadowOpacity: 0.22, shadowRadius: 0, shadowOffset: { width: 0, height: 7 }, elevation: 5 },
   retryConfetti: { position: "absolute", width: 14, height: 14, borderRadius: 5, transform: [{ rotate: "18deg" }] },
   retryConfettiLeft: { left: "22%", top: 16, backgroundColor: theme.colors.accent },
   retryConfettiRight: { right: "20%", bottom: 12, backgroundColor: theme.colors.accent, transform: [{ rotate: "-16deg" }] },
@@ -1674,16 +1674,16 @@ const styles = StyleSheet.create({
   gameButtonPressed: { transform: [{ translateY: 4 }, { scale: 0.99 }], borderBottomWidth: 2, opacity: 0.94 },
   finishRoute: { flexDirection: "row", justifyContent: "center", alignItems: "center", marginBottom: 42 },
   finishConnector: { flex: 1, maxWidth: 20, height: 4, borderRadius: 2 },
-  finishNode: { width: 22, height: 22, borderRadius: 11, shadowColor: "#6E6584", shadowOpacity: 0.15, shadowRadius: 8, shadowOffset: { width: 0, height: 5 } },
+  finishNode: { width: 22, height: 22, borderRadius: 11, shadowColor: "#1F1E1C", shadowOpacity: 0.15, shadowRadius: 8, shadowOffset: { width: 0, height: 5 } },
   summaryTitle: { color: theme.colors.text, fontSize: 28, fontWeight: "700", textAlign: "center", marginBottom: 22 },
   summarySubtitle: { marginTop: -10, marginBottom: 8, color: theme.colors.textSecondary, fontSize: 16, lineHeight: 23, textAlign: "center" },
   cardCompleteBody: { flexGrow: 1, paddingHorizontal: 28, paddingTop: 22, paddingBottom: 42, alignItems: "stretch", justifyContent: "center" },
-  cardCompleteIcon: { width: 82, height: 82, marginBottom: 20, borderRadius: 30, borderWidth: 5, borderColor: theme.colors.border, backgroundColor: theme.colors.success, alignSelf: "center", alignItems: "center", justifyContent: "center", shadowColor: "#477766", shadowOpacity: 0.2, shadowRadius: 0, shadowOffset: { width: 0, height: 7 }, elevation: 5 },
+  cardCompleteIcon: { width: 82, height: 82, marginBottom: 20, borderRadius: 30, borderWidth: 5, borderColor: theme.colors.border, backgroundColor: theme.colors.success, alignSelf: "center", alignItems: "center", justifyContent: "center", shadowColor: "#1F1E1C", shadowOpacity: 0.2, shadowRadius: 0, shadowOffset: { width: 0, height: 7 }, elevation: 5 },
   cardCompleteTitle: { color: theme.colors.text, fontSize: 29, lineHeight: 37, fontWeight: "800", textAlign: "center" },
   cardCompleteName: { marginTop: 8, color: theme.colors.textSecondary, fontSize: 16, lineHeight: 23, textAlign: "center" },
-  nextCardPreview: { marginTop: 34, paddingHorizontal: 18, paddingVertical: 16, borderRadius: 18, borderWidth: 1, borderColor: theme.colors.borderStrong, backgroundColor: "rgba(255,255,255,0.72)" },
+  nextCardPreview: { marginTop: 34, paddingHorizontal: 18, paddingVertical: 16, borderRadius: 18, borderWidth: 1, borderColor: theme.colors.borderStrong, backgroundColor: theme.colors.surface },
   cardCompleteLabel: { marginTop: 24, marginBottom: 9, color: theme.colors.accent, fontSize: 14, lineHeight: 19, fontWeight: "700", textAlign: "center" },
-  cardRouteCard: { minHeight: 92, padding: 10, borderRadius: 20, borderWidth: 1, borderColor: theme.colors.borderStrong, backgroundColor: "rgba(255,255,255,0.88)", flexDirection: "row", alignItems: "center", gap: 12 },
+  cardRouteCard: { minHeight: 92, padding: 10, borderRadius: 20, borderWidth: 1, borderColor: theme.colors.borderStrong, backgroundColor: theme.colors.surface, flexDirection: "row", alignItems: "center", gap: 12 },
   nextCardRouteCard: { borderWidth: 2, borderBottomWidth: 5, borderColor: theme.colors.successSoft, backgroundColor: theme.colors.surfaceMuted },
   cardRouteImage: { width: 72, height: 72, borderRadius: 14, backgroundColor: theme.colors.surfaceMuted },
   cardRouteImageFallback: { alignItems: "center", justifyContent: "center" },
