@@ -8,6 +8,7 @@ import * as Haptics from "expo-haptics";
 import * as ImagePicker from "expo-image-picker";
 import * as MediaLibrary from "expo-media-library/legacy";
 import { readMemoryPhotoSource } from "../services/device/memoryPhotoLibrary";
+import { useAndroidBack } from "../hooks/useAndroidBack";
 import { MemoryPhotoBrowser } from "./home/MemoryPhotoBrowser";
 import { MemoryArchiveDeck } from "./home/MemoryArchiveDeck";
 import { MemoryCollectionFilters } from "./home/MemoryCollectionFilters";
@@ -1313,6 +1314,11 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
     setSearching(false);
   }
 
+  useAndroidBack(isActive && selectingRecords, () => leaveRecordSelection());
+  useAndroidBack(isActive && quickNoteExpanded, () => setQuickNoteExpanded(false));
+  useAndroidBack(isActive && recordActionMenu !== null, () => setRecordActionMenu(null));
+  useAndroidBack(isActive && searchVisible, () => closeSearch());
+  useAndroidBack(isActive && sidebarVisible, () => setSidebarVisible(false));
   function closeSearch(): void {
     searchSequenceRef.current += 1;
     searchDictionaryAbortRef.current?.abort();

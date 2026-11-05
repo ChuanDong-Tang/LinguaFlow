@@ -30,6 +30,7 @@ import { CardDetailModal } from "./CardDetailModal";
 import { t, tf } from "../i18n";
 import { stabilizeSignedImage } from "../services/image/signedImageCache";
 import { memoryBrowsePosition } from "./home/memoryBrowse";
+import { useAndroidBack } from "../hooks/useAndroidBack";
 
 const DETAIL_IMAGE_REFRESH_LEAD_MS = 60_000;
 
@@ -304,6 +305,7 @@ export function CardDetailNavigator({
     setHistoryIndex(next.length - 1);
   }
 
+  useAndroidBack(Boolean(request), () => close());
   function close(): void {
     if (detail?.isSample) detailCacheRef.current.delete(detail.id);
     requestSequenceRef.current += 1;

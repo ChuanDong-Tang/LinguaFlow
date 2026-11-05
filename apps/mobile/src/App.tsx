@@ -78,6 +78,7 @@ import { theme } from "./theme";
 import type { CardDraft } from "./services/card/cardDraftStorage";
 import { getAvailableAppUpdate } from "./services/api/appVersionApi";
 import { reconcileMembershipSilently } from "./services/subscription/autoRenewSync";
+import { useAndroidBack } from "./hooks/useAndroidBack";
 
 type Screen =
   | "booting"
@@ -121,6 +122,11 @@ export default function App() {
   const [memoryRoundResumeAvailable, setMemoryRoundResumeAvailable] = useState(false);
   const [memoryRoundRefreshRevision, setMemoryRoundRefreshRevision] = useState(0);
   const [memoryRoundCurrentRecordId, setMemoryRoundCurrentRecordId] = useState<string | null>(null);
+  // Android back closes the topmost in-app overlay; listeners registered later win.
+  useAndroidBack(screen === "chat", () => setScreen("main"));
+  useAndroidBack(screen === "about", () => { setScreen("main"); setAccountSheetVisible(true); });
+  useAndroidBack(recallVisible, () => setRecallVisible(false));
+  useAndroidBack(memoryRoundVisible, () => setMemoryRoundVisible(false));
   const [recallLaunchRequest, setRecallLaunchRequest] = useState<{ key: number; mode: "today" | "yesterday" | "recent" | "blind" } | null>(null);
   const [deleteAccountVisible, setDeleteAccountVisible] = useState(false);
   const [deleteAccountAuthingToken, setDeleteAccountAuthingToken] = useState("");
