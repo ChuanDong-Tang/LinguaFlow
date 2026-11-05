@@ -276,6 +276,20 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
     position: { index: number; total: number };
     contextLabel?: string;
   } | null>(null);
+  const browseHandoffTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (browseHandoffTimeoutRef.current) clearTimeout(browseHandoffTimeoutRef.current); }, []);
+  // Finish a browse slide once the real record is on screen: snap the pager
+  // back under it in the same frame the preview is removed.
+  useEffect(() => {
+    if (!recallHandoff || recallPosition?.kind !== "browse" || detail?.id !== recallHandoff.detail.id) return;
+    if (browseHandoffTimeoutRef.current) { clearTimeout(browseHandoffTimeoutRef.current); browseHandoffTimeoutRef.current = null; }
+    const frame = requestAnimationFrame(() => {
+      recallTranslateX.setValue(0);
+      setRecallHandoff(null);
+      recallNavigatingRef.current = false;
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [detail?.id, recallHandoff, recallPosition?.kind, recallTranslateX]);
   const recallPanResponder = useMemo(() => PanResponder.create({
     onMoveShouldSetPanResponderCapture: (_, gesture) => Boolean(
       canSwipeMemoryCard({
@@ -304,8 +318,37 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
         leaveCard(action, false);
         return;
       }
-      // Browsing keeps the reader mounted while its next record loads. Do not
-      // slide the old content offscreen before the asynchronous handoff finishes.
+      // Browsing loads the next record asynchronously. With a prefetched
+      // neighbour, slide fully onto its preview and hold there until the real
+      // record replaces it (see the handoff effect); otherwise spring back first.
+      const browseHandoff = recallPosition?.kind === "browse" ? (direction === "next" ? recallNextDetail : recallPreviousDetail) : null;
+      if (recallPosition?.kind === "browse" && browseHandoff) {
+        recallNavigatingRef.current = true;
+        setRecallHandoff({
+          direction,
+          detail: browseHandoff,
+          position: { index: recallPosition.index + (direction === "next" ? 1 : -1), total: recallPosition.total },
+        });
+        Animated.timing(recallTranslateX, {
+          toValue: direction === "next" ? -windowWidth : windowWidth,
+          duration: 210,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }).start(() => {
+          Keyboard.dismiss();
+          action();
+          if (browseHandoffTimeoutRef.current) clearTimeout(browseHandoffTimeoutRef.current);
+          // If loading fails the reader keeps the old record; return to it.
+          browseHandoffTimeoutRef.current = setTimeout(() => {
+            browseHandoffTimeoutRef.current = null;
+            Animated.spring(recallTranslateX, { toValue: 0, useNativeDriver: true, speed: 20, bounciness: 0 }).start(() => {
+              setRecallHandoff(null);
+              recallNavigatingRef.current = false;
+            });
+          }, 4000);
+        });
+        return;
+      }
       if (recallPosition?.kind === "browse") {
         recallNavigatingRef.current = true;
         Animated.spring(recallTranslateX, { toValue: 0, useNativeDriver: true, speed: 24, bounciness: 0 }).start(({ finished }) => {
@@ -616,7 +659,7 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
       },
     ]}>
       <Animated.View style={[styles.recallDetailPage, recallPosition && { transform: [{ translateX: recallTranslateX }] }]} {...(recallPosition ? recallPanResponder.panHandlers : detailBackSwipeResponder.panHandlers)}>
-      {recallPosition && (recallHandoff?.direction === "previous" ? recallHandoff.detail : recallPreviousDetail) ? <View pointerEvents="none" style={[styles.recallAdjacentPage, { left: -windowWidth }]}><RecallAdjacentCard detail={(recallHandoff?.direction === "previous" ? recallHandoff.detail : recallPreviousDetail)!} position={recallHandoff?.direction === "previous" ? recallHandoff.position : { index: recallPosition.index - 1, total: recallPosition.total }} contextLabel={recallHandoff?.direction === "previous" ? recallHandoff.contextLabel : recallPreviousContextLabel} canUseDictation={!detail?.isSample && hasProAccess === true} /></View> : null}
+      {recallPosition && (recallHandoff?.direction === "previous" ? recallHandoff.detail : recallPreviousDetail) ? <View pointerEvents="none" style={[styles.recallAdjacentPage, { left: -windowWidth }]}><RecallAdjacentCard detail={(recallHandoff?.direction === "previous" ? recallHandoff.detail : recallPreviousDetail)!} position={recallHandoff?.direction === "previous" ? recallHandoff.position : { index: recallPosition.index - 1, total: recallPosition.total }} contextLabel={recallHandoff?.direction === "previous" ? recallHandoff.contextLabel : recallPreviousContextLabel} canUseDictation={!detail?.isSample && hasProAccess === true} browse={recallPosition.kind === "browse"} languageMode={languageControl?.mode} /></View> : null}
       <SafeAreaView style={styles.page}>
         <View style={styles.header}>
           <View style={styles.historyButtons}>
@@ -644,7 +687,7 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
         {practiceDetail && contentBinding && tab === "review" ? <Review onLanguageControlChange={updateLanguageControl} hidePhraseRecommendation={hidePhraseRecommendation} key={practiceDetail.id} detail={practiceDetail} imageAdding={imageAdding} contentBinding={contentBinding} playbackMode={playbackMode} practiceEnabled={canPracticeActiveBlock} canUseDictation={!detail?.isSample && hasProAccess === true} autoStartClozePractice={clozeEntryModeRef.current.autoStart} clozeState={resolvedClozeState} clozeVersion={resolvedClozeVersion} onClozeChange={updateCloze} onLearningContentClozeChange={updateLearningContentCloze} onSelectLearningContent={setSelectedLearningContentType} onActivateLearningContent={onActivateLearningContent} onSaveOriginal={onUpdateContent ? async (originalText) => { const accepted = await onUpdateContent({ title: practiceDetail.title ?? null, originalText, collectionId: practiceDetail.collectionId ?? null, selectedTargets: practiceDetail.mode === "corpus" ? [] : practiceDetail.replyText ? ["expression", "reply"] : ["expression"] }); if (accepted === false) throw new Error(t("card_detail.error.try_again")); } : undefined} onUpdateMetadata={onUpdateMetadata} onRemoveImage={onRemoveImage} onCoverPositionChange={onCoverPositionChange} relations={relations} onOpenRelated={onOpenRelated} relationFocusSentence={relationFocusSentence} onOpenDictation={() => setTab("dictation")} pendingGenerationTargets={pendingGenerationTargets} failedGenerationTargets={failedGenerationTargets} retryingGenerationTarget={retryingGenerationTarget} onRetryGeneration={onRetryGeneration} onGeneratePhraseRecommendation={onGeneratePhraseRecommendation} onRecallFinish={recallPosition?.kind === "browse" ? undefined : onRecallFinish} onClozeAttempt={onClozeAttempt} onPendingClozeCheckHandlerChange={registerPendingClozeCheck} onInteractionLockChange={(locked) => { setDetailInteractionLocked(locked); if (recallPosition) setRecallInteractionLocked(locked); }} onImageSwipeContextChange={(active, index) => { imageSwipeContextRef.current = { active, index }; }} focusLearningContent={clozeTipEligible && clozeGuideStep === 1} onLearningTargetReady={handleClozeLearningTargetReady} focusActionBar={clozeTipEligible && clozeGuideStep === 2} onActionBarTargetReady={handleClozeActionBarTargetReady} /> : null}
         {practiceDetail && contentBinding && tab === "dictation" && hasProAccess === true ? <Dictation detail={practiceDetail} contentBinding={contentBinding} /> : null}
       </SafeAreaView>
-      {recallPosition && (recallHandoff?.direction === "next" ? recallHandoff.detail : recallNextDetail) ? <View pointerEvents="none" style={[styles.recallAdjacentPage, { left: windowWidth }]}><RecallAdjacentCard detail={(recallHandoff?.direction === "next" ? recallHandoff.detail : recallNextDetail)!} position={recallHandoff?.direction === "next" ? recallHandoff.position : { index: recallPosition.index + 1, total: recallPosition.total }} contextLabel={recallHandoff?.direction === "next" ? recallHandoff.contextLabel : recallNextContextLabel} canUseDictation={!detail?.isSample && hasProAccess === true} /></View> : null}
+      {recallPosition && (recallHandoff?.direction === "next" ? recallHandoff.detail : recallNextDetail) ? <View pointerEvents="none" style={[styles.recallAdjacentPage, { left: windowWidth }]}><RecallAdjacentCard detail={(recallHandoff?.direction === "next" ? recallHandoff.detail : recallNextDetail)!} position={recallHandoff?.direction === "next" ? recallHandoff.position : { index: recallPosition.index + 1, total: recallPosition.total }} contextLabel={recallHandoff?.direction === "next" ? recallHandoff.contextLabel : recallNextContextLabel} canUseDictation={!detail?.isSample && hasProAccess === true} browse={recallPosition.kind === "browse"} languageMode={languageControl?.mode} /></View> : null}
       </Animated.View>
       {clozeTipVisible && clozeTipTarget ? <ClozeOnboardingOverlay
         step={clozeGuideStep}
@@ -765,7 +808,7 @@ function ClozeActionGuide() {
   </View>;
 }
 
-function RecallAdjacentCard({ detail, position, contextLabel, canUseDictation }: { detail: CardRecordDetail; position: { index: number; total: number }; contextLabel?: string; canUseDictation: boolean }) {
+function RecallAdjacentCard({ detail, position, contextLabel, canUseDictation, browse = false, languageMode }: { detail: CardRecordDetail; position: { index: number; total: number }; contextLabel?: string; canUseDictation: boolean; browse?: boolean; languageMode?: React.ComponentProps<typeof CardLanguageModeIcon>["mode"] }) {
   const blocks = learningContentBlocks(detail);
   const learningBlock = blocks.find((block) => block.contentType === "rewrite")
     ?? blocks.find((block) => block.contentType === "original")
@@ -776,8 +819,20 @@ function RecallAdjacentCard({ detail, position, contextLabel, canUseDictation }:
   const contentBinding = { contentType: learningBlock.contentType, contentVersion: learningBlock.contentVersion };
   const practiceEnabled = learningBlock.contentType !== "original" || canUseDictation;
   return <SafeAreaView style={styles.recallAdjacentSafeArea}>
-    <View style={styles.header}><View style={styles.historyButtons}><View style={styles.historyButton} /></View><Text style={styles.title}>{position.index + 1} / {position.total}</Text><View style={styles.headerEnd}><View style={styles.iconHeaderButton}><Icon name="close" size={23} color={theme.colors.text} /></View></View></View>
-    <Text numberOfLines={1} style={[styles.recallContextLabel, !contextLabel && styles.recallContextLabelHidden]}>{contextLabel ?? " "}</Text>
+    {browse ? <>
+      <View style={styles.header}>
+        <View style={styles.historyButtons}><View style={styles.historyButton}><Icon name="chevron-back" size={22} color={theme.colors.text} /></View></View>
+        <View style={styles.cardModeSwitch}>
+          <View style={styles.cardModeOption}><Text style={[styles.cardModeOptionText, styles.cardModeOptionTextActive]}>{t("card_detail.mode.read")}</Text></View>
+          <View style={styles.cardModeOption}><Text style={styles.cardModeOptionText}>{t("card_detail.mode.play")}</Text></View>
+        </View>
+        <View style={styles.headerEnd}>{languageMode ? <View style={styles.cardModeOption}><CardLanguageModeIcon mode={languageMode} /></View> : null}<View style={styles.iconHeaderButton}><Icon name="ellipsis-horizontal" size={23} color={theme.colors.text} /></View></View>
+      </View>
+      <MemoryBrowseControl index={position.index} total={position.total} disabled onExit={() => undefined} />
+    </> : <>
+      <View style={styles.header}><View style={styles.historyButtons}><View style={styles.historyButton} /></View><Text style={styles.title}>{position.index + 1} / {position.total}</Text><View style={styles.headerEnd}><View style={styles.iconHeaderButton}><Icon name="close" size={23} color={theme.colors.text} /></View></View></View>
+      <Text numberOfLines={1} style={[styles.recallContextLabel, !contextLabel && styles.recallContextLabelHidden]}>{contextLabel ?? " "}</Text>
+    </>}
     <Review
       key={`${detail.id}:${contentBinding.contentType}:${contentBinding.contentVersion}`}
       detail={previewDetail}
@@ -786,7 +841,7 @@ function RecallAdjacentCard({ detail, position, contextLabel, canUseDictation }:
       playbackMode={false}
       practiceEnabled={practiceEnabled}
       canUseDictation={canUseDictation}
-      autoStartClozePractice
+      autoStartClozePractice={!browse}
       clozeState={previewClozeState}
       clozeVersion={learningBlock.practice?.clozeVersion ?? 0}
       onClozeChange={() => undefined}
