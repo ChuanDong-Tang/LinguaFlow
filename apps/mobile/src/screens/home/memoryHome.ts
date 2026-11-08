@@ -37,10 +37,10 @@ export function memoryHomeCopy(locale: string) {
     "ja-JP": { dayEmpty: "この日の思い出はまだありません", dayHint: "この日の写真を見てみましょう。", create: "思い出を残す" },
   };
   const entries = {
-    "zh-CN": { todayPhotos: "今日图", randomPhotos: "盲盒图", grid: "图文卡片" },
-    "zh-TW": { todayPhotos: "今日圖", randomPhotos: "盲盒圖", grid: "圖文卡片" },
-    "en-US": { todayPhotos: "Today's photos", randomPhotos: "Surprise photos", grid: "Photo stories" },
-    "ja-JP": { todayPhotos: "今日の写真", randomPhotos: "ランダム写真", grid: "写真カード" },
+    "zh-CN": { todayPhotos: "今日图", randomPhotos: "盲盒", grid: "图文卡片", camera: "拍照", photos: "图片", recentPhotos: "近期", recentPhotosHint: "最近三天的照片", randomPhotosHint: "从整个相册随机翻" },
+    "zh-TW": { todayPhotos: "今日圖", randomPhotos: "盲盒", grid: "圖文卡片", camera: "拍照", photos: "圖片", recentPhotos: "近期", recentPhotosHint: "最近三天的照片", randomPhotosHint: "從整個相簿隨機翻" },
+    "en-US": { todayPhotos: "Today's photos", randomPhotos: "Surprise", grid: "Photo stories", camera: "Camera", photos: "Photos", recentPhotos: "Recent", recentPhotosHint: "Last three days", randomPhotosHint: "Random from your library" },
+    "ja-JP": { todayPhotos: "今日の写真", randomPhotos: "ランダム", grid: "写真カード", camera: "撮影", photos: "写真", recentPhotos: "最近", recentPhotosHint: "最近 3 日間の写真", randomPhotosHint: "ライブラリからランダムに" },
   };
   return { ...(copy[locale as keyof typeof copy] ?? copy["en-US"]), ...(empty[locale as keyof typeof empty] ?? empty["en-US"]), ...(entries[locale as keyof typeof entries] ?? entries["en-US"]) };
 }

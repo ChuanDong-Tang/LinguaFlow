@@ -22,7 +22,7 @@ import { OioMascot, type OioMascotHandle } from "../components/sketch/OioMascot"
 import { haptic } from "../feedback/haptics";
 import { motion } from "../motion";
 import OioCharacter from "../../assets/app/oio-character.svg";
-import { ClockCounterClockwise, Eye, Gift, ImageSquare, PencilSimpleLine, SealCheck, SunHorizon, TextUnderline, TrayArrowDown } from "phosphor-react-native";
+import { Camera, ClockCounterClockwise, Eye, Gift, ImageSquare, ImagesSquare, PencilSimpleLine, SealCheck, SunHorizon, TextUnderline, TrayArrowDown } from "phosphor-react-native";
 import Sortable from "react-native-sortables";
 import { FlashList } from "@shopify/flash-list";
 import {
@@ -144,6 +144,8 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
   const [homeTab, setHomeTab] = useState<MemoryHomeTab>("memory");
   const touchingCollectionFilters = useRef(false);
   const [photoBrowser, setPhotoBrowser] = useState<"today" | "random" | null>(null);
+  const [photoSourceMenuVisible, setPhotoSourceMenuVisible] = useState(false);
+  useAndroidBack(photoSourceMenuVisible, () => setPhotoSourceMenuVisible(false));
   const photoConfirmLock = useRef(false);
   const [homeLayout, setHomeLayout] = useState<"grid" | "list">("grid");
   const [localDay, setLocalDay] = useState(() => toDateKey(new Date()));
@@ -1153,11 +1155,18 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
     }
   }
 
-  async function pickImage(source: "camera" | "library"): Promise<void> {
+  /** 📷 on the dock: take a photo, then write about it in the full editor. */
+  async function captureMemoryPhoto(): Promise<void> {
+    Keyboard.dismiss();
+    const added = await pickImage("camera");
+    if (added > 0) openCardComposer();
+  }
+
+  async function pickImage(source: "camera" | "library"): Promise<number> {
     const remaining = cardLimits.imagesPerCard - draft.images.length;
     if (remaining <= 0) {
       Alert.alert(t("card_detail.photo.limit_title"));
-      return;
+      return 0;
     }
     if (source === "camera" || Platform.OS !== "android") {
       const permission = source === "camera"
@@ -1165,16 +1174,18 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
         : await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (!permission.granted) {
         Alert.alert(t("card_detail.photo.permission_title"), source === "camera" ? t("card_detail.photo.camera_permission_message") : t("card_detail.photo.library_permission_message"));
-        return;
+        return 0;
       }
     }
     const result = source === "camera"
       ? await ImagePicker.launchCameraAsync({ mediaTypes: ["images"], quality: 1 })
       : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 1, allowsMultipleSelection: true, selectionLimit: remaining });
     const selected = result.assets?.filter((asset) => asset.uri && asset.width && asset.height) ?? [];
-    if (result.canceled || !selected.length) return;
+    if (result.canceled || !selected.length) return 0;
     if (selected.length > remaining) Alert.alert(t("card_detail.photo.limit_title"), tf("card_detail.photo.selection_limited", { count: remaining }));
-    for (const asset of selected.slice(0, remaining)) await applyDraftImage(asset);
+    const accepted = selected.slice(0, remaining);
+    for (const asset of accepted) await applyDraftImage(asset);
+    return accepted.length;
   }
 
   async function confirmMemoryPhoto(asset: MediaLibrary.Asset, text: string): Promise<void> {
@@ -1701,129 +1712,21 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
         onMove={(record) => { setRecordActionMenu(null); openMoveActions(record); }}
         onDelete={(record) => { setRecordActionMenu(null); confirmDelete(record.id); }}
       />
-      {!selectingRecords && libraryView !== TRASH_VIEW && !quickNoteExpanded ? <SketchBox seed="home-dock" radius={31} fill={theme.colors.canvas} shadow style={[styles.memoryEntryDock, { bottom: Math.max(screenInsets.bottom + 10, 14) }]}>
-        <Pressable accessibilityRole="button" accessibilityLabel={homeCopy.todayPhotos} style={({ pressed }) => [styles.memoryPhotoShortcut, pressed && styles.memoryPhotoShortcutPressed]} onPress={() => { haptic.light(); Keyboard.dismiss(); setPhotoBrowser("today"); }}>
-          <SunHorizon size={25} color={theme.colors.text} />
-          <Text style={styles.memoryEntryLabel}>{homeCopy.todayPhotos}</Text>
+      {!selectingRecords && libraryView !== TRASH_VIEW ? <SketchBox seed="home-dock" radius={31} fill={theme.colors.canvas} shadow style={[styles.memoryEntryDock, { bottom: Math.max(screenInsets.bottom + 10, 14) }]}>
+        <Pressable accessibilityRole="button" accessibilityLabel={t("card_detail.photo.camera")} style={({ pressed }) => [styles.memoryPhotoShortcut, pressed && styles.memoryPhotoShortcutPressed]} onPress={() => { haptic.medium(); void captureMemoryPhoto(); }}>
+          <Camera size={25} color={theme.colors.text} />
+          <Text style={styles.memoryEntryLabel}>{homeCopy.camera}</Text>
         </Pressable>
-        <SketchPressable seed="home-plus" radius={27} fill={theme.colors.accent} feedback="medium" accessibilityRole="button" accessibilityLabel={t("quick_note.expand_editor")} contentStyle={styles.memoryEntryButton} onPress={() => setQuickNoteExpanded(true)}>
+        <SketchPressable seed="home-plus" radius={27} fill={theme.colors.accent} feedback="medium" accessibilityRole="button" accessibilityLabel={t("quick_note.expand_editor")} contentStyle={styles.memoryEntryButton} onPress={openCardComposer}>
           <Icon name="add" size={29} color={theme.colors.onAccent} weight="bold" />
           {draft.text || draft.images.length ? <View style={styles.memoryDraftDot} /> : null}
         </SketchPressable>
-        <Pressable accessibilityRole="button" accessibilityLabel={homeCopy.randomPhotos} style={({ pressed }) => [styles.memoryPhotoShortcut, pressed && styles.memoryPhotoShortcutPressed]} onPress={() => { haptic.light(); Keyboard.dismiss(); setPhotoBrowser("random"); }}>
-          <Gift size={25} color={theme.colors.text} />
-          <Text style={styles.memoryEntryLabel}>{homeCopy.randomPhotos}</Text>
+        <Pressable accessibilityRole="button" accessibilityLabel={homeCopy.photos} style={({ pressed }) => [styles.memoryPhotoShortcut, pressed && styles.memoryPhotoShortcutPressed]} onPress={() => { haptic.light(); Keyboard.dismiss(); setPhotoSourceMenuVisible(true); }}>
+          <ImagesSquare size={25} color={theme.colors.text} />
+          <Text style={styles.memoryEntryLabel}>{homeCopy.photos}</Text>
         </Pressable>
       </SketchBox> : null}
-      {!selectingRecords && libraryView !== TRASH_VIEW && quickNoteExpanded ? <Reanimated.View style={[styles.unifiedComposerDock, { bottom: Math.max(screenInsets.bottom + 10, 14) }, quickNoteKeyboardDockStyle]}>
-        <Pressable accessibilityRole="button" accessibilityLabel={t("card_detail.a11y.close")} disabled={quickNoteStt.status !== "idle" || quickNoteCreating || preparingDraftImageCount > 0} style={styles.memoryCollapseInput} onPress={() => { Keyboard.dismiss(); setQuickNoteAddMenuVisible(false); setQuickNoteExpanded(false); }}><Icon name="chevron-down" size={20} color={theme.colors.textSecondary} /></Pressable>
-        <View style={styles.unifiedComposerBar}>
-          {draft.images.length || preparingDraftImageCount > 0 ? <ScrollView horizontal showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={styles.quickNoteAttachmentRow}>
-            {draft.images.map((image) => <View key={image.localUri} style={styles.quickNoteAttachment}>
-              <Image source={{ uri: image.localUri }} style={styles.quickNoteAttachmentImage} />
-              {image.status !== "ready" ? <View style={styles.quickNoteAttachmentOverlay}>
-                {image.status === "failed"
-                  ? <Icon name="alert-circle" size={20} color={theme.colors.surface} />
-                  : <ActivityIndicator size="small" color={theme.colors.surface} />}
-              </View> : null}
-              <Pressable accessibilityLabel={t("common.remove")} hitSlop={6} style={styles.quickNoteAttachmentRemove} onPress={() => removeDraftImage(image.localUri)}>
-                <Icon name="close" size={13} color={theme.colors.surface} />
-              </Pressable>
-            </View>)}
-            {preparingDraftImageCount > 0 ? <View style={[styles.quickNoteAttachment, styles.quickNoteAttachmentPreparing]}><ActivityIndicator size="small" color={theme.colors.textMuted} /></View> : null}
-          </ScrollView> : null}
-          {draft.images.some((image) => image.status === "ready") ? <Pressable
-            accessibilityRole="switch"
-            accessibilityLabel={t("quick_note.image_description_on")}
-            accessibilityState={{ checked: draft.generateImageDescription }}
-            hitSlop={6}
-            style={({ pressed }) => [styles.imageDescriptionChoice, draft.generateImageDescription && styles.imageDescriptionChoiceActive, pressed && styles.imageDescriptionChoicePressed]}
-            onPress={() => {
-              void Haptics.selectionAsync().catch(() => undefined);
-              void updateDraftImageDescription(!draft.generateImageDescription);
-            }}
-          ><Text style={[styles.imageDescriptionChoiceText, draft.generateImageDescription && styles.imageDescriptionChoiceTextActive]}>{t("quick_note.image_description_on")}</Text><Icon name={draft.generateImageDescription ? "checkmark-circle" : "ellipse-outline"} size={17} color={draft.generateImageDescription ? theme.colors.text : theme.colors.textMuted} /></Pressable> : null}
-          {quickNoteAddMenuVisible ? <View style={styles.quickNoteAddMenu}>
-            {(["camera", "library"] as const).map((source) => <Pressable
-              key={source}
-              accessibilityRole="button"
-              disabled={quickNoteCreating}
-              style={styles.quickNoteAddMenuItem}
-              onPress={() => { setQuickNoteAddMenuVisible(false); Keyboard.dismiss(); void pickImage(source); }}
-            >
-              <Icon name={source === "camera" ? "camera-outline" : "image-outline"} size={22} color={theme.colors.textSecondary} />
-              <Text style={styles.quickNoteAddMenuText}>{t(source === "camera" ? "card_detail.photo.camera" : "card_detail.photo.library")}</Text>
-            </Pressable>)}
-          </View> : null}
-          <View style={styles.unifiedComposerControls}>
-            <View style={styles.unifiedComposerLeftRail}>
-              {quickNoteNeedsFullEditor ? <Pressable accessibilityLabel={t("quick_note.expand_editor")} hitSlop={8} style={styles.unifiedComposerExpand} onPress={openCardComposer}>
-                <View style={styles.fullEditorIcon}>
-                  <View style={styles.fullEditorIconTopLeft} />
-                  <View style={styles.fullEditorIconBottomRight} />
-                </View>
-              </Pressable> : null}
-              <View style={styles.unifiedComposerRailSpacer} />
-              <Pressable accessibilityRole="button" accessibilityLabel={t("quick_note.add_attachment")} accessibilityState={{ expanded: quickNoteAddMenuVisible, disabled: quickNoteCreating }} disabled={quickNoteCreating} hitSlop={6} style={styles.unifiedComposerTool} onPress={() => setQuickNoteAddMenuVisible((visible) => !visible)}><Icon name={quickNoteAddMenuVisible ? "close" : "add"} size={25} color={theme.colors.textSecondary} /></Pressable>
-            </View>
-            <Reanimated.View style={[styles.unifiedComposerInputArea, Platform.OS === "android"
-              ? { height: androidQuickNoteInputHeight }
-              : quickNoteAnimatedHeightStyle]}>
-            <Text
-              pointerEvents="none"
-              aria-hidden
-              style={styles.unifiedComposerMeasureText}
-              onTextLayout={(event) => {
-                const next = Math.max(1, event.nativeEvent.lines.length);
-                if (next !== quickNoteLineCount) setQuickNoteLineCount(next);
-              }}
-            >{draft.text || " "}</Text>
-            <TextInput
-              ref={quickNoteInputRef}
-              accessibilityLabel={t("quick_note.placeholder")}
-              style={[styles.unifiedComposerTextInput, Platform.OS === "android" && styles.unifiedComposerTextInputAndroid]}
-              value={draft.text}
-              onChangeText={updateQuickNoteText}
-              onContentSizeChange={Platform.OS === "android" ? (event) => {
-                const height = event.nativeEvent.contentSize.height;
-                if (Number.isFinite(height) && height > 0) setAndroidQuickNoteContentHeight(draft.text.length === 0 ? 44 : height);
-              } : undefined}
-              onSelectionChange={({ nativeEvent }) => quickNoteStt.onSelectionChange(nativeEvent.selection)}
-              onFocus={() => { setQuickNoteAddMenuVisible(false); if (quickNoteStt.status !== "idle") void quickNoteStt.toggle(); }}
-              placeholder={t("quick_note.placeholder")}
-              placeholderTextColor={theme.colors.textMuted}
-              maxLength={cardLimits.contentChars}
-              multiline
-              scrollEnabled
-              textAlignVertical={Platform.OS === "android" && androidQuickNoteInputHeight === 44 ? "center" : "top"}
-              editable={!quickNoteCreating}
-            />
-            </Reanimated.View>
-            <View style={styles.unifiedComposerRightRail}>
-              <RealtimeSttButton
-                status={quickNoteStt.status}
-                audioLevel={quickNoteStt.audioLevel}
-                disabled={quickNoteCreating}
-                iconSize={19}
-                style={styles.unifiedComposerMic}
-                onPress={() => {
-                  setQuickNoteAddMenuVisible(false);
-                  Keyboard.dismiss();
-                  quickNoteInputRef.current?.blur();
-                  if (quickNoteStt.status === "idle") {
-                    const end = draftRef.current.text.length;
-                    quickNoteStt.onSelectionChange({ start: end, end });
-                  }
-                  void quickNoteStt.toggle();
-                }}
-              />
-              <Pressable accessibilityRole="button" accessibilityLabel={t("quick_note.a11y.send")} accessibilityState={{ disabled: quickNoteSendDisabled }} hitSlop={8} disabled={quickNoteSendDisabled} style={[styles.unifiedComposerSend, quickNoteSendDisabled && styles.unifiedComposerSendDisabled]} onPress={() => { setQuickNoteAddMenuVisible(false); void sendQuickNote(); }}>
-                {quickNoteCreating ? <ActivityIndicator size="small" color={theme.colors.surface} /> : <Icon name="arrow-up" size={16} color={theme.colors.surface} />}
-              </Pressable>
-            </View>
-          </View>
-        </View>
-      </Reanimated.View> : null}
+      <PhotoSourceMenu visible={photoSourceMenuVisible} bottomInset={screenInsets.bottom} onClose={() => setPhotoSourceMenuVisible(false)} onPick={(mode) => { setPhotoSourceMenuVisible(false); setPhotoBrowser(mode); }} />
       {selectingRecords && selectedRecordIds.size ? <View style={[styles.batchActionBar, libraryView === TRASH_VIEW && styles.batchActionBarCentered, { paddingBottom: Math.max(screenInsets.bottom, 10) }]}>{libraryView !== TRASH_VIEW ? <Pressable style={styles.batchAction} onPress={() => setBatchMoveVisible(true)}><Icon name="folder-open-outline" size={22} color={theme.colors.text} /><Text style={styles.batchActionText}>{t("library.move")}</Text></Pressable> : null}<Pressable style={styles.batchAction} onPress={confirmBatchDelete}><Icon name="trash-outline" size={22} color={theme.colors.danger} /><Text style={[styles.batchActionText, { color: theme.colors.danger }]}>{libraryView === TRASH_VIEW ? "彻底删除" : t("common.delete")}</Text></Pressable></View> : null}
       <Modal visible={libraryMenuVisible} transparent animationType="fade" onRequestClose={() => setLibraryMenuVisible(false)}>
         <Pressable style={styles.libraryMenuBackdrop} onPress={() => setLibraryMenuVisible(false)}>
@@ -3223,6 +3126,26 @@ function CardCard({ record, grid = false, enterIndex, collectionName, selecting 
   );
 }
 
+/** 🖼 on the dock: choose where the photo inspiration comes from. */
+function PhotoSourceMenu({ visible, bottomInset, onClose, onPick }: {
+  visible: boolean;
+  bottomInset: number;
+  onClose: () => void;
+  onPick: (mode: "today" | "random") => void;
+}) {
+  const copy = memoryHomeCopy(getLanguage());
+  return <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+    <Pressable style={styles.actionSheetBackdrop} onPress={onClose} accessibilityLabel={t("common.cancel")} />
+    <View pointerEvents="box-none" style={[styles.photoSourceWrap, { bottom: Math.max(bottomInset + 10, 14) + 78 }]}>
+      {([["today", SunHorizon, copy.recentPhotos, copy.recentPhotosHint], ["random", Gift, copy.randomPhotos, copy.randomPhotosHint]] as const).map(([mode, Glyph, label, hint]) => <SketchPressable key={mode} seed={`photo-source-${mode}`} radius={18} fill={theme.colors.surface} feedback="light" style={styles.photoSourceOption} contentStyle={styles.photoSourceInner} onPress={() => onPick(mode)}>
+        <Glyph size={26} color={theme.colors.text} />
+        <Text style={styles.photoSourceLabel}>{label}</Text>
+        <Text style={styles.photoSourceHint}>{hint}</Text>
+      </SketchPressable>)}
+    </View>
+  </Modal>;
+}
+
 /** iMessage-style bottom actions for a long-pressed card: move / delete (or restore in trash). */
 function RecordActionSheet({ record, trash, bottomInset, onClose, onRestore, onMove, onDelete }: {
   record: CardRecordSummary | null;
@@ -3374,6 +3297,11 @@ const styles = createStyles(() => ({
   memoryToolbar: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 22, paddingVertical: 8 },
   memoryTodayDate: { color: theme.colors.textSecondary, fontSize: 14 },
   memoryGridRow: { gap: 14, alignItems: "flex-start" },
+  photoSourceWrap: { position: "absolute", left: 28, right: 28, flexDirection: "row", gap: 12 },
+  photoSourceOption: { flex: 1 },
+  photoSourceInner: { minHeight: 112, padding: 14, gap: 6, alignItems: "flex-start", justifyContent: "flex-end" },
+  photoSourceLabel: { color: theme.colors.text, fontSize: 16, fontWeight: "700" },
+  photoSourceHint: { color: theme.colors.textMuted, fontSize: 12 },
   actionSheetBackdrop: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, backgroundColor: theme.colors.scrimLight },
   actionSheetWrap: { position: "absolute", left: 14, right: 14, bottom: 0, gap: 10 },
   actionSheetTitle: { paddingHorizontal: 18, paddingTop: 14, paddingBottom: 6, color: theme.colors.textMuted, fontSize: 13 },

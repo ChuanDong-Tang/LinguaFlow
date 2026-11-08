@@ -1140,6 +1140,8 @@ function DraftCard({ draft, sending, imageAdding, safeArea, limits, collections,
   const imagesReady = draft.images.every((image) => image.status === "ready");
   const canSave = (count > 0 || draft.images.length > 0) && count <= limits.contentChars && imagesReady;
   const [photoRailVisible, setPhotoRailVisible] = useState(false);
+  const [collectionPickerOpen, setCollectionPickerOpen] = useState(false);
+  const draftCollection = collections.find((collection) => collection.id === draft.collectionId) ?? null;
   const [recentPhotos, setRecentPhotos] = useState<MediaLibrary.Asset[]>([]);
   const [photosLoading, setPhotosLoading] = useState(false);
   const editorScrollRef = useRef<ScrollView>(null);
@@ -1200,7 +1202,7 @@ function DraftCard({ draft, sending, imageAdding, safeArea, limits, collections,
   return (
     <View style={styles.fullscreen}>
       <SafeAreaView edges={safeArea ? [] : undefined} style={[styles.page, safeArea ? { paddingTop: safeArea.top, paddingBottom: safeArea.bottom } : null]}>
-        <CardEditorHeader title={draft.mode === "corpus" ? t("card_detail.input_corpus") : t("card_detail.create_card")} disabled={sending} onClose={onClose} />
+        <CardEditorHeader title={draft.mode === "corpus" ? t("card_detail.input_corpus") : ""} disabled={sending} onClose={onClose} />
         {processing ? (
           <ScrollView contentContainerStyle={styles.draftContent} showsVerticalScrollIndicator={false} alwaysBounceVertical={false} bounces={false}>
             <Text style={styles.date}>{formatDraftDate()}</Text>
@@ -1222,7 +1224,6 @@ function DraftCard({ draft, sending, imageAdding, safeArea, limits, collections,
               alwaysBounceVertical={false}
               bounces={false}
             >
-              <CollectionPickerRow collections={collections} value={draft.collectionId} onChange={(collectionId) => onCollectionChange?.(collectionId)} onCreateCollection={onCreateCollection} onRenameCollection={onRenameCollection} onDeleteCollection={onDeleteCollection} />
               <TextInput
                 value={draft.title}
                 editable={!sending}
@@ -1260,7 +1261,7 @@ function DraftCard({ draft, sending, imageAdding, safeArea, limits, collections,
                   value={draft.text}
                   editable={!sending}
                   maxLength={limits.contentChars}
-                  placeholder={draft.mode === "corpus" ? t("card_detail.input_corpus") : t("card_detail.original_placeholder")}
+                  placeholder={draft.mode === "corpus" ? t("card_detail.input_corpus") : t("card_detail.capture_placeholder")}
                   placeholderTextColor={theme.colors.textMuted}
                   style={[styles.draftBlockInput, styles.draftBlockInputFeatured]}
                   textAlignVertical="top"
@@ -1281,7 +1282,10 @@ function DraftCard({ draft, sending, imageAdding, safeArea, limits, collections,
             </ScrollView>
             {Platform.OS === "ios" && photoRailVisible ? <RecentPhotoLayer assets={recentPhotos} loading={photosLoading} maxSelection={Math.min(8, Math.max(0, limits.imagesPerCard - draft.images.length))} onDismiss={() => setPhotoRailVisible(false)} onSelect={(assets) => void selectRecentPhotos(assets)} onTakePhoto={() => { setPhotoRailVisible(false); onTakePhoto?.(); }} onOpenAll={() => { setPhotoRailVisible(false); onChooseImage?.(); }} /> : null}
             </>
+            <CollectionPickerModal visible={collectionPickerOpen} title={t("card_detail.choose_collection")} collections={collections} value={draft.collectionId} onClose={() => setCollectionPickerOpen(false)} onSelect={(collectionId) => onCollectionChange?.(collectionId ?? null)} onCreateCollection={onCreateCollection} onRenameCollection={onRenameCollection} onDeleteCollection={onDeleteCollection} />
             <DraftComposerToolbar
+              collectionLabel={draftCollection ? draftCollection.name : null}
+              onCollection={() => { Keyboard.dismiss(); haptic.light(); setCollectionPickerOpen(true); }}
               imageCount={draft.images.length}
               actionLabel={draft.mode === "corpus" ? t("card_detail.save_action") : t("card_detail.rewrite_action")}
               sttStatus={originalStt.status}
@@ -1574,7 +1578,10 @@ function DraftAiOptionsRow({ selected, disabled, onToggle }: {
   </View>;
 }
 
-function DraftComposerToolbar({ imageCount, hideMedia = false, actionLabel, sttStatus, sttAudioLevel, disabled, onCamera, onRecentPhotos, onStt, characterCount, characterLimit, canSave, onInvalidSave, onSave }: {
+function DraftComposerToolbar({ collectionLabel, onCollection, imageCount, hideMedia = false, actionLabel, sttStatus, sttAudioLevel, disabled, onCamera, onRecentPhotos, onStt, characterCount, characterLimit, canSave, onInvalidSave, onSave }: {
+  /** Current folder name (null = 未分类); the tag sits by the thumb, not at the top. */
+  collectionLabel?: string | null;
+  onCollection?: () => void;
   imageCount: number;
   hideMedia?: boolean;
   actionLabel?: string;
@@ -1618,6 +1625,9 @@ function DraftComposerToolbar({ imageCount, hideMedia = false, actionLabel, sttS
       <Icon name={tool.icon} size={21} color={theme.colors.text} />
       {tool.count ? <View style={styles.draftComposerBadge}><Text style={styles.draftComposerBadgeText}>{tool.count}</Text></View> : null}
     </Pressable>) : null}
+    {onCollection ? <Pressable accessibilityRole="button" accessibilityLabel={t("card_detail.a11y.choose_collection")} disabled={disabled} hitSlop={4} style={[styles.draftFolderTag, collectionLabel ? styles.draftFolderTagOn : null]} onPress={onCollection}>
+      <Text numberOfLines={1} style={[styles.draftFolderTagText, collectionLabel ? styles.draftFolderTagTextOn : null]}>#{collectionLabel ? ` ${collectionLabel}` : ""}</Text>
+    </Pressable> : null}
     <RealtimeSttButton status={sttStatus} audioLevel={sttAudioLevel} disabled={disabled} style={[styles.draftComposerTool, compact && styles.draftComposerToolCompact]} onPress={onStt} />
     <View style={styles.draftComposerSpacer} />
     {typeof characterCount === "number" && typeof characterLimit === "number" ? <Text accessibilityLabel={`${characterCount}/${characterLimit}`} style={[styles.draftCharacterCount, characterCount > characterLimit && styles.draftCharacterCountOver]}>{compact ? characterCount : `${characterCount}/${characterLimit}`}</Text> : null}
@@ -5403,6 +5413,10 @@ function formatDate(value: string): string { const [year, month, day] = value.sp
 function formatTime(value: string): string { const date = new Date(value); return Number.isNaN(date.getTime()) ? "" : date.toLocaleTimeString(getLanguage(), { hour: "2-digit", minute: "2-digit" }); }
 
 const styles = createStyles(() => ({
+  draftFolderTag: { minWidth: 36, maxWidth: 120, height: 34, paddingHorizontal: 10, borderRadius: 17, borderWidth: 1, borderColor: theme.colors.border, alignItems: "center", justifyContent: "center" },
+  draftFolderTagOn: { borderColor: theme.colors.ink },
+  draftFolderTagText: { color: theme.colors.textSecondary, fontSize: 15, fontWeight: "700" },
+  draftFolderTagTextOn: { color: theme.colors.text, fontSize: 13 },
   imageDescriptionChip: { minHeight: 30, paddingHorizontal: 12, borderRadius: 15, backgroundColor: "rgba(28, 28, 26, 0.55)", justifyContent: "center" },
   imageDescriptionChipOn: { backgroundColor: theme.colors.surface },
   imageDescriptionChipText: { color: "#FFFFFF", fontSize: 12, fontWeight: "600" },
