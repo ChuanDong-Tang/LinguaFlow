@@ -102,6 +102,11 @@ export interface CardPracticeSummaryView {
   hasCloze: boolean;
   dictationCompleted: boolean;
   nextReviewAt: string | null;
+  /** Learning-loop badge for home cards (see text/cardLearningStatus). */
+  status?: "image_only" | "recorded" | "clozed" | "completed";
+  /** How many times the user has opened ("met") this card. */
+  encounterCount?: number;
+  favorited?: boolean;
 }
 
 export interface CardPracticeView extends CardPracticeSummaryView {

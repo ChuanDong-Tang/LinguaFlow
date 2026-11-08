@@ -64,6 +64,16 @@ export interface CardEntryEntity {
   isSample: boolean;
   topic: string | null;
   topicEditedAt: Date | null;
+  /** Catchy display title; `topic` stays the summary used for relations. */
+  headline?: string | null;
+  encounterCount?: number;
+  lastEncounteredAt?: Date | null;
+  favoritedAt?: Date | null;
+  linkUrl?: string | null;
+  linkProvider?: string | null;
+  linkTitle?: string | null;
+  /** Minimal cloze snapshot for list badges; absent when not loaded. */
+  practiceSnapshot?: { clozeState: unknown | null; clozeLastResult: string | null } | null;
   collectionId: string | null;
   publishedAt: Date | null;
   processingAt: Date | null;
@@ -369,9 +379,14 @@ export interface CardRepository {
     sortDirection?: "asc" | "desc";
     shuffleSeed?: string;
     includeLegacySamples?: boolean;
+    favoritesOnly?: boolean;
     limit: number;
     cursor?: { createdAt: Date; id: string };
   }): Promise<CardEntryEntity[]>;
+  /** Count one more encounter (the user opened the card). Null when not found. */
+  recordEncounter(userId: string, cardId: string, at: Date): Promise<number | null>;
+  /** Star or unstar a card. Returns false when the card does not exist. */
+  setFavorite(userId: string, cardId: string, favoritedAt: Date | null): Promise<boolean>;
   listDateKeysByUser(userId: string, fromDateKey: string, toDateKey: string): Promise<string[]>;
   aggregateCalendarByDate(userId: string, fromDateKey: string, toDateKey: string): Promise<Array<{
     dateKey: string;

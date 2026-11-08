@@ -1,3 +1,4 @@
+import { deriveCardLearningStatus } from "@lf/core/text/cardLearningStatus.js";
 import { TUTORIAL_CLIENT_ID, tutorialPractice } from "./cardTutorial.js";
 import { countGraphemes, isUtf16GraphemeBoundary, truncateGraphemes } from "@lf/core/text/grapheme.js";
 import {
@@ -675,6 +676,13 @@ export class CardService {
       ? (originalText ? cardContentHash(originalText) : null)
       : currentOriginalContentHash;
     const rewrittenText = current.mode === "corpus" ? null : originalChanged ? null : normalizePatchedText(patch, "rewrittenText", current.rewrittenText, this.limits.contentMaxChars);
+    // Hand-editing the AI rewrite is a Plus/Pro feature; AI-generated writes
+    // (`generated`) and clearing it are always allowed.
+    if (!generated && rewrittenText && rewrittenText !== current.rewrittenText
+      && Object.prototype.hasOwnProperty.call(patch, "rewrittenText")
+      && (await this.entitlementService.getCurrentEntitlement(userId)).tier === "free") {
+      throw new CardLearningAccessError("Editing the rewrite requires Plus or Pro");
+    }
     const translationText = current.mode === "corpus" ? null : originalChanged ? null : normalizePatchedText(patch, "translationText", current.translationText, this.limits.contentMaxChars);
     const replyText = originalChanged ? null : normalizePatchedText(patch, "replyText", current.replyText, this.limits.contentMaxChars);
     const collectionId = Object.prototype.hasOwnProperty.call(patch, "collectionId") ? patch.collectionId?.trim() || null : current.collectionId;
@@ -1639,6 +1647,7 @@ export class CardService {
     sort?: "newest" | "oldest";
     shuffleSeed?: string;
     tutorial?: boolean;
+    favoritesOnly?: boolean;
   }) {
     if (input.shuffleSeed && !/^[a-zA-Z0-9-]{1,64}$/.test(input.shuffleSeed)) throw new CardValidationError("Invalid shuffle seed");
     if (input.dateKey) assertDateKey(input.dateKey);
@@ -1647,7 +1656,7 @@ export class CardService {
     const configuredMax = Math.max(1, Math.min(50, Math.floor(this.listPageSizeMax)));
     const requestedLimit = Number.isFinite(input.limit) ? Math.floor(input.limit!) : configuredMax;
     const limit = Math.max(1, Math.min(configuredMax, requestedLimit));
-    const tutorial = input.tutorial && !input.cursor && input.collectionId === undefined && !input.dateKey && !input.fromDateKey
+    const tutorial = input.tutorial && !input.cursor && input.collectionId === undefined && !input.dateKey && !input.fromDateKey && !input.favoritesOnly
       ? await this.bootstrap(userId, true) : [];
     const cursor = input.cursor ? decodeCardCursor(input.cursor) : undefined;
     if (cursor && cursor.shuffleSeed !== input.shuffleSeed) throw new CardValidationError("Card cursor belongs to a different shuffle round");
@@ -1659,6 +1668,7 @@ export class CardService {
       sortDirection: input.sort === "oldest" ? "asc" : "desc",
       shuffleSeed: input.shuffleSeed,
       includeLegacySamples: !input.tutorial,
+      favoritesOnly: input.favoritesOnly,
       limit: limit + 1,
       cursor,
     });
@@ -1869,6 +1879,23 @@ export class CardService {
       status: entry.status,
       message: entry.status === "failed" ? "发送失败，请稍后重试" : null,
     };
+  }
+
+  /** The user opened ("met") this card again. Returns the new count. */
+  async recordEncounter(userId: string, recordId: string): Promise<{ encounterCount: number }> {
+    const parsed = parseCardRecordId(recordId);
+    if (!parsed || parsed.source !== "card") throw new CardNotFoundError();
+    const count = await this.repository.recordEncounter(userId, parsed.sourceId, new Date());
+    if (count === null) throw new CardNotFoundError();
+    return { encounterCount: count };
+  }
+
+  async setFavorite(userId: string, recordId: string, favorited: boolean): Promise<{ favorited: boolean }> {
+    const parsed = parseCardRecordId(recordId);
+    if (!parsed || parsed.source !== "card") throw new CardNotFoundError();
+    const updated = await this.repository.setFavorite(userId, parsed.sourceId, favorited ? new Date() : null);
+    if (!updated) throw new CardNotFoundError();
+    return { favorited };
   }
 
   async delete(userId: string, recordId: string): Promise<void> {
@@ -2880,10 +2907,27 @@ export function toSummary(entry: CardEntryEntity, topicMaxChars = CARD_TOPIC_MAX
     languageCode: entry.languageCode,
     status: entry.status,
     thumbnail: null,
-    practiceSummary: null,
+    practiceSummary: cardPracticeSummary(entry),
     isSample: entry.isSample,
     recordedAt: entry.recordedAt.toISOString(),
     createdAt: entry.createdAt.toISOString(),
+  };
+}
+
+function cardPracticeSummary(entry: CardEntryEntity): CardRecordSummaryView["practiceSummary"] {
+  const snapshot = entry.practiceSnapshot;
+  const status = deriveCardLearningStatus({
+    hasText: Boolean(entry.originalText?.trim() || entry.rewrittenText?.trim()),
+    clozeState: snapshot?.clozeState ?? null,
+    clozeLastResult: snapshot?.clozeLastResult ?? null,
+  });
+  return {
+    hasCloze: status === "clozed" || status === "completed",
+    dictationCompleted: false,
+    nextReviewAt: null,
+    status,
+    encounterCount: entry.encounterCount ?? 0,
+    favorited: Boolean(entry.favoritedAt),
   };
 }
 
@@ -2900,6 +2944,8 @@ function effectiveCardTitle(entry: CardEntryEntity, topicMaxChars = CARD_TOPIC_M
   if (!entry.originalText?.trim() && !entry.rewrittenText?.trim()) return "";
   const title = entry.title?.trim();
   if (title) return title;
+  const headline = entry.headline?.trim();
+  if (headline) return truncateGraphemes(headline, topicMaxChars);
   const topic = entry.topic?.trim();
   if (topic) return truncateGraphemes(topic, topicMaxChars);
   const firstLine = (entry.originalText ?? entry.rewrittenText ?? "")

@@ -102,6 +102,7 @@ const includeSegments = {
   segments: { orderBy: { ordinal: "asc" } },
   contentSegments: { orderBy: [{ contentType: "asc" }, { ordinal: "asc" }] },
   images: { orderBy: [{ ordinal: "asc" }, { createdAt: "asc" }] },
+  practiceState: { select: { clozeState: true, clozeLastResult: true } },
 } as const;
 
 const TEXT_CONTENT_TYPES: ReadonlySet<string> = new Set(["original", "rewrite", "reply"]);
@@ -178,6 +179,7 @@ export class PrismaCardRepository implements CardRepository {
     sortDirection?: "asc" | "desc";
     shuffleSeed?: string;
     includeLegacySamples?: boolean;
+    favoritesOnly?: boolean;
     limit: number;
     cursor?: { createdAt: Date; id: string };
   }): Promise<CardEntryEntity[]> {
@@ -217,10 +219,11 @@ export class PrismaCardRepository implements CardRepository {
           AND ($6::text IS NULL OR "dateKey" = $6)
           AND ($7::text IS NULL OR "dateKey" >= $7)
           AND ($8::text IS NULL OR (md5($2 || id), id) > (md5($2 || $8), $8))
+          AND ($10::boolean = false OR "favoritedAt" IS NOT NULL)
         ORDER BY md5($2 || id), id LIMIT $9`,
         input.userId, input.shuffleSeed, Boolean(input.includeLegacySamples),
         input.collectionId === null, collectionIds, input.dateKey ?? null,
-        input.fromDateKey ?? null, input.cursor?.id ?? null, input.limit);
+        input.fromDateKey ?? null, input.cursor?.id ?? null, input.limit, Boolean(input.favoritesOnly));
       const rows = await this.prisma.card.findMany({
         where: { userId: input.userId, deletedAt: null, id: { in: ids.map(row => row.id) } }, include: includeSegments,
       });
@@ -234,6 +237,7 @@ export class PrismaCardRepository implements CardRepository {
         ...(input.includeLegacySamples ? { AND: [{ OR: [{ isSample: false }, { clientId: { in: ["sample:v1:1", "sample:v1:2"] } }] }] } : { isSample: false }),
         status: { notIn: ["failed", "deleted"] },
         ...collectionWhere,
+        ...(input.favoritesOnly ? { favoritedAt: { not: null } } : {}),
         ...(input.dateKey ? { dateKey: input.dateKey } : input.fromDateKey ? { dateKey: { gte: input.fromDateKey } } : {}),
         ...(input.cursor ? {
           OR: [
@@ -247,6 +251,24 @@ export class PrismaCardRepository implements CardRepository {
       take: input.limit,
     });
     return rows.map(toEntry);
+  }
+
+  async recordEncounter(userId: string, cardId: string, at: Date): Promise<number | null> {
+    const updated = await this.prisma.card.updateMany({
+      where: { id: cardId, userId, deletedAt: null },
+      data: { encounterCount: { increment: 1 }, lastEncounteredAt: at },
+    });
+    if (!updated.count) return null;
+    const row = await this.prisma.card.findFirst({ where: { id: cardId, userId }, select: { encounterCount: true } });
+    return row?.encounterCount ?? null;
+  }
+
+  async setFavorite(userId: string, cardId: string, favoritedAt: Date | null): Promise<boolean> {
+    const updated = await this.prisma.card.updateMany({
+      where: { id: cardId, userId, deletedAt: null },
+      data: { favoritedAt },
+    });
+    return updated.count > 0;
   }
 
   async createSamples(input: {
@@ -2591,6 +2613,16 @@ function toEntry(row: any): CardEntryEntity {
     isSample: Boolean(row.isSample),
     topic: row.topic ?? null,
     topicEditedAt: row.topicEditedAt ?? null,
+    headline: row.headline ?? null,
+    encounterCount: typeof row.encounterCount === "number" ? row.encounterCount : 0,
+    lastEncounteredAt: row.lastEncounteredAt ?? null,
+    favoritedAt: row.favoritedAt ?? null,
+    linkUrl: row.linkUrl ?? null,
+    linkProvider: row.linkProvider ?? null,
+    linkTitle: row.linkTitle ?? null,
+    practiceSnapshot: row.practiceState
+      ? { clozeState: row.practiceState.clozeState ?? null, clozeLastResult: row.practiceState.clozeLastResult ?? null }
+      : row.practiceState === null ? null : undefined,
     collectionId: row.collectionId ?? null,
     publishedAt: row.publishedAt ?? null,
     processingAt: row.processingAt ?? null,

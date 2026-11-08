@@ -48,10 +48,22 @@ export type CardRecordSummary = {
   languageCode: string;
   status: Exclude<CardStatus, "failed">;
   thumbnail: { url: string; urlExpiresAt?: string | null; width: number; height: number; focusX?: number; focusY?: number } | null;
-  practiceSummary: unknown | null;
+  practiceSummary: CardPracticeSummary | null;
   isSample: boolean;
   recordedAt?: string;
   createdAt: string;
+};
+
+/** Where a card is in the learning loop (badge on home cards). */
+export type CardLearningStatus = "image_only" | "recorded" | "clozed" | "completed";
+
+export type CardPracticeSummary = {
+  hasCloze: boolean;
+  dictationCompleted: boolean;
+  nextReviewAt: string | null;
+  status?: CardLearningStatus;
+  encounterCount?: number;
+  favorited?: boolean;
 };
 
 export type CardRecordDetail = CardRecordSummary & {
@@ -384,6 +396,7 @@ export async function getCardRecordPage(input?: {
   fromDateKey?: string;
   sort?: "newest" | "oldest";
   shuffleSeed?: string;
+  favorites?: boolean;
 }): Promise<CardRecordPage> {
   const params = new URLSearchParams();
   params.set("tutorial", "v1");
@@ -394,6 +407,7 @@ export async function getCardRecordPage(input?: {
   if (input?.fromDateKey) params.set("fromDateKey", input.fromDateKey);
   if (input?.sort) params.set("sort", input.sort);
   if (input?.shuffleSeed) params.set("shuffleSeed", input.shuffleSeed);
+  if (input?.favorites) params.set("favorites", "true");
   params.set("limit", String(input?.limit ?? 50));
   return request(`/cards/page?${params.toString()}`);
 }
@@ -675,6 +689,15 @@ export async function updateRecallNode(sessionId: string, nodeId: string, state:
 
 export async function finishRecallSession(sessionId: string): Promise<void> {
   await request<void>(`/cards/recall/sessions/${encodeURIComponent(sessionId)}/finish`, { method: "POST", body: "{}" });
+}
+
+/** Count one encounter (the user opened this card). */
+export async function recordCardEncounter(recordId: string): Promise<{ encounterCount: number }> {
+  return request(`/cards/${encodeURIComponent(recordId)}/encounter`, { method: "POST" });
+}
+
+export async function setCardFavorite(recordId: string, favorited: boolean): Promise<{ favorited: boolean }> {
+  return request(`/cards/${encodeURIComponent(recordId)}/favorite`, { method: favorited ? "PUT" : "DELETE" });
 }
 
 export async function deleteCardRecord(recordId: string): Promise<void> {

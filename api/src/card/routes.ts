@@ -852,9 +852,11 @@ export function registerCardRoutes(app: FastifyInstance, deps: CardRouteDeps): v
       sort?: unknown;
       shuffleSeed?: unknown;
       tutorial?: unknown;
+      favorites?: unknown;
     };
     try {
       const data = await deps.cardService.listLibraryPage(userId, {
+        favoritesOnly: query.favorites === "true",
         collectionId: query.unclassified === "true" ? null : typeof query.collectionId === "string" ? query.collectionId : undefined,
         dateKey: typeof query.dateKey === "string" && query.dateKey ? query.dateKey : undefined,
         fromDateKey: typeof query.fromDateKey === "string" && query.fromDateKey ? query.fromDateKey : undefined,
@@ -1207,6 +1209,26 @@ export function registerCardRoutes(app: FastifyInstance, deps: CardRouteDeps): v
       return handleCardError(reply, requestId, error);
     }
   });
+
+  app.post("/cards/:recordId/encounter", async (req, reply) => {
+    const requestId = resolveRequestId(req.headers["x-request-id"]); reply.header("x-request-id", requestId);
+    const userId = await resolveCardUser(req, reply, deps, requestId, "/cards/:recordId/encounter"); if (!userId) return;
+    try {
+      const recordId = decodeURIComponent(String((req.params as { recordId?: unknown }).recordId ?? ""));
+      return reply.status(200).send({ ok: true, request_id: requestId, data: await deps.cardService.recordEncounter(userId, recordId) });
+    } catch (error) { return handleCardError(reply, requestId, error); }
+  });
+
+  for (const [method, favorited] of [["put", true], ["delete", false]] as const) {
+    app[method]("/cards/:recordId/favorite", async (req, reply) => {
+      const requestId = resolveRequestId(req.headers["x-request-id"]); reply.header("x-request-id", requestId);
+      const userId = await resolveCardUser(req, reply, deps, requestId, "/cards/:recordId/favorite"); if (!userId) return;
+      try {
+        const recordId = decodeURIComponent(String((req.params as { recordId?: unknown }).recordId ?? ""));
+        return reply.status(200).send({ ok: true, request_id: requestId, data: await deps.cardService.setFavorite(userId, recordId, favorited) });
+      } catch (error) { return handleCardError(reply, requestId, error); }
+    });
+  }
 
   app.get("/cards/trash", async (req, reply) => {
     const requestId = resolveRequestId(req.headers["x-request-id"]); reply.header("x-request-id", requestId);

@@ -216,6 +216,13 @@ model Card {
   isSample                          Boolean   @default(false)
   topic                             String?
   topicEditedAt                     DateTime?
+  headline                          String?
+  encounterCount                    Int       @default(0)
+  lastEncounteredAt                 DateTime?
+  favoritedAt                       DateTime?
+  linkUrl                           String?
+  linkProvider                      String?
+  linkTitle                         String?
   collectionId                      String?
   publishedAt                       DateTime?
   processingAt                      DateTime?
@@ -251,6 +258,7 @@ model Card {
   @@index([collectionId])
   @@index([status, leaseExpiresAt, createdAt])
   @@index([publishedAt])
+  @@index([userId, favoritedAt(sort: Desc)])
   @@map("cards")
 }
 
