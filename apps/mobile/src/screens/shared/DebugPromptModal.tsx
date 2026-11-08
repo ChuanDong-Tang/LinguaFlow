@@ -203,7 +203,7 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   optionTextActive: {
-    color: theme.colors.onAccent,
+    color: theme.colors.onInk,
   },
   actions: {
     marginTop: 12,
@@ -233,7 +233,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   saveText: {
-    color: theme.colors.onAccent,
+    color: theme.colors.onInk,
     fontSize: 14,
     fontWeight: "700",
   },

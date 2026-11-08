@@ -745,7 +745,7 @@ function LanguageSettingsModal({
               <Text style={styles.languageFieldTitle}>{t("me.language.learning_advanced")}</Text>
               <Pressable style={styles.languageToggleRow} onPress={() => setAutoClozeEnabled((value) => !value)}>
                 <View style={[styles.languageToggleBox, autoClozeEnabled && styles.languageToggleBoxActive]}>
-                  {autoClozeEnabled ? <Icon name="checkmark" size={16} color={theme.colors.onAccent} /> : null}
+                  {autoClozeEnabled ? <Icon name="checkmark" size={16} color={theme.colors.onInk} /> : null}
                 </View>
                 <View style={styles.languageToggleTextWrap}>
                   <Text style={styles.languageToggleTitle}>{t("me.language.auto_cloze")}</Text>
@@ -775,7 +775,7 @@ function LanguageSettingsModal({
                 onPress={() => setMultilingualRecognitionEnabled((value) => !value)}
               >
                 <View style={[styles.languageToggleBox, multilingualRecognitionEnabled && styles.languageToggleBoxActive]}>
-                  {multilingualRecognitionEnabled ? <Icon name="checkmark" size={16} color={theme.colors.onAccent} /> : null}
+                  {multilingualRecognitionEnabled ? <Icon name="checkmark" size={16} color={theme.colors.onInk} /> : null}
                 </View>
                 <View style={styles.languageToggleTextWrap}>
                   <Text style={styles.languageToggleTitle}>{t("me.language.stt_multilingual")}</Text>
@@ -858,7 +858,7 @@ function SelectField({
           {option.label}
         </Text>
       </View>
-      {option.active ? <Icon name="checkmark" size={18} color={theme.colors.onAccent} /> : null}
+      {option.active ? <Icon name="checkmark" size={18} color={theme.colors.onInk} /> : null}
     </Pressable>
   ));
 
@@ -1482,7 +1482,7 @@ const styles = StyleSheet.create({
   progressFill: {
     height: "100%",
     borderRadius: 999,
-    backgroundColor: theme.colors.accentStrong,
+    backgroundColor: theme.colors.accent,
   },
   progressText: {
     minWidth: 92,
@@ -1696,7 +1696,7 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   selectOptionTextActive: {
-    color: theme.colors.onAccent,
+    color: theme.colors.onInk,
   },
   languageInlineStatus: {
     marginTop: 10,
@@ -1769,7 +1769,7 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   languageSaveText: {
-    color: theme.colors.onAccent,
+    color: theme.colors.onInk,
     fontSize: 14,
     fontWeight: "600",
   },
@@ -1941,7 +1941,7 @@ const styles = StyleSheet.create({
     borderRadius: theme.radius.control,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: theme.colors.accentStrong,
+    backgroundColor: theme.colors.accent,
   },
   profileSaveButtonDisabled: { opacity: 0.6 },
   profileSaveButtonText: { color: theme.colors.surface, fontSize: 15, fontWeight: "600" },

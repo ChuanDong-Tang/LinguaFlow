@@ -1,29 +1,35 @@
 import { Platform, StyleSheet } from "react-native";
 
-// OIO design tokens. Hierarchy comes from type and whitespace; the coral accent
-// is reserved for the primary action, selection, and a few highlights.
+// OIO design tokens — "彩铅填色": hand-drawn ink outlines on white paper with
+// soft colored-pencil fills that carry meaning. See skills/linguaflow-sketch-style.
 const palette = {
-  paper: "#FBFAF8",
+  paper: "#FDFDFB",
   white: "#FFFFFF",
-  sand50: "#F6F4F1",
-  sand100: "#F1EEEA",
-  sand200: "#E8E4DE",
-  sand300: "#D7D2CB",
-  ink900: "#1F1E1C",
-  ink700: "#45423E",
-  ink600: "#5F5B56",
-  ink500: "#8C8984",
-  ink400: "#ADA9A3",
-  coral600: "#C9452F",
-  coral500: "#E0533D",
-  coral100: "#FBE9E5",
-  coral50: "#FDF4F2",
+  sand50: "#F7F7F4",
+  sand100: "#F2F1EC",
+  sand200: "#E6E5E0",
+  sand300: "#D3D2CC",
+  ink900: "#1C1C1A",
+  ink700: "#3A3936",
+  ink600: "#62615C",
+  ink500: "#8A8983",
+  ink400: "#A6A59F",
+  // Colored pencils
+  yellow500: "#FFD25E",
+  yellow600: "#F2C24A",
+  yellow100: "#FFF1B8",
+  yellow50: "#FFF8DB",
+  leaf100: "#E2F1CC",
+  leaf200: "#D4ECB4",
+  petal100: "#FFE2E8",
+  sky100: "#DCEEFB",
+  mascotGreen: "#A8D65E",
+  mascotGreenInk: "#2F6B3F",
   red700: "#B3261E",
   green600: "#3E7B5B",
-  green50: "#EDF5F0",
   amber600: "#B7791F",
   amber50: "#FBF3E4",
-  highlight: "#FBE7A9",
+  highlight: "#FFE98A",
 } as const;
 
 export const theme = {
@@ -41,26 +47,32 @@ export const theme = {
     textFaint: palette.ink400,
     border: palette.sand200,
     borderStrong: palette.sand300,
-    // Coral: primary actions, links, selection, focus.
-    accent: palette.coral500,
-    accentStrong: palette.coral500,
-    accentPressed: palette.coral600,
-    accentSoft: palette.coral100,
-    accentFaint: palette.coral50,
-    onAccent: palette.white,
-    // Dark neutral for secondary filled controls (e.g. photo deck, coachmarks).
+    // Yellow pencil: the primary action fill. Text on it is always ink.
+    accent: palette.yellow500,
+    accentPressed: palette.yellow600,
+    accentSoft: palette.yellow100,
+    accentFaint: palette.yellow50,
+    onAccent: palette.ink900,
+    // Emphasis for text, icons, outlines and spinners (never yellow text).
+    accentStrong: palette.ink900,
     ink: palette.ink900,
     onInk: palette.white,
     danger: palette.red700,
+    dangerSoft: palette.petal100,
     success: palette.green600,
-    successSoft: palette.green50,
+    successSoft: palette.leaf100,
+    successFill: palette.leaf200,
+    info: palette.sky100,
     warning: palette.amber600,
     warningSoft: palette.amber50,
     highlight: palette.highlight,
     disabled: palette.sand300,
-    scrim: "rgba(31, 30, 28, 0.32)",
-    scrimLight: "rgba(31, 30, 28, 0.12)",
+    pencilShadow: "rgba(98, 97, 92, 0.35)",
+    scrim: "rgba(28, 28, 26, 0.32)",
+    scrimLight: "rgba(28, 28, 26, 0.12)",
   },
+  // Pastel fills for text-only covers and tags; pick by stable hash of an id.
+  pencilFills: [palette.yellow100, palette.leaf100, palette.petal100, palette.sky100] as readonly string[],
   radius: {
     tiny: 4,
     control: 10,
@@ -80,17 +92,17 @@ export const theme = {
     caption: { fontSize: 12, lineHeight: 17, fontWeight: "400" },
     micro: { fontSize: 11, lineHeight: 15, fontWeight: "500", letterSpacing: 0.2 },
   },
-  // Memory game route colors: warm, muted companions to the coral accent.
-  gameRoute: ["#E0533D", "#D4921C", "#5E9C7A", "#6F7FC0"] as readonly string[],
+  // Memory game route colors: deeper colored-pencil tones.
+  gameRoute: ["#E8A92A", "#6FAA3E", "#E57A95", "#5E9FD6"] as readonly string[],
   hairline: StyleSheet.hairlineWidth,
   shadow: {
     // Barely-there lift for floating controls; flat surfaces use no shadow.
     float: Platform.select({
-      ios: { shadowColor: "#1F1E1C", shadowOpacity: 0.08, shadowRadius: 14, shadowOffset: { width: 0, height: 4 } },
+      ios: { shadowColor: "#1C1C1A", shadowOpacity: 0.08, shadowRadius: 14, shadowOffset: { width: 0, height: 4 } },
       default: { elevation: 4 },
     }),
     menu: Platform.select({
-      ios: { shadowColor: "#1F1E1C", shadowOpacity: 0.12, shadowRadius: 20, shadowOffset: { width: 0, height: 8 } },
+      ios: { shadowColor: "#1C1C1A", shadowOpacity: 0.12, shadowRadius: 20, shadowOffset: { width: 0, height: 8 } },
       default: { elevation: 10 },
     }),
   },

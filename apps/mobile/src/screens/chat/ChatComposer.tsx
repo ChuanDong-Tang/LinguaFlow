@@ -161,7 +161,7 @@ export function ChatComposer({
           selection={selection}
           returnKeyType="default"
           blurOnSubmit={false}
-          cursorColor={theme.colors.accent}
+          cursorColor={theme.colors.accentStrong}
           autoComplete="off"
           contextMenuHidden={false}
           textContentType="none"
@@ -182,7 +182,7 @@ export function ChatComposer({
         </Text>
         {canExpand ? (
           <Pressable style={styles.expandButton} onPress={handleToggleExpand} hitSlop={6}>
-            <Icon name={expanded ? "contract-outline" : "expand-outline"} size={14} color={theme.colors.accent} />
+            <Icon name={expanded ? "contract-outline" : "expand-outline"} size={14} color={theme.colors.accentStrong} />
           </Pressable>
         ) : null}
         {onSttPress ? (
@@ -268,7 +268,7 @@ const styles = StyleSheet.create({
     zIndex: 4,
   },
   pasteButtonText: {
-    color: theme.colors.onAccent,
+    color: theme.colors.onInk,
     fontSize: 14,
     fontWeight: "600",
   },

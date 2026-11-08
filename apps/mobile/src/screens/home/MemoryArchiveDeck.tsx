@@ -8,6 +8,8 @@ import { memoryDeckPages, memoryDeckReturnPage } from "./memoryDeckPages";
 import { MemoryDeckSettings } from "./MemoryDeckSettings";
 import { memoryFanLayout } from "./memoryFanLayout";
 import { theme } from "../../theme";
+import { SketchBox, SketchPressable, pencilFillFor } from "../../components/sketch/Sketch";
+import { haptic } from "../../feedback/haptics";
 
 const labels = {
   "zh-CN": ["浏览设置", "每次显示", "每组数量", "重新排列", "这一组看完了", "下一组", "上一页", "下一页", "还没有留下回忆", "载入更多回忆"],
@@ -82,21 +84,23 @@ export function MemoryArchiveDeck({ records, loading, hasMore, onLoadMore, onOpe
             const layout = memoryFanLayout(width, 285);
             const offset = fan ? slot === 0 ? 0 : slot === 1 ? -1 : 1 : 0;
             return <Pressable key={id} disabled={!card} accessibilityRole="button" accessibilityLabel={card?.displayTitle || copy[8]}
-              onPress={() => { if (card) openSet(id); }}
+              onPress={() => { if (card) { haptic.light(); openSet(id); } }}
               style={[styles.card, visible === 1 ? styles.single : visible === 2 ? styles.pair : styles.fan,
                 fan && { width: layout.width, height: layout.height, zIndex: slot === 0 ? 3 : 1, transform: [{ translateX: offset * layout.offset }, { translateY: offset ? -28 : 24 }, { rotate: `${offset * layout.angle}deg` }] }]}>
-              {card ? <><ArchiveCover card={card} onError={onThumbnailError} /><Text numberOfLines={2} style={styles.title}>{card.displayTitle || card.originalPreview}</Text><Text style={styles.date}>{card.dateKey}</Text></> : <Text style={styles.muted}>{copy[8]}</Text>}
+              <SketchBox seed={id} fill={theme.colors.surface} shadow style={styles.cardSketch}>
+                {card ? <><ArchiveCover card={card} onError={onThumbnailError} /><Text numberOfLines={2} style={styles.title}>{card.displayTitle || card.originalPreview}</Text><Text style={styles.date}>{card.dateKey}</Text></> : <Text style={styles.muted}>{copy[8]}</Text>}
+              </SketchBox>
             </Pressable>;
           })}
           {visible === 2 && batch.length === 1 ? <View pointerEvents="none" accessible={false} style={{ width: "46%" }} /> : null}
         </View>)}
-        <View accessibilityElementsHidden={page !== pages.length} importantForAccessibility={page === pages.length ? "auto" : "no-hide-descendants"} style={[styles.ending, { width }]}><Pressable accessibilityRole="button" style={({ pressed }) => [styles.nextSet, pressed && styles.nextSetPressed]} onPress={() => restart(count, visible, ids)}><Text style={styles.nextSetText}>{copy[5]}</Text></Pressable></View>
+        <View accessibilityElementsHidden={page !== pages.length} importantForAccessibility={page === pages.length ? "auto" : "no-hide-descendants"} style={[styles.ending, { width }]}><SketchPressable seed="deck-next-set" radius={25} fill={theme.colors.accent} feedback="medium" accessibilityRole="button" contentStyle={styles.nextSet} onPress={() => restart(count, visible, ids)}><Text style={styles.nextSetText}>{copy[5]}</Text></SketchPressable></View>
       </ScrollView> : <View style={styles.ending}>{!loading ? <Text style={styles.muted}>{copy[8]}</Text> : null}</View>}
     </View>
     <View style={styles.navigationSlot}>{ids.length > 0 && page < pages.length ? <View style={styles.navigation}>
-      <Pressable accessibilityRole="button" accessibilityLabel={copy[6]} disabled={page === 0} style={[styles.button, page === 0 && styles.disabled]} onPress={() => go(page - 1)}><Text style={styles.arrow}>‹</Text></Pressable>
+      <Pressable accessibilityRole="button" accessibilityLabel={copy[6]} disabled={page === 0} style={[styles.button, page === 0 && styles.disabled]} onPress={() => { haptic.select(); go(page - 1); }}><Text style={styles.arrow}>‹</Text></Pressable>
       <Text style={styles.muted}>{page === pages.length ? copy[4] : `${page * visible + 1}–${Math.min((page + 1) * visible, ids.length)} / ${ids.length}`}</Text>
-      <Pressable accessibilityRole="button" accessibilityLabel={copy[7]} disabled={page === pages.length} style={[styles.button, page === pages.length && styles.disabled]} onPress={() => go(page + 1)}><Text style={styles.arrow}>›</Text></Pressable>
+      <Pressable accessibilityRole="button" accessibilityLabel={copy[7]} disabled={page === pages.length} style={[styles.button, page === pages.length && styles.disabled]} onPress={() => { haptic.select(); go(page + 1); }}><Text style={styles.arrow}>›</Text></Pressable>
     </View> : null}</View>
     <View style={styles.statusSlot}>{loading ? <ActivityIndicator color={theme.colors.textStrong} /> : null}</View>
   </View>;
@@ -106,22 +110,23 @@ function ArchiveCover({ card, onError }: { card: CardRecordSummary; onError: () 
   const url = card.thumbnail?.url;
   return url && failedUrl !== url
     ? <Image source={{ uri: url }} style={styles.image} resizeMode="cover" onError={() => { setFailedUrl(url); onError(); }} />
-    : <View style={[styles.image, styles.textCover]}><Text numberOfLines={5} style={styles.title}>{card.originalPreview || card.displayTitle}</Text></View>;
+    : <View style={[styles.image, styles.textCover, { backgroundColor: pencilFillFor(card.id) }]}><Text numberOfLines={5} style={styles.title}>{card.originalPreview || card.displayTitle}</Text></View>;
 }
 const styles = StyleSheet.create({
   container: { width: "100%", alignItems: "center" }, header: { width: "100%", alignItems: "flex-start" },
   button: { minHeight: 44, minWidth: 44, padding: 10, justifyContent: "center", alignItems: "center" },
-  nextSet: { minHeight: 50, minWidth: 148, paddingHorizontal: 28, paddingVertical: 12, borderRadius: 25, backgroundColor: theme.colors.accent, alignItems: "center", justifyContent: "center" },
+  nextSet: { minHeight: 50, minWidth: 148, paddingHorizontal: 28, paddingVertical: 12, alignItems: "center", justifyContent: "center" },
   nextSetPressed: { opacity: 0.7 },
-  nextSetText: { color: theme.colors.onAccent, fontSize: 16, fontWeight: "600" },
+  nextSetText: { color: theme.colors.onAccent, fontSize: 16, fontWeight: "700" },
   navigationSlot: { minHeight: 52, justifyContent: "center" },
   statusSlot: { height: 24, justifyContent: "center" },
   settingsTrigger: { flexDirection: "row", alignItems: "center", gap: 6 },
   muted: { color: theme.colors.textSecondary, fontSize: 13 }, viewport: { width: "100%", height: 390 },
   spread: { height: 390, flexDirection: "row", gap: 10, alignItems: "center", justifyContent: "center" },
-  card: { padding: 5, borderRadius: 12, backgroundColor: theme.colors.surface, gap: 5, shadowColor: "#000000", shadowOpacity: 0.08, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 3 },
+  card: {},
+  cardSketch: { flex: 1, padding: 6, gap: 5 },
   single: { width: "86%", height: 340 }, pair: { width: "46%", height: 265 }, fan: { position: "absolute", width: "65%", height: 285 },
-  image: { width: "100%", flex: 1, minHeight: 0, borderRadius: 8 }, textCover: { justifyContent: "center", padding: 12, backgroundColor: theme.colors.canvas },
+  image: { width: "100%", flex: 1, minHeight: 0, borderRadius: 7 }, textCover: { justifyContent: "center", padding: 12 },
   title: { color: theme.colors.text, fontSize: 14, lineHeight: 21 }, date: { color: theme.colors.textMuted, fontSize: 11, paddingBottom: 3 },
   navigation: { flexDirection: "row", alignItems: "center", gap: 24 }, arrow: { color: theme.colors.text, fontSize: 24 }, disabled: { opacity: 0.2 },
   ending: { flex: 1, alignItems: "center", justifyContent: "center", gap: 22 }, action: { color: theme.colors.text, fontSize: 15, fontWeight: "500" },

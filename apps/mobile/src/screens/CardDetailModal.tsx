@@ -765,8 +765,8 @@ function ClozeOnboardingOverlay({ step, target, windowWidth, windowHeight, onAdv
       </Defs>
       <Rect x="0" y="0" width={windowWidth} height={windowHeight} fill="rgba(15, 16, 20, 0.78)" mask="url(#cloze-guide-mask)" />
       <Rect x={spotlight.x} y={spotlight.y} width={spotlight.width} height={spotlight.height} rx="18" fill="none" stroke="rgba(255,255,255,0.82)" strokeWidth="1.4" />
-      <Path d={`M ${arrowStartX} ${arrowStartY} Q ${controlX} ${controlY} ${targetX} ${targetY}`} fill="none" stroke={theme.colors.onAccent} strokeWidth="2.2" strokeLinecap="round" />
-      <Path d={`M ${arrowLeftX} ${arrowLeftY} L ${targetX} ${targetY} L ${arrowRightX} ${arrowRightY}`} fill="none" stroke={theme.colors.onAccent} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+      <Path d={`M ${arrowStartX} ${arrowStartY} Q ${controlX} ${controlY} ${targetX} ${targetY}`} fill="none" stroke={theme.colors.onInk} strokeWidth="2.2" strokeLinecap="round" />
+      <Path d={`M ${arrowLeftX} ${arrowLeftY} L ${targetX} ${targetY} L ${arrowRightX} ${arrowRightY}`} fill="none" stroke={theme.colors.onInk} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
     </Svg>
     <Animated.View pointerEvents="box-none" style={[styles.clozeGuideCopy, { top: messageTop, transform: [{ translateY: lift }] }]}>
       <Text style={styles.clozeGuideProgress}>{step} / 2</Text>
@@ -797,7 +797,7 @@ function ClozeActionGuide() {
     <View style={styles.clozeActionGuideGrid}>
       {actions.map((action) => <View key={action.label} style={styles.clozeActionGuideItem}>
         <View style={styles.clozeActionGuideIcon}>
-          {action.icon ? <Icon name={action.icon} size={16} color={theme.colors.onAccent} /> : <Text style={styles.clozeActionGuideTextIcon}>{action.textIcon}</Text>}
+          {action.icon ? <Icon name={action.icon} size={16} color={theme.colors.onInk} /> : <Text style={styles.clozeActionGuideTextIcon}>{action.textIcon}</Text>}
         </View>
         <View style={styles.clozeActionGuideItemCopy}>
           <Text numberOfLines={1} style={styles.clozeActionGuideLabel}>{action.label}</Text>
@@ -3420,7 +3420,7 @@ function Review({ onLanguageControlChange, hidePhraseRecommendation = true, deta
           <Pressable disabled={!playbackBelongsToCard || !playback.canNavigateNext} style={styles.cardPlaybackSideControl} onPress={navigateTtsNext}><Icon name="play-skip-forward" size={22} color={playbackBelongsToCard && playback.canNavigateNext ? theme.colors.text : theme.colors.textMuted} /></Pressable>
           <Pressable accessibilityLabel={loopLabel} style={styles.cardPlaybackLoopControl} onPress={cycleCardLoopMode}>
             <View style={styles.cardPlaybackLoopIcon}>
-              <Icon name="sync-outline" size={19} color={playback.loopMode !== "off" ? theme.colors.accent : theme.colors.textMuted} />
+              <Icon name="sync-outline" size={19} color={playback.loopMode !== "off" ? theme.colors.accentStrong : theme.colors.textMuted} />
               {playback.loopMode === "one" ? <Text style={styles.cardPlaybackLoopOne}>1</Text> : null}
             </View>
           </Pressable>
@@ -3673,8 +3673,8 @@ function Review({ onLanguageControlChange, hidePhraseRecommendation = true, deta
                     onPress={() => onRetryGeneration?.("reply")}
                   >
                     {replyGenerating
-                      ? <ActivityIndicator size="small" color={theme.colors.accent} />
-                      : <Icon name={replyFailed ? "refresh-outline" : "chatbubble-ellipses-outline"} size={16} color={theme.colors.accent} />}
+                      ? <ActivityIndicator size="small" color={theme.colors.accentStrong} />
+                      : <Icon name={replyFailed ? "refresh-outline" : "chatbubble-ellipses-outline"} size={16} color={theme.colors.accentStrong} />}
                     <Text style={styles.replyGenerateButtonText}>{t(replyGenerating ? "card_detail.generating" : replyFailed ? "common.retry" : "chat.settings.generate_reply")}</Text>
                   </Pressable> : null}
                   <CardSectionCopyButton onPress={() => void copySection(primaryText)} />
@@ -3911,7 +3911,7 @@ function CollapsibleCardSection({ label, tone = "default", collapsed, onToggle, 
     : tone === "rewrite"
       ? styles.rewriteSectionLabel
       : undefined;
-  const iconColor = tone === "rewrite" ? theme.colors.accent : theme.colors.textFaint;
+  const iconColor = tone === "rewrite" ? theme.colors.accentStrong : theme.colors.textFaint;
   const imageDescriptionGenerate = tone === "image" && action === "generate";
   const press = action === "generate" ? onAction : action === "toggle" ? onToggle : undefined;
   return <View style={[styles.flipCardSection, tone === "image" && styles.imageIntegratedSection]}>
@@ -5230,7 +5230,7 @@ const styles = StyleSheet.create({
   replyGenerateButton: { minHeight: 32, marginTop: 6, paddingHorizontal: 12, borderRadius: theme.radius.pill, backgroundColor: theme.colors.accentFaint, flexDirection: "row", alignItems: "center", gap: 6 },
   replyGenerateButtonDisabled: { opacity: 0.5 },
   replyGenerateButtonPressed: { opacity: 0.68 },
-  replyGenerateButtonText: { color: theme.colors.accent, fontSize: 13, fontWeight: "600" },
+  replyGenerateButtonText: { color: theme.colors.accentStrong, fontSize: 13, fontWeight: "600" },
   collapsibleSectionHeader: { height: 36, flexDirection: "row", alignItems: "center", gap: 8 },
   collapsibleSectionHeaderPressed: { opacity: 0.66 },
   sectionGenerateAction: { minHeight: 32, paddingHorizontal: 8, flexDirection: "row", alignItems: "center", gap: 5 },
@@ -5277,19 +5277,19 @@ const styles = StyleSheet.create({
   clozeGuideOverlay: { ...StyleSheet.absoluteFill, zIndex: 90, elevation: 90 },
   clozeGuideCopy: { position: "absolute", left: 32, right: 32, alignItems: "center" },
   clozeGuideProgress: { marginBottom: 10, color: "rgba(255,255,255,0.7)", fontSize: 12, lineHeight: 17, fontWeight: "600", letterSpacing: 1.1 },
-  clozeGuideText: { maxWidth: 310, color: theme.colors.onAccent, fontSize: 19, lineHeight: 29, fontWeight: "500", letterSpacing: 0.2, textAlign: "center", textShadowColor: "rgba(0,0,0,0.24)", textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 5 },
+  clozeGuideText: { maxWidth: 310, color: theme.colors.onInk, fontSize: 19, lineHeight: 29, fontWeight: "500", letterSpacing: 0.2, textAlign: "center", textShadowColor: "rgba(0,0,0,0.24)", textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 5 },
   clozeGuideButtonWrap: { width: 126, height: 48, marginTop: 22, transform: [{ rotate: "-1.5deg" }] },
   clozeGuideButtonShadow: { position: "absolute", left: 4, right: -4, top: 5, bottom: -5, borderRadius: 24, backgroundColor: theme.colors.accent },
   clozeGuideButton: { flex: 1, borderWidth: 1, borderColor: "rgba(23,23,27,0.12)", borderRadius: 24, backgroundColor: theme.colors.canvas, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
   clozeGuideButtonText: { color: theme.colors.text, fontSize: 15, lineHeight: 21, fontWeight: "600", letterSpacing: 0.4 },
   clozeActionGuideCard: { width: "100%", maxWidth: 340, paddingHorizontal: 15, paddingTop: 14, paddingBottom: 15, borderWidth: 1, borderColor: "rgba(255,255,255,0.2)", borderRadius: 18, backgroundColor: "rgba(255,255,255,0.1)" },
-  clozeActionGuideTitle: { marginBottom: 12, color: theme.colors.onAccent, fontSize: 17, lineHeight: 23, fontWeight: "600", textAlign: "center" },
+  clozeActionGuideTitle: { marginBottom: 12, color: theme.colors.onInk, fontSize: 17, lineHeight: 23, fontWeight: "600", textAlign: "center" },
   clozeActionGuideGrid: { flexDirection: "row", flexWrap: "wrap", rowGap: 12 },
   clozeActionGuideItem: { width: "50%", paddingRight: 7, flexDirection: "row", alignItems: "center", gap: 8 },
   clozeActionGuideIcon: { width: 29, height: 29, borderRadius: 10, borderWidth: 1, borderColor: "rgba(255,255,255,0.22)", backgroundColor: "rgba(255,255,255,0.1)", alignItems: "center", justifyContent: "center" },
-  clozeActionGuideTextIcon: { color: theme.colors.onAccent, fontSize: 13, lineHeight: 18, fontWeight: "600" },
+  clozeActionGuideTextIcon: { color: theme.colors.onInk, fontSize: 13, lineHeight: 18, fontWeight: "600" },
   clozeActionGuideItemCopy: { flex: 1, minWidth: 0 },
-  clozeActionGuideLabel: { color: theme.colors.onAccent, fontSize: 12, lineHeight: 17, fontWeight: "600" },
+  clozeActionGuideLabel: { color: theme.colors.onInk, fontSize: 12, lineHeight: 17, fontWeight: "600" },
   clozeActionGuideDetail: { color: "rgba(255,255,255,0.64)", fontSize: 10, lineHeight: 14 },
   draftHeaderSide: { width: 82, minHeight: 44, justifyContent: "center" },
   draftCloseButton: { width: 44, height: 44, alignItems: "flex-start", justifyContent: "center" },
@@ -5374,7 +5374,7 @@ const styles = StyleSheet.create({
   recommendationSheetActions: { marginTop: 22, flexDirection: "row", gap: 10 },
   recommendationSecondaryAction: { minHeight: 46, paddingHorizontal: 18, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.border, borderRadius: 23, alignItems: "center", justifyContent: "center" },
   recommendationSecondaryActionText: { color: theme.colors.textSecondary, fontSize: 14, fontWeight: "600" },
-  recommendationPrimaryAction: { minHeight: 46, flex: 1, borderRadius: 23, backgroundColor: theme.colors.accentStrong, alignItems: "center", justifyContent: "center" },
+  recommendationPrimaryAction: { minHeight: 46, flex: 1, borderRadius: 23, backgroundColor: theme.colors.accent, alignItems: "center", justifyContent: "center" },
   recommendationPrimaryActionDisabled: { opacity: 0.55 },
   recommendationPrimaryActionText: { color: theme.colors.surface, fontSize: 15, fontWeight: "700" },
   recommendationEmpty: { minHeight: 160, alignItems: "center", justifyContent: "center", gap: 14 },
@@ -5423,7 +5423,7 @@ const styles = StyleSheet.create({
   blankActionMenuDivider: { width: StyleSheet.hairlineWidth, height: 22, backgroundColor: theme.colors.border },
   blankActionMenuText: { color: theme.colors.text, fontSize: 13, fontWeight: "500" },
   blankActionMenuDeleteText: { color: theme.colors.danger, fontSize: 13, fontWeight: "500" },
-  practiceContent: { padding: 20, paddingBottom: 44 }, practiceHint: { color: theme.colors.textSecondary, fontSize: 13, lineHeight: 20 }, answerInput: { marginTop: 18, minHeight: 50, paddingHorizontal: 14, borderWidth: 1, borderColor: theme.colors.border, borderRadius: theme.radius.control, backgroundColor: theme.colors.surface, color: theme.colors.text, fontSize: 16 }, dictationInput: { minHeight: 120, paddingTop: 13 }, primaryButton: { marginTop: 14, minHeight: 48, borderRadius: theme.radius.control, alignItems: "center", justifyContent: "center", backgroundColor: theme.colors.accentStrong }, primaryButtonText: { color: theme.colors.surface, fontSize: 15, fontWeight: "600" }, secondaryButton: { marginTop: 10, minHeight: 44, alignItems: "center", justifyContent: "center" }, secondaryButtonText: { color: theme.colors.accentStrong, fontSize: 14 }, result: { marginTop: 16, fontSize: 14, textAlign: "center" }, correct: { color: theme.colors.success }, incorrect: { color: theme.colors.danger }, answerReveal: { marginTop: 16, padding: 14, borderRadius: theme.radius.control, backgroundColor: theme.colors.accentSoft, color: theme.colors.text, fontSize: 16, lineHeight: 24 }, audioPlaceholder: { minHeight: 88, borderRadius: theme.radius.card, backgroundColor: theme.colors.surface, alignItems: "center", justifyContent: "center" }, audioText: { marginTop: 7, color: theme.colors.textMuted, fontSize: 12 },
+  practiceContent: { padding: 20, paddingBottom: 44 }, practiceHint: { color: theme.colors.textSecondary, fontSize: 13, lineHeight: 20 }, answerInput: { marginTop: 18, minHeight: 50, paddingHorizontal: 14, borderWidth: 1, borderColor: theme.colors.border, borderRadius: theme.radius.control, backgroundColor: theme.colors.surface, color: theme.colors.text, fontSize: 16 }, dictationInput: { minHeight: 120, paddingTop: 13 }, primaryButton: { marginTop: 14, minHeight: 48, borderRadius: theme.radius.control, alignItems: "center", justifyContent: "center", backgroundColor: theme.colors.accent }, primaryButtonText: { color: theme.colors.surface, fontSize: 15, fontWeight: "600" }, secondaryButton: { marginTop: 10, minHeight: 44, alignItems: "center", justifyContent: "center" }, secondaryButtonText: { color: theme.colors.accentStrong, fontSize: 14 }, result: { marginTop: 16, fontSize: 14, textAlign: "center" }, correct: { color: theme.colors.success }, incorrect: { color: theme.colors.danger }, answerReveal: { marginTop: 16, padding: 14, borderRadius: theme.radius.control, backgroundColor: theme.colors.accentSoft, color: theme.colors.text, fontSize: 16, lineHeight: 24 }, audioPlaceholder: { minHeight: 88, borderRadius: theme.radius.card, backgroundColor: theme.colors.surface, alignItems: "center", justifyContent: "center" }, audioText: { marginTop: 7, color: theme.colors.textMuted, fontSize: 12 },
   sectionHeading: { marginTop: 18, minHeight: 30, flexDirection: "row", alignItems: "center" },
   sectionLabelInline: { flex: 1, color: theme.colors.textMuted, fontSize: 12, fontWeight: "600", letterSpacing: 0.6 },
   replyContentRow: { flexDirection: "row", alignItems: "flex-start", gap: 10 },
@@ -5499,10 +5499,10 @@ const styles = StyleSheet.create({
   metadataModalActions: { marginTop: 20, flexDirection: "row", justifyContent: "flex-end", gap: 10 },
   metadataModalSecondary: { minWidth: 76, minHeight: 42, borderRadius: 12, borderWidth: 1, borderColor: theme.colors.border, alignItems: "center", justifyContent: "center" },
   metadataModalSecondaryText: { color: theme.colors.textSecondary, fontSize: 14, fontWeight: "600" },
-  metadataModalPrimary: { minWidth: 86, minHeight: 42, borderRadius: 12, backgroundColor: theme.colors.accentStrong, alignItems: "center", justifyContent: "center" },
+  metadataModalPrimary: { minWidth: 86, minHeight: 42, borderRadius: 12, backgroundColor: theme.colors.accent, alignItems: "center", justifyContent: "center" },
   metadataModalPrimaryText: { color: theme.colors.surface, fontSize: 14, fontWeight: "700" },
   imageDescriptionSectionLabel: { color: theme.colors.textMuted },
-  rewriteSectionLabel: { color: theme.colors.accent },
+  rewriteSectionLabel: { color: theme.colors.accentStrong },
   imageDescriptionSentenceRow: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
   imageDescriptionSentenceBody: { flex: 1 },
   clozeRevealButton: { alignSelf: "flex-end", minHeight: 34, paddingHorizontal: 4, flexDirection: "row", alignItems: "center", gap: 5 },
@@ -5535,7 +5535,7 @@ const styles = StyleSheet.create({
   relationModalList: { paddingTop: 8 },
   relationPagination: { minHeight: 20, paddingTop: 8, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 },
   relationPaginationDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: theme.colors.border },
-  relationPaginationDotActive: { width: 14, backgroundColor: theme.colors.accentStrong },
+  relationPaginationDotActive: { width: 14, backgroundColor: theme.colors.accent },
   relationFocusCard: { height: "100%", paddingHorizontal: 4, paddingVertical: 8, justifyContent: "space-between" },
   relationFocusTarget: { flex: 1, minHeight: 250, paddingHorizontal: 10, paddingTop: 22, paddingBottom: 18, alignItems: "stretch", justifyContent: "center", gap: 20 },
   relationFocusTopic: { maxWidth: "78%", alignSelf: "center", color: theme.colors.textMuted, fontSize: 12, lineHeight: 17, textAlign: "center" },
@@ -5582,7 +5582,7 @@ const styles = StyleSheet.create({
   draftComposerSpacer: { flex: 1 },
   draftCharacterCount: { color: theme.colors.textMuted, fontSize: 12, fontVariant: ["tabular-nums"] },
   draftCharacterCountOver: { color: theme.colors.danger, fontWeight: "600" },
-  draftComposerBadge: { position: "absolute", top: 2, right: 2, minWidth: 15, height: 15, paddingHorizontal: 3, borderRadius: 8, backgroundColor: theme.colors.accentStrong, alignItems: "center", justifyContent: "center" },
+  draftComposerBadge: { position: "absolute", top: 2, right: 2, minWidth: 15, height: 15, paddingHorizontal: 3, borderRadius: 8, backgroundColor: theme.colors.accent, alignItems: "center", justifyContent: "center" },
   draftComposerBadgeText: { color: theme.colors.surface, fontSize: 9, fontWeight: "700" },
   draftPublishButton: { minWidth: 78, height: 40, paddingHorizontal: 18, borderRadius: 20, backgroundColor: theme.colors.text, alignItems: "center", justifyContent: "center" },
   draftPublishButtonCompact: { minWidth: 68, paddingHorizontal: 14 },
@@ -5614,7 +5614,7 @@ const styles = StyleSheet.create({
   photoGrid: { padding: 10, flexDirection: "row", flexWrap: "wrap", gap: 6 },
   photoGridItem: { width: "32%", aspectRatio: 1, borderRadius: 7, overflow: "hidden", backgroundColor: theme.colors.surfaceMuted },
   photoGridItemSelected: { borderWidth: 3, borderColor: theme.colors.accentStrong },
-  photoSelectionBadge: { position: "absolute", right: 6, top: 6, width: 24, height: 24, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: theme.colors.accentStrong },
+  photoSelectionBadge: { position: "absolute", right: 6, top: 6, width: 24, height: 24, borderRadius: 12, alignItems: "center", justifyContent: "center", backgroundColor: theme.colors.accent },
   photoSelectionBadgeText: { color: theme.colors.surface, fontSize: 12, fontWeight: "700" },
   photoGridLoading: { width: "100%", height: 100, alignItems: "center", justifyContent: "center" },
   photoLayerActions: { minHeight: 58, paddingHorizontal: 12, paddingVertical: 7, flexDirection: "row", gap: 8, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.border, backgroundColor: theme.colors.surface },

@@ -204,8 +204,8 @@ export function TtsMiniPlayer({ storageKey }: TtsMiniPlayerProps) {
           onPress={toggleTtsPlayback}
         >
           {isLoading
-            ? <ActivityIndicator size="small" color={theme.colors.onAccent} />
-            : <Icon name={isPlaying ? "pause" : "play"} size={18} color={theme.colors.onAccent} />}
+            ? <ActivityIndicator size="small" color={theme.colors.onInk} />
+            : <Icon name={isPlaying ? "pause" : "play"} size={18} color={theme.colors.onInk} />}
         </Pressable>
       );
     }
@@ -425,7 +425,7 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.ink,
   },
   loopButton: { width: 40, height: 40, borderRadius: 20 },
-  loopOne: { position: "absolute", color: theme.colors.onAccent, fontSize: 10, lineHeight: 12, fontWeight: "800", textAlign: "center" },
+  loopOne: { position: "absolute", color: theme.colors.onInk, fontSize: 10, lineHeight: 12, fontWeight: "800", textAlign: "center" },
   disabled: {
     opacity: 0.58,
   },

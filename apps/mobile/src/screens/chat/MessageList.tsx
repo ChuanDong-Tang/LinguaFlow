@@ -789,7 +789,7 @@ const styles = StyleSheet.create({
   timeTextRight: {
     marginTop: 8,
     marginRight: 4,
-    color: theme.colors.accent,
+    color: theme.colors.accentStrong,
     fontSize: 13,
   },
   assistantBlock: {
@@ -804,14 +804,14 @@ const styles = StyleSheet.create({
     height: 40,
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: theme.colors.accent,
+    borderColor: theme.colors.accentStrong,
     marginTop: 6,
     alignItems: "center",
     justifyContent: "center",
   },
   characterAvatar: { borderWidth: 0, borderRadius: 0 },
   assistantLogo: {
-    color: theme.colors.accent,
+    color: theme.colors.accentStrong,
     fontSize: 12,
     letterSpacing: 0,
   },
@@ -832,7 +832,7 @@ const styles = StyleSheet.create({
     lineHeight: 23,
   },
   inlineAiBadge: {
-    color: theme.colors.accent,
+    color: theme.colors.accentStrong,
     fontSize: 10,
     fontWeight: "700",
     letterSpacing: 0,
@@ -868,7 +868,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   retryText: {
-    color: theme.colors.onAccent,
+    color: theme.colors.onInk,
     fontSize: 14,
     fontWeight: "700",
   },
@@ -939,7 +939,7 @@ const styles = StyleSheet.create({
   timeTextLeft: {
     marginTop: 8,
     marginLeft: 50,
-    color: theme.colors.accent,
+    color: theme.colors.accentStrong,
     fontSize: 13,
   },
   typingDots: {

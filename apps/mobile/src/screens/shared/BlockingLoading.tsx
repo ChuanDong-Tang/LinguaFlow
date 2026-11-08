@@ -51,7 +51,7 @@ export function BlockingLoading({
             <Icon name="close" size={18} color={theme.colors.textSecondary} />
           </Pressable>
         ) : null}
-        <ActivityIndicator size="large" color={theme.colors.accent} />
+        <ActivityIndicator size="large" color={theme.colors.accentStrong} />
         {options.text ? <Text style={styles.text}>{options.text}</Text> : null}
       </View>
     </View>

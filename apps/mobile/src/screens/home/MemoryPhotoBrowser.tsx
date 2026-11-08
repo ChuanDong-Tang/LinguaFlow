@@ -146,7 +146,7 @@ export function MemoryPhotoBrowser({ day, random = false, onClose, onConfirm, ma
       <KeyboardAwareScrollView bottomOffset={24} keyboardShouldPersistTaps="handled">
         <MemoryPhotoPreview asset={chosen} style={{ width: "100%", aspectRatio: 1.1, borderRadius: 22 }} />
         <PhotoNoteInput value={note} onChange={setNote} disabled={confirming} maxLength={maxTextLength} onBusyChange={setVoiceBusy} />
-        <Pressable accessibilityRole="button" accessibilityLabel={copy("生成回忆", "Create memory")} accessibilityState={{ disabled: confirming || voiceBusy, busy: confirming }} disabled={confirming || voiceBusy} style={({ pressed }) => [styles.createButton, (pressed || confirming || voiceBusy) && { opacity: 0.5 }]} onPress={() => void confirmPhoto()}>{confirming ? <ActivityIndicator color={theme.colors.onAccent} /> : <Text style={styles.nextSetText}>{copy("生成回忆", "Create memory")}</Text>}</Pressable>
+        <Pressable accessibilityRole="button" accessibilityLabel={copy("生成回忆", "Create memory")} accessibilityState={{ disabled: confirming || voiceBusy, busy: confirming }} disabled={confirming || voiceBusy} style={({ pressed }) => [styles.createButton, (pressed || confirming || voiceBusy) && { opacity: 0.5 }]} onPress={() => void confirmPhoto()}>{confirming ? <ActivityIndicator color={theme.colors.onInk} /> : <Text style={styles.nextSetText}>{copy("生成回忆", "Create memory")}</Text>}</Pressable>
         {actionError ? <Text style={styles.explanation}>{copy("未能完成，请重试。", "Could not finish. Please try again.")}</Text> : null}
       </KeyboardAwareScrollView>
     </SafeAreaView>

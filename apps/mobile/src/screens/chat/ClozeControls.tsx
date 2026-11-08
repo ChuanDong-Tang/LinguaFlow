@@ -175,7 +175,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   deleteClozeText: {
-    color: theme.colors.onAccent,
+    color: theme.colors.onInk,
     fontSize: 15,
     fontWeight: "800",
   },
@@ -221,7 +221,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   editorTokenActive: {
-    borderColor: theme.colors.accent,
+    borderColor: theme.colors.accentStrong,
     backgroundColor: theme.colors.accentSoft,
   },
   editorTokenText: {
@@ -255,7 +255,7 @@ const styles = StyleSheet.create({
     flex: 1,
     height: 42,
     borderRadius: 21,
-    backgroundColor: theme.colors.accentStrong,
+    backgroundColor: theme.colors.accent,
     alignItems: "center",
     justifyContent: "center",
   },

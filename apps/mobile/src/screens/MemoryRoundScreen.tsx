@@ -887,9 +887,9 @@ export function MemoryRoundScreen({
 
   const speechBusy = question?.kind === "speech" && (pronunciation.status === "recording" || pronunciation.status === "evaluating");
 
-  if (phase === "loading") return <SafeAreaView style={styles.page}><Header onClose={onClose} /><View style={styles.center}><ActivityIndicator color={theme.colors.accent} /><Text style={styles.loadingText}>{t("memory_round.loading")}</Text></View></SafeAreaView>;
+  if (phase === "loading") return <SafeAreaView style={styles.page}><Header onClose={onClose} /><View style={styles.center}><ActivityIndicator color={theme.colors.accentStrong} /><Text style={styles.loadingText}>{t("memory_round.loading")}</Text></View></SafeAreaView>;
   if (phase === "error") return <SafeAreaView style={styles.page}><Header onClose={onClose} /><View style={styles.center}><Text style={styles.emptyTitle}>{t("memory_round.load_failed")}</Text><Pressable style={({ pressed }) => [styles.lightButton, pressed && styles.controlPressed]} onPress={() => void start()}><Text style={styles.lightButtonText}>{t("common.retry")}</Text></Pressable></View></SafeAreaView>;
-  if (phase === "empty") return <SafeAreaView style={styles.page}><Header onClose={onClose} /><View style={styles.center}><View style={styles.emptyGlyph}><Icon name="albums-outline" size={28} color={theme.colors.accent} /></View><Text style={styles.emptyTitle}>{t("memory_round.empty_title")}</Text><Text style={styles.emptyText}>{t("memory_round.empty_text")}</Text><Pressable style={({ pressed }) => [styles.lightButton, pressed && styles.controlPressed]} onPress={onOpenLibrary}><Text style={styles.lightButtonText}>{t("memory_round.go_cards")}</Text><Icon name="arrow-forward" size={17} color={theme.colors.textSecondary} /></Pressable></View></SafeAreaView>;
+  if (phase === "empty") return <SafeAreaView style={styles.page}><Header onClose={onClose} /><View style={styles.center}><View style={styles.emptyGlyph}><Icon name="albums-outline" size={28} color={theme.colors.accentStrong} /></View><Text style={styles.emptyTitle}>{t("memory_round.empty_title")}</Text><Text style={styles.emptyText}>{t("memory_round.empty_text")}</Text><Pressable style={({ pressed }) => [styles.lightButton, pressed && styles.controlPressed]} onPress={onOpenLibrary}><Text style={styles.lightButtonText}>{t("memory_round.go_cards")}</Text><Icon name="arrow-forward" size={17} color={theme.colors.textSecondary} /></Pressable></View></SafeAreaView>;
   if (phase === "retry_offer") return (
     <SafeAreaView style={styles.summaryPage}>
       <Header onClose={onClose} />
@@ -897,13 +897,13 @@ export function MemoryRoundScreen({
         <View style={styles.retryCelebration}>
           <View style={[styles.retryConfetti, styles.retryConfettiLeft]} />
           <View style={[styles.retryConfetti, styles.retryConfettiRight]} />
-          <View style={styles.retryOfferIcon}><Icon name="flag" size={36} color={theme.colors.onAccent} /></View>
+          <View style={styles.retryOfferIcon}><Icon name="flag" size={36} color={theme.colors.onInk} /></View>
         </View>
         <Text style={styles.retryOfferTitle}>{t("memory_round.retry_skipped_title")}</Text>
         <Text style={styles.retryOfferDetail}>{t("memory_round.retry_skipped_detail").replace("{count}", String(summaryWrong.length))}</Text>
         <View style={styles.retryOfferActions}>
           <Pressable style={({ pressed }) => [styles.gamePrimaryButton, pressed && styles.gameButtonPressed]} onPress={() => void retryWrongQuestions()}>
-            <Icon name="refresh" size={20} color={theme.colors.onAccent} />
+            <Icon name="refresh" size={20} color={theme.colors.onInk} />
             <Text style={styles.gamePrimaryButtonText}>{t("memory_round.retry_skipped_action")}</Text>
           </Pressable>
           <Pressable style={({ pressed }) => [styles.gameSecondaryButton, pressed && styles.gameButtonPressed]} onPress={() => void finishAfterRetryOffer()}>
@@ -924,7 +924,7 @@ export function MemoryRoundScreen({
       <SafeAreaView style={styles.summaryPage}>
         <Header onClose={onClose} />
         <ScrollView contentContainerStyle={styles.cardCompleteBody}>
-          <View style={styles.cardCompleteIcon}><Icon name="checkmark" size={36} color={theme.colors.onAccent} /></View>
+          <View style={styles.cardCompleteIcon}><Icon name="checkmark" size={36} color={theme.colors.onInk} /></View>
           <Text style={styles.cardCompleteTitle}>{t("memory_round.card_complete")}</Text>
           {nextCard ? <>
             <Text style={styles.cardCompleteLabel}>{nextCard.relationHint ? t("memory_round.next_related").replace("{topic}", nextCard.relationHint) : t("memory_round.next_card_ready")}</Text>
@@ -934,15 +934,15 @@ export function MemoryRoundScreen({
             </View>
             <View style={styles.cardCompleteActions}>
               {summaryWrong.length ? <Pressable style={({ pressed }) => [styles.gameSecondaryButton, pressed && styles.gameButtonPressed]} onPress={() => void retryWrongQuestions()}>
-                <Icon name="refresh" size={19} color={theme.colors.accent} />
+                <Icon name="refresh" size={19} color={theme.colors.accentStrong} />
                 <Text style={styles.gameSecondaryButtonText}>{t("memory_round.retry_wrong").replace("{count}", String(summaryWrong.length))}</Text>
               </Pressable> : null}
               <Pressable style={({ pressed }) => [styles.gamePrimaryButton, pressed && styles.gameButtonPressed]} onPress={() => void continueToNextCard()}>
-                <Icon name="play" size={19} color={theme.colors.onAccent} />
+                <Icon name="play" size={19} color={theme.colors.onInk} />
                 <Text style={styles.gamePrimaryButtonText}>{t("memory_round.continue_game")}</Text>
               </Pressable>
               {canChangeCard ? <Pressable disabled={changingNextCard} style={({ pressed }) => [styles.gameSecondaryButton, changingNextCard && styles.buttonDisabled, pressed && styles.gameButtonPressed]} onPress={() => void changeNextCard()}>
-                {changingNextCard ? <ActivityIndicator size="small" color={theme.colors.accent} /> : <Icon name="shuffle" size={19} color={theme.colors.accent} />}
+                {changingNextCard ? <ActivityIndicator size="small" color={theme.colors.accentStrong} /> : <Icon name="shuffle" size={19} color={theme.colors.accentStrong} />}
                 <Text style={styles.gameSecondaryButtonText}>{t("memory_round.change_card")}</Text>
               </Pressable> : null}
               <Pressable style={({ pressed }) => [styles.gameExitButton, pressed && styles.gameButtonPressed]} onPress={() => void exitAfterCard()}>
@@ -999,12 +999,12 @@ export function MemoryRoundScreen({
         </View>
         <Animated.View style={{ transform: [{ translateX: wrongOffset.interpolate({ inputRange: [-1, 1], outputRange: [-6, 6] }) }] }}>
         {question.kind === "speech" ? question.completed ? <View style={styles.completedSentenceCard}><Text style={[styles.completedSentence, sentenceTypography]}>{question.sentence}</Text></View> : <>
-          {question.task === "blind_speech" && !blindSubtitleRevealed ? <View style={styles.blindSpeechCard}><Icon name="ear-outline" size={34} color={theme.colors.accent} /><Text style={styles.blindSpeechText}>{t("memory_round.blind_speech_prompt")}</Text><Pressable style={({ pressed }) => [styles.revealSubtitleButton, pressed && styles.secondaryPressed]} onPress={() => setBlindSubtitleRevealed(true)}><Text style={styles.revealSubtitleText}>{t("memory_round.show_subtitle")}</Text></Pressable></View> : <View style={styles.speechSentenceCard}><GuidedSpeechSentence sentence={question.sentence} recognizedText={pronunciation.recognizedText} completed={question.completed} typography={sentenceTypography} /></View>}
+          {question.task === "blind_speech" && !blindSubtitleRevealed ? <View style={styles.blindSpeechCard}><Icon name="ear-outline" size={34} color={theme.colors.accentStrong} /><Text style={styles.blindSpeechText}>{t("memory_round.blind_speech_prompt")}</Text><Pressable style={({ pressed }) => [styles.revealSubtitleButton, pressed && styles.secondaryPressed]} onPress={() => setBlindSubtitleRevealed(true)}><Text style={styles.revealSubtitleText}>{t("memory_round.show_subtitle")}</Text></Pressable></View> : <View style={styles.speechSentenceCard}><GuidedSpeechSentence sentence={question.sentence} recognizedText={pronunciation.recognizedText} completed={question.completed} typography={sentenceTypography} /></View>}
           <View style={styles.speechPanel}>
             <Text style={styles.speechStatus}>{t(`memory_round.speech_${pronunciation.status}`)}</Text>
-            {pronunciation.status === "evaluating" || pronunciation.status === "preparing" ? <ActivityIndicator size="small" color={theme.colors.accent} style={styles.speechSpinner} /> : null}
+            {pronunciation.status === "evaluating" || pronunciation.status === "preparing" ? <ActivityIndicator size="small" color={theme.colors.accentStrong} style={styles.speechSpinner} /> : null}
             <Pressable disabled={pronunciation.status === "preparing" || pronunciation.status === "evaluating"} style={({ pressed }) => [styles.speechButton, (pronunciation.status === "preparing" || pronunciation.status === "evaluating") && styles.buttonDisabled, pronunciation.status === "recording" && styles.speechButtonRecording, pressed && styles.gameButtonPressed]} onPress={() => { if (pronunciation.status === "recording") void pronunciation.stop(); else { sentenceAudioRequestRef.current += 1; stopTtsAudio({ resetControls: true }); setAudioLoading(false); void pronunciation.start(); } }}>
-              <Icon name={pronunciation.status === "recording" ? "stop" : "mic"} size={19} color={theme.colors.onAccent} />
+              <Icon name={pronunciation.status === "recording" ? "stop" : "mic"} size={19} color={theme.colors.onInk} />
               <Text style={styles.checkButtonText}>{pronunciation.status === "recording" ? t("memory_round.speech_finish") : pronunciation.status === "retry" || pronunciation.status === "error" ? t("memory_round.try_again") : t("memory_round.speech_start")}</Text>
             </Pressable>
             <Pressable style={({ pressed }) => [styles.speechSkip, pressed && styles.gameButtonPressed]} onPress={() => skipCurrentQuestion()}><Text style={styles.speechSkipText}>{t("memory_round.speech_skip")}</Text></Pressable>
@@ -1048,7 +1048,7 @@ export function MemoryRoundScreen({
               returnKeyType="done"
               placeholder={t("memory_round.type_answer")}
               placeholderTextColor={theme.colors.textMuted}
-              selectionColor={theme.colors.accent}
+              selectionColor={theme.colors.accentStrong}
               style={styles.inputAnswer}
               onFocus={() => {
                 requestAnimationFrame(() => questionScrollerRef.current?.scrollToEnd({ animated: true }));
@@ -1080,14 +1080,14 @@ export function MemoryRoundScreen({
           {!answerRevealCompletion ? <>
             <View style={styles.completionHandle} />
             <View style={styles.completionHeading}>
-              <View style={[styles.successMark, question.skipped && styles.skippedMark]}><Icon name={question.skipped ? "play-skip-forward" : "checkmark"} size={20} color={theme.colors.onAccent} /></View>
+              <View style={[styles.successMark, question.skipped && styles.skippedMark]}><Icon name={question.skipped ? "play-skip-forward" : "checkmark"} size={20} color={theme.colors.onInk} /></View>
               <View style={styles.completionCopy}>
                 <Text style={[styles.completionTitle, question.skipped && styles.completionTitleSkipped]}>{question.skipped ? t("memory_round.skipped_feedback") : memoryPraise(question.id)}</Text>
                 <Text style={styles.completionDetail}>{question.skipped ? t("memory_round.skipped_detail") : t("memory_round.correct_detail")}</Text>
               </View>
             </View>
           </> : null}
-          <Pressable style={({ pressed }) => [styles.continueButton, question.skipped && styles.skippedContinueButton, answerRevealCompletion && styles.answerRevealContinueButton, pressed && styles.gameButtonPressed]} onPress={() => void continueRound()}><Text style={styles.primaryButtonText}>{t("common.continue")}</Text><Icon name="arrow-forward" size={18} color={theme.colors.onAccent} /></Pressable>
+          <Pressable style={({ pressed }) => [styles.continueButton, question.skipped && styles.skippedContinueButton, answerRevealCompletion && styles.answerRevealContinueButton, pressed && styles.gameButtonPressed]} onPress={() => void continueRound()}><Text style={styles.primaryButtonText}>{t("common.continue")}</Text><Icon name="arrow-forward" size={18} color={theme.colors.onInk} /></Pressable>
         </View>
       </Animated.View> : null}
     </Animated.View>
@@ -1576,9 +1576,9 @@ const styles = StyleSheet.create({
   controlPressed: { opacity: 0.76, transform: [{ translateY: 1 }, { scale: 0.96 }] },
   sentenceSurface: { paddingHorizontal: 18, paddingVertical: 17, borderRadius: 20, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.border, backgroundColor: theme.colors.surface },
   sentence: { color: theme.colors.text, fontSize: 20, lineHeight: 31, fontWeight: "400" },
-  blank: { color: theme.colors.accent, textDecorationLine: "underline", textDecorationColor: theme.colors.accent },
+  blank: { color: theme.colors.accentStrong, textDecorationLine: "underline", textDecorationColor: theme.colors.accentStrong },
   inputBlank: { color: theme.colors.success },
-  memoryBlankUnit: { color: theme.colors.accent, letterSpacing: 1 },
+  memoryBlankUnit: { color: theme.colors.accentStrong, letterSpacing: 1 },
   inputAnswerShell: { minHeight: 56, marginTop: 14, paddingLeft: 17, paddingRight: 12, borderRadius: 17, borderWidth: 1.5, borderColor: theme.colors.borderStrong, backgroundColor: theme.colors.surface, flexDirection: "row", alignItems: "center", shadowColor: "#52645D", shadowOpacity: 0.06, shadowRadius: 6, shadowOffset: { width: 0, height: 3 }, elevation: 1 },
   inputAnswerShellWrong: { borderColor: theme.colors.accentSoft, backgroundColor: theme.colors.surfaceSunken },
   inputAnswer: { flex: 1, minHeight: 54, paddingVertical: 10, color: theme.colors.text, fontSize: 18, lineHeight: 24, fontWeight: "500" },
@@ -1587,7 +1587,7 @@ const styles = StyleSheet.create({
   inputRetryButton: { flex: 1, minHeight: 54, borderRadius: 19, borderWidth: 2, borderBottomWidth: 5, borderColor: theme.colors.accentSoft, backgroundColor: theme.colors.surface, alignItems: "center", justifyContent: "center" },
   inputRetryButtonText: { color: theme.colors.danger, fontSize: 16, fontWeight: "800" },
   inputShowAnswerButton: { flex: 1, minHeight: 54, borderRadius: 19, borderBottomWidth: 5, borderBottomColor: theme.colors.successSoft, backgroundColor: theme.colors.success, alignItems: "center", justifyContent: "center" },
-  inputShowAnswerButtonText: { color: theme.colors.onAccent, fontSize: 16, fontWeight: "800" },
+  inputShowAnswerButtonText: { color: theme.colors.onInk, fontSize: 16, fontWeight: "800" },
   meaningRetry: { color: theme.colors.danger, fontSize: 12, fontWeight: "500" },
   meaningRetryIcon: { width: 32, height: 32, borderRadius: 10, backgroundColor: theme.colors.surfaceMuted, alignItems: "center", justifyContent: "center" },
   meaningDots: { height: 12, marginLeft: 2, flexDirection: "row", alignItems: "center", gap: 4 },
@@ -1624,7 +1624,7 @@ const styles = StyleSheet.create({
   selectedTokenText: { color: theme.colors.success, fontSize: 16, fontWeight: "400" },
   tokenPressed: { opacity: 0.78, transform: [{ translateY: 2 }, { scale: 0.96 }] },
   checkButton: { minHeight: 54, marginTop: 22, borderRadius: 16, borderBottomWidth: 3, borderBottomColor: theme.colors.accentPressed, backgroundColor: theme.colors.accent, alignItems: "center", justifyContent: "center" },
-  checkButtonWrong: { borderBottomColor: "#8E1D17", backgroundColor: theme.colors.danger },
+  checkButtonWrong: { borderBottomColor: theme.colors.danger, backgroundColor: theme.colors.dangerSoft },
   checkButtonText: { color: theme.colors.onAccent, fontSize: 16, fontWeight: "700", letterSpacing: 0.3 },
   skipButton: { minHeight: 50, marginTop: 12, borderRadius: 16, borderWidth: 1, borderColor: theme.colors.borderStrong, backgroundColor: "transparent", alignItems: "center", justifyContent: "center" },
   skipButtonText: { color: theme.colors.textSecondary, fontSize: 15, fontWeight: "600" },
@@ -1654,7 +1654,7 @@ const styles = StyleSheet.create({
   primaryButton: { minHeight: 54, marginTop: 20, paddingHorizontal: 28, borderRadius: 16, backgroundColor: theme.colors.accent, alignItems: "center", justifyContent: "center" },
   primaryButtonText: { color: theme.colors.onAccent, fontSize: 16, fontWeight: "600" },
   againButton: { minHeight: 48, marginTop: 10, alignItems: "center", justifyContent: "center" },
-  againButtonText: { color: theme.colors.accent, fontSize: 15, fontWeight: "500" },
+  againButtonText: { color: theme.colors.accentStrong, fontSize: 15, fontWeight: "500" },
   summaryBody: { flex: 1, paddingHorizontal: 36, alignItems: "stretch", justifyContent: "center" },
   retryOfferBody: { flex: 1, paddingHorizontal: 30, paddingBottom: 48, alignItems: "stretch", justifyContent: "center" },
   retryCelebration: { height: 112, marginBottom: 18, alignItems: "center", justifyContent: "center" },
@@ -1663,12 +1663,12 @@ const styles = StyleSheet.create({
   retryConfettiLeft: { left: "22%", top: 16, backgroundColor: theme.colors.accent },
   retryConfettiRight: { right: "20%", bottom: 12, backgroundColor: theme.colors.accent, transform: [{ rotate: "-16deg" }] },
   retryOfferTitle: { color: theme.colors.text, fontSize: 30, lineHeight: 38, fontWeight: "800", textAlign: "center" },
-  retryOfferDetail: { marginTop: 8, color: theme.colors.accent, fontSize: 16, lineHeight: 23, fontWeight: "600", textAlign: "center" },
+  retryOfferDetail: { marginTop: 8, color: theme.colors.accentStrong, fontSize: 16, lineHeight: 23, fontWeight: "600", textAlign: "center" },
   retryOfferActions: { marginTop: 36, gap: 14 },
   gamePrimaryButton: { minHeight: 60, paddingHorizontal: 24, borderRadius: 22, borderBottomWidth: 6, borderBottomColor: theme.colors.successSoft, backgroundColor: theme.colors.success, flexDirection: "row", gap: 9, alignItems: "center", justifyContent: "center" },
-  gamePrimaryButtonText: { color: theme.colors.onAccent, fontSize: 17, lineHeight: 23, fontWeight: "800" },
-  gameSecondaryButton: { minHeight: 58, paddingHorizontal: 24, borderRadius: 22, borderWidth: 2, borderBottomWidth: 6, borderColor: theme.colors.accent, backgroundColor: theme.colors.surface, flexDirection: "row", gap: 9, alignItems: "center", justifyContent: "center" },
-  gameSecondaryButtonText: { color: theme.colors.accent, fontSize: 17, lineHeight: 23, fontWeight: "800" },
+  gamePrimaryButtonText: { color: theme.colors.onInk, fontSize: 17, lineHeight: 23, fontWeight: "800" },
+  gameSecondaryButton: { minHeight: 58, paddingHorizontal: 24, borderRadius: 22, borderWidth: 2, borderBottomWidth: 6, borderColor: theme.colors.accentStrong, backgroundColor: theme.colors.surface, flexDirection: "row", gap: 9, alignItems: "center", justifyContent: "center" },
+  gameSecondaryButtonText: { color: theme.colors.accentStrong, fontSize: 17, lineHeight: 23, fontWeight: "800" },
   gameExitButton: { minHeight: 58, paddingHorizontal: 24, borderRadius: 22, borderWidth: 2, borderBottomWidth: 6, borderColor: theme.colors.accentSoft, backgroundColor: theme.colors.surfaceSunken, flexDirection: "row", gap: 9, alignItems: "center", justifyContent: "center" },
   gameExitButtonText: { color: theme.colors.danger, fontSize: 17, lineHeight: 23, fontWeight: "800" },
   gameButtonPressed: { transform: [{ translateY: 4 }, { scale: 0.99 }], borderBottomWidth: 2, opacity: 0.94 },
@@ -1682,7 +1682,7 @@ const styles = StyleSheet.create({
   cardCompleteTitle: { color: theme.colors.text, fontSize: 29, lineHeight: 37, fontWeight: "800", textAlign: "center" },
   cardCompleteName: { marginTop: 8, color: theme.colors.textSecondary, fontSize: 16, lineHeight: 23, textAlign: "center" },
   nextCardPreview: { marginTop: 34, paddingHorizontal: 18, paddingVertical: 16, borderRadius: 18, borderWidth: 1, borderColor: theme.colors.borderStrong, backgroundColor: theme.colors.surface },
-  cardCompleteLabel: { marginTop: 24, marginBottom: 9, color: theme.colors.accent, fontSize: 14, lineHeight: 19, fontWeight: "700", textAlign: "center" },
+  cardCompleteLabel: { marginTop: 24, marginBottom: 9, color: theme.colors.accentStrong, fontSize: 14, lineHeight: 19, fontWeight: "700", textAlign: "center" },
   cardRouteCard: { minHeight: 92, padding: 10, borderRadius: 20, borderWidth: 1, borderColor: theme.colors.borderStrong, backgroundColor: theme.colors.surface, flexDirection: "row", alignItems: "center", gap: 12 },
   nextCardRouteCard: { borderWidth: 2, borderBottomWidth: 5, borderColor: theme.colors.successSoft, backgroundColor: theme.colors.surfaceMuted },
   cardRouteImage: { width: 72, height: 72, borderRadius: 14, backgroundColor: theme.colors.surfaceMuted },
@@ -1691,6 +1691,6 @@ const styles = StyleSheet.create({
   cardRouteTitle: { color: theme.colors.text, fontSize: 16, lineHeight: 22, fontWeight: "700" },
   cardRouteMeta: { marginTop: 5, color: theme.colors.textSecondary, fontSize: 12, lineHeight: 17 },
   cardCompleteActions: { marginTop: 24, gap: 13 },
-  nextCardEyebrow: { color: theme.colors.accent, fontSize: 12, fontWeight: "700" },
+  nextCardEyebrow: { color: theme.colors.accentStrong, fontSize: 12, fontWeight: "700" },
   nextCardTitle: { marginTop: 6, color: theme.colors.text, fontSize: 17, lineHeight: 24, fontWeight: "600" },
 });

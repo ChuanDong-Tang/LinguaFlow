@@ -89,7 +89,7 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   confirmText: {
-    color: theme.colors.onAccent,
+    color: theme.colors.onInk,
     fontSize: 15,
     fontWeight: "700",
   },

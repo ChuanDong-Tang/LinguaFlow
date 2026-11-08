@@ -114,7 +114,7 @@ export function FeedbackScreen({ onBack }: FeedbackScreenProps) {
           disabled={!canSubmit}
         >
           {submitting ? (
-            <ActivityIndicator color={theme.colors.onAccent} />
+            <ActivityIndicator color={theme.colors.onInk} />
           ) : (
             <Text style={styles.submitText}>{t("feedback.submit")}</Text>
           )}
@@ -149,7 +149,7 @@ const styles = StyleSheet.create({
   },
   categorySelected: { borderColor: theme.colors.text, backgroundColor: theme.colors.ink },
   categoryText: { color: theme.colors.textStrong, fontSize: 13 },
-  categoryTextSelected: { color: theme.colors.onAccent },
+  categoryTextSelected: { color: theme.colors.onInk },
   inputCard: {
     minHeight: 220,
     borderWidth: 1,
@@ -170,5 +170,5 @@ const styles = StyleSheet.create({
   },
   submitButtonDisabled: { backgroundColor: theme.colors.disabled },
   submitButtonPressed: { opacity: 0.78 },
-  submitText: { color: theme.colors.onAccent, fontSize: 15, fontWeight: "600" },
+  submitText: { color: theme.colors.onInk, fontSize: 15, fontWeight: "600" },
 });

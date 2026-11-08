@@ -241,7 +241,7 @@ const NOTICE_PALETTE: Record<
   info: {
     background: theme.colors.surface,
     border: theme.colors.border,
-    iconColor: theme.colors.accent,
+    iconColor: theme.colors.accentStrong,
     icon: "information-circle-outline",
   },
   success: {

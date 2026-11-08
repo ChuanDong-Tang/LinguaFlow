@@ -338,7 +338,7 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
           onPress={handlePrimaryLogin}
           disabled={loading}
         >
-          {loading ? <ActivityIndicator color={theme.colors.onAccent} /> : <Text style={styles.loginText}>{t("auth.login.button")}</Text>}
+          {loading ? <ActivityIndicator color={theme.colors.onInk} /> : <Text style={styles.loginText}>{t("auth.login.button")}</Text>}
         </Pressable>
 
         <Pressable
@@ -577,7 +577,7 @@ const styles = StyleSheet.create({
     opacity: 0.56,
   },
   loginText: {
-    color: theme.colors.onAccent,
+    color: theme.colors.onInk,
     fontSize: 18,
     fontWeight: "500",
   },

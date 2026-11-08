@@ -15,7 +15,11 @@ import { MemoryArchiveDeck } from "./home/MemoryArchiveDeck";
 import { MemoryCollectionFilters } from "./home/MemoryCollectionFilters";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { KeyboardAwareScrollView, useReanimatedKeyboardAnimation } from "react-native-keyboard-controller";
-import Reanimated, { useAnimatedRef, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
+import Reanimated, { FadeInDown, useAnimatedRef, useAnimatedStyle, useSharedValue, withTiming, ZoomIn } from "react-native-reanimated";
+import { SketchBlob, SketchBox, SketchPressable, pencilFillFor, useFirstAppearance } from "../components/sketch/Sketch";
+import { OioMascot, type OioMascotHandle } from "../components/sketch/OioMascot";
+import { haptic } from "../feedback/haptics";
+import { motion } from "../motion";
 import OioCharacter from "../../assets/app/oio-character.svg";
 import { ClockCounterClockwise, Gift, SunHorizon, TrayArrowDown } from "phosphor-react-native";
 import Sortable from "react-native-sortables";
@@ -1564,7 +1568,11 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
       && Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.8
     ),
     onPanResponderRelease: (_event, gesture) => {
-      setHomeTab(current => swipedMemoryTab(current, gesture.dx, gesture.dy));
+      setHomeTab(current => {
+        const next = swipedMemoryTab(current, gesture.dx, gesture.dy);
+        if (next !== current) haptic.select();
+        return next;
+      });
     },
   }), [isActive, sidebarVisible, searchVisible, composerVisible, quickNoteExpanded, photoBrowser, selectingRecords, libraryView, homeTab]);
 
@@ -1605,6 +1613,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
   }, [draft.text.length]);
   const updateQuickNoteText = quickNoteStt.onChangeText;
   const editorialHome = homeTab === "memory" && libraryView !== TRASH_VIEW;
+  const headerMascot = useRef<OioMascotHandle>(null);
 
   return (
     <SafeAreaView style={[styles.container, libraryView !== TRASH_VIEW && styles.editorialCanvas]} {...edgeSidebarResponder.panHandlers}>
@@ -1623,7 +1632,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
           ? <Text style={styles.selectionHeaderTitle}>{selectedRecordIds.size}</Text>
           : <Pressable style={styles.homeSectionTabs} onPress={chooseLibraryAction}><Text numberOfLines={1} style={styles.homeHeaderTitle}>{headerTitle}</Text><Icon name="chevron-down" size={16} color={theme.colors.textMuted} /></Pressable>}
         <View style={styles.headerActions}>
-          {!selectingRecords ? <Pressable accessibilityRole="button" accessibilityLabel={t("contact.curious_companion.name")} hitSlop={8} style={({ pressed }) => [styles.headerCharacter, pressed && { opacity: 0.55 }]} onPress={() => void openAssistant()}><OioCharacter width={27} height={26} /></Pressable> : null}
+          {!selectingRecords ? <Pressable accessibilityRole="button" accessibilityLabel={t("contact.curious_companion.name")} hitSlop={8} style={styles.headerCharacter} onPressIn={() => headerMascot.current?.hop()} onPress={() => { haptic.light(); void openAssistant(); }}><OioMascot ref={headerMascot} size={29} /></Pressable> : null}
           {selectingRecords ? <Pressable accessibilityRole="button" accessibilityLabel={gridLayout ? homeCopy.list : homeCopy.grid} style={styles.headerIconButton} onPress={() => setHomeLayout(gridLayout ? "list" : "grid")}><Icon name={gridLayout ? "list-outline" : "grid-outline"} size={22} color={theme.colors.text} /></Pressable> : <Pressable
             accessibilityLabel={t("quick_note.a11y.search")}
             style={styles.headerIconButton}
@@ -1640,7 +1649,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
 
       <View style={{ flex: 1 }} {...homeTabsResponder.panHandlers}>
       {!selectingRecords && libraryView !== TRASH_VIEW ? <View style={styles.memoryTabs}>
-        {(["memory", "today", "blind"] as const).map((tab) => <Pressable key={tab} accessibilityRole="tab" accessibilityState={{ selected: homeTab === tab }} style={[styles.memoryTab, homeTab === tab && styles.memoryTabActive]} onPress={() => setHomeTab(tab)}><Text style={[styles.memoryTabText, homeTab === tab && styles.memoryTabSelected]}>{homeCopy[tab]}</Text><View style={[styles.memoryTabIndicator, homeTab !== tab && { opacity: 0 }]} /></Pressable>)}
+        {(["memory", "today", "blind"] as const).map((tab) => <Pressable key={tab} accessibilityRole="tab" accessibilityState={{ selected: homeTab === tab }} style={[styles.memoryTab, homeTab === tab && styles.memoryTabActive]} onPress={() => { if (homeTab !== tab) haptic.select(); setHomeTab(tab); }}>{homeTab === tab ? <Reanimated.View entering={ZoomIn.springify().damping(motion.spring.indicator.damping).stiffness(motion.spring.indicator.stiffness)} style={styles.memoryTabBlob}><SketchBlob seed={`home-tab-${tab}`} color={HOME_TAB_FILLS[tab]} style={StyleSheet.absoluteFill} /></Reanimated.View> : null}<Text style={[styles.memoryTabText, homeTab === tab && styles.memoryTabSelected]}>{homeCopy[tab]}</Text></Pressable>)}
       </View> : null}
       {!selectingRecords && editorialHome ? <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 16 }}><View style={{ flex: 1, minWidth: 0 }}><MemoryCollectionFilters editorial={editorialHome} collections={collections} selected={libraryView} onSelect={selectLibraryView} onTouching={value => { touchingCollectionFilters.current = value; }} /></View>{editorialHome ? <Pressable accessibilityRole="button" accessibilityLabel={gridLayout ? homeCopy.list : homeCopy.grid} style={[styles.headerIconButton, { marginRight: 14, marginBottom: 8 }]} onPress={() => setHomeLayout(gridLayout ? "list" : "grid")}><Icon name={gridLayout ? "list-outline" : "grid-outline"} size={19} color={theme.colors.textSecondary} /></Pressable> : null}</View> : null}
       {homeTab === "blind" && libraryView !== TRASH_VIEW && !selectingRecords ? <ScrollView style={{ flex: 1, minHeight: 0 }} contentContainerStyle={styles.memoryLanding}>
@@ -1657,8 +1666,8 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
         style={styles.libraryList}
         data={[...(recordsScope === queryScope ? records : [])].filter((record) => (!selectingRecords || !record.isSample) && (!dateScope || record.dateKey === dateScope)).sort((a, b) => Number(b.isSample) - Number(a.isSample))}
         keyExtractor={(record) => record.id}
-        renderItem={({ item: record }) => (
-          <CardCard grid={gridLayout} record={record} collectionName={record.collectionId ? collections.find((collection) => collection.id === record.collectionId)?.name : undefined} selecting={selectingRecords} selected={selectedRecordIds.has(record.id)} onPress={(origin) => selectingRecords ? toggleRecordSelection(record.id) : libraryView === TRASH_VIEW ? undefined : void openDetail(record, origin)} onOpenActions={(anchor) => openRecordActions(record, anchor)} onHideTutorial={() => hideTutorial(record.id)} onThumbnailError={recoverFailedThumbnail} />
+        renderItem={({ item: record, index }) => (
+          <CardCard enterIndex={index} grid={gridLayout} record={record} collectionName={record.collectionId ? collections.find((collection) => collection.id === record.collectionId)?.name : undefined} selecting={selectingRecords} selected={selectedRecordIds.has(record.id)} onPress={(origin) => selectingRecords ? toggleRecordSelection(record.id) : libraryView === TRASH_VIEW ? undefined : void openDetail(record, origin)} onOpenActions={(anchor) => openRecordActions(record, anchor)} onHideTutorial={() => hideTutorial(record.id)} onThumbnailError={recoverFailedThumbnail} />
         )}
         ListHeaderComponent={homeTab === "memory" && !selectingRecords && libraryView !== TRASH_VIEW ? <MemoryRoundShortcut active={isActive} resume={memoryRoundResumeAvailable} onPress={onOpenMemoryRound} /> : null}
         contentContainerStyle={styles.list}
@@ -1673,13 +1682,14 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
         onEndReached={() => void loadMore()}
         ListEmptyComponent={loading ? <ActivityIndicator color={theme.colors.accentStrong} style={styles.loader} /> : (
           <View style={styles.emptyCard}>
+            {libraryView !== TRASH_VIEW ? <OioMascot size={84} style={styles.emptyMascot} /> : null}
             {libraryView === "all" || homeTab === "today" ? <>
               <Text style={styles.emptyTitle}>{homeTab === "today" ? homeCopy.todayEmpty : t("quick_note.empty_cards")}</Text>
               <Text style={styles.emptyText}>{homeTab === "today" ? homeCopy.todayHint : t("quick_note.empty_cards_hint")}</Text>
             </> : null}
-            {libraryView !== TRASH_VIEW ? <Pressable style={styles.emptyAction} onPress={openCardComposer}>
+            {libraryView !== TRASH_VIEW ? <SketchPressable seed="home-empty-create" radius={22} fill={theme.colors.accent} feedback="medium" accessibilityRole="button" style={styles.emptyAction} contentStyle={styles.emptyActionInner} onPress={openCardComposer}>
               <Text style={styles.emptyActionText}>{homeCopy.create}</Text>
-            </Pressable> : <Text style={styles.emptyText}>{t("library.trash_empty")}</Text>}
+            </SketchPressable> : <Text style={styles.emptyText}>{t("library.trash_empty")}</Text>}
           </View>
         )}
         ListFooterComponent={loadingMore ? <ActivityIndicator color={theme.colors.accentStrong} style={styles.loadMoreIndicator} /> : loadMoreError ? <Pressable accessibilityRole="button" onPress={() => void loadMore()} style={{ minHeight: 44, padding: 16, alignItems: "center" }}><Text style={{ color: theme.colors.textMuted }}>{t("main.error.network_retry")}</Text><Text style={{ color: theme.colors.accentStrong }}>{t("common.retry")}</Text></Pressable> : null}
@@ -1723,20 +1733,20 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
           </Pressable>
         </View>
       </View> : null}
-      {!selectingRecords && libraryView !== TRASH_VIEW && !quickNoteExpanded ? <View style={[styles.memoryEntryDock, { bottom: Math.max(screenInsets.bottom + 10, 14) }]}>
-        <Pressable accessibilityRole="button" accessibilityLabel={homeCopy.todayPhotos} style={styles.memoryPhotoShortcut} onPress={() => { Keyboard.dismiss(); setPhotoBrowser("today"); }}>
-          <SunHorizon size={25} color={theme.colors.text} weight="duotone" />
+      {!selectingRecords && libraryView !== TRASH_VIEW && !quickNoteExpanded ? <SketchBox seed="home-dock" radius={31} fill={theme.colors.canvas} shadow style={[styles.memoryEntryDock, { bottom: Math.max(screenInsets.bottom + 10, 14) }]}>
+        <Pressable accessibilityRole="button" accessibilityLabel={homeCopy.todayPhotos} style={({ pressed }) => [styles.memoryPhotoShortcut, pressed && styles.memoryPhotoShortcutPressed]} onPress={() => { haptic.light(); Keyboard.dismiss(); setPhotoBrowser("today"); }}>
+          <SunHorizon size={25} color={theme.colors.text} />
           <Text style={styles.memoryEntryLabel}>{homeCopy.todayPhotos}</Text>
         </Pressable>
-        <Pressable accessibilityRole="button" accessibilityLabel={t("quick_note.expand_editor")} style={[styles.memoryEntryButton, styles.memoryPhotoEntry]} onPress={() => setQuickNoteExpanded(true)}>
-          <Icon name="add" size={29} color={theme.colors.surface} />
+        <SketchPressable seed="home-plus" radius={27} fill={theme.colors.accent} feedback="medium" accessibilityRole="button" accessibilityLabel={t("quick_note.expand_editor")} contentStyle={styles.memoryEntryButton} onPress={() => setQuickNoteExpanded(true)}>
+          <Icon name="add" size={29} color={theme.colors.ink} weight="bold" />
           {draft.text || draft.images.length ? <View style={styles.memoryDraftDot} /> : null}
-        </Pressable>
-        <Pressable accessibilityRole="button" accessibilityLabel={homeCopy.randomPhotos} style={styles.memoryPhotoShortcut} onPress={() => { Keyboard.dismiss(); setPhotoBrowser("random"); }}>
-          <Gift size={25} color={theme.colors.text} weight="duotone" />
+        </SketchPressable>
+        <Pressable accessibilityRole="button" accessibilityLabel={homeCopy.randomPhotos} style={({ pressed }) => [styles.memoryPhotoShortcut, pressed && styles.memoryPhotoShortcutPressed]} onPress={() => { haptic.light(); Keyboard.dismiss(); setPhotoBrowser("random"); }}>
+          <Gift size={25} color={theme.colors.text} />
           <Text style={styles.memoryEntryLabel}>{homeCopy.randomPhotos}</Text>
         </Pressable>
-      </View> : null}
+      </SketchBox> : null}
       {!selectingRecords && libraryView !== TRASH_VIEW && quickNoteExpanded ? <Reanimated.View style={[styles.unifiedComposerDock, { bottom: Math.max(screenInsets.bottom + 10, 14) }, quickNoteKeyboardDockStyle]}>
         <Pressable accessibilityRole="button" accessibilityLabel={t("card_detail.a11y.close")} disabled={quickNoteStt.status !== "idle" || quickNoteCreating || preparingDraftImageCount > 0} style={styles.memoryCollapseInput} onPress={() => { Keyboard.dismiss(); setQuickNoteAddMenuVisible(false); setQuickNoteExpanded(false); }}><Icon name="chevron-down" size={20} color={theme.colors.textSecondary} /></Pressable>
         <View style={styles.unifiedComposerBar}>
@@ -1983,38 +1993,17 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
   );
 }
 
+const HOME_TAB_FILLS = { memory: theme.palette.yellow100, today: theme.palette.leaf100, blind: theme.palette.sky100 } as const;
+
 function MemoryRoundShortcut({ active, resume, onPress }: { active: boolean; resume: boolean; onPress: () => void }) {
-  const pulse = useRef(new Animated.Value(0)).current;
-  useEffect(() => {
-    if (!active) {
-      pulse.stopAnimation();
-      pulse.setValue(0);
-      return;
-    }
-    let animation: Animated.CompositeAnimation | null = null;
-    const startPulse = () => {
-      animation?.stop();
-      pulse.stopAnimation();
-      pulse.setValue(0);
-      animation = Animated.loop(Animated.sequence([
-        Animated.timing(pulse, { toValue: 1, duration: 900, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
-        Animated.timing(pulse, { toValue: 0, duration: 900, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
-      ]));
-      animation.start();
-    };
-    startPulse();
-    const subscription = AppState.addEventListener("change", (state) => state === "active" ? startPulse() : animation?.stop());
-    return () => {
-      subscription.remove();
-      animation?.stop();
-      pulse.stopAnimation();
-    };
-  }, [active, pulse]);
-  return <Pressable accessibilityRole="button" accessibilityLabel={t(resume ? "memory_round.resume" : "memory_round.start")} style={({ pressed }) => [styles.memoryRoundBanner, pressed && { opacity: 0.72 }]} onPress={onPress}>
-    <Animated.View style={[styles.memoryRoundDot, { transform: [{ scale: pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.35] }) }], opacity: pulse.interpolate({ inputRange: [0, 1], outputRange: [0.6, 1] }) }]} />
-    <Text numberOfLines={1} style={styles.memoryRoundBannerTitle}>{t(resume ? "memory_round.resume" : "memory_round.start")}</Text>
-    <Icon name="chevron-forward" size={17} color={theme.colors.accent} />
-  </Pressable>;
+  const mascot = useRef<OioMascotHandle>(null);
+  const draw = useFirstAppearance("home-memory-round");
+  const label = t(resume ? "memory_round.resume" : "memory_round.start");
+  return <SketchPressable seed="home-memory-round" radius={theme.radius.card} fill={theme.colors.accentSoft} draw={draw} feedback="medium" accessibilityRole="button" accessibilityLabel={label} style={styles.memoryRoundBanner} contentStyle={styles.memoryRoundBannerInner} onPressIn={() => mascot.current?.hop()} onPress={onPress}>
+    <OioMascot ref={mascot} size={36} idle={active} />
+    <Text numberOfLines={1} style={styles.memoryRoundBannerTitle}>{label}</Text>
+    <Icon name="arrow-forward" size={20} color={theme.colors.ink} />
+  </SketchPressable>;
 }
 
 function LibrarySidebar({ visible, activeView, collections, profile, entitlement, onClose, onSelect, onOpenRecall, onOpenAssistant, onOpenCorpus, onOpenCalendar, onCreateCollection, onRenameCollection, onToggleFavorite, onDeleteCollection, onReorderCollection, onReorderFavoriteCollection, onOpenAccount }: {
@@ -3040,7 +3029,7 @@ function CardSearchScreen({ query, results, searching, dictionarySearch, collect
         {query ? <Pressable accessibilityLabel={t("main.search.clear")} hitSlop={8} onPress={() => onQueryChange("")}><Icon name="close-circle" size={19} color={theme.colors.textMuted} /></Pressable> : null}
       </View>
       <Pressable accessibilityLabel={t("main.search.action")} disabled={!query.trim() || searching} style={[styles.searchPageSubmit, (!query.trim() || searching) && styles.searchPageSubmitDisabled]} onPress={onSearch}>
-        {searching ? <ActivityIndicator size="small" color={theme.colors.onAccent} /> : <Icon name="arrow-forward" size={19} color={theme.colors.onAccent} />}
+        {searching ? <ActivityIndicator size="small" color={theme.colors.onInk} /> : <Icon name="arrow-forward" size={19} color={theme.colors.onInk} />}
       </Pressable>
     </View>
     <View style={styles.searchFilters}>
@@ -3182,8 +3171,9 @@ async function stabilizeRecordThumbnails(
   }));
 }
 
-function CardCard({ record, grid = false, collectionName, selecting = false, selected = false, onPress, onOpenActions, onThumbnailError, onHideTutorial }: {
+function CardCard({ record, grid = false, enterIndex, collectionName, selecting = false, selected = false, onPress, onOpenActions, onThumbnailError, onHideTutorial }: {
   grid?: boolean;
+  enterIndex?: number;
   record: CardRecordSummary;
   collectionName?: string;
   selecting?: boolean;
@@ -3198,6 +3188,7 @@ function CardCard({ record, grid = false, collectionName, selecting = false, sel
   const thumbnailRef = useRef<View>(null);
   const cardRef = useRef<View>(null);
   const moreButtonRef = useRef<View>(null);
+  const firstAppearance = useFirstAppearance(`home-card-${record.id}`);
   function measureOrigin(onMeasured: (origin: NonNullable<CardDetailRequest["origin"]>) => void): void {
     const target = record.thumbnail ? thumbnailRef.current : cardRef.current;
     target?.measureInWindow((x, y, width, height) => {
@@ -3213,11 +3204,10 @@ function CardCard({ record, grid = false, collectionName, selecting = false, sel
     }
     measureOrigin(onPress);
   }
-  return (
-    <Pressable ref={cardRef} style={[styles.card, grid && styles.memoryGridCard, selected && styles.cardSelected]} disabled={processing} accessibilityState={{ disabled: processing, selected }} onPress={open}>
+  const content = (
       <View style={[styles.cardContent, grid && styles.memoryGridContent]}>
         {selecting ? <View style={[styles.cardSelectionIcon, grid && { position: "absolute", top: 8, right: 8, zIndex: 2, borderRadius: 18, backgroundColor: theme.colors.surface, padding: 3 }]}><Icon name={selected ? "checkmark-circle" : "ellipse-outline"} size={23} color={selected ? theme.colors.text : theme.colors.textMuted} /></View> : null}
-        {record.thumbnail ? <View ref={thumbnailRef} collapsable={false} style={grid ? [styles.memoryGridCover, { aspectRatio: Math.max(0.75, Math.min(1.25, record.thumbnail.width / Math.max(1, record.thumbnail.height))) }] : styles.thumbnailFrame}>{grid ? <Image source={{ uri: record.thumbnail.url }} style={StyleSheet.absoluteFill} resizeMode="cover" onError={onThumbnailError} /> : <FocusedCardThumbnail thumbnail={record.thumbnail} onError={onThumbnailError} />}</View> : grid ? <View style={[styles.memoryGridCover, styles.memoryTextCover]}><Text style={styles.memoryTextCoverTitle} numberOfLines={6}>{record.originalPreview || record.displayTitle}</Text></View> : null}
+        {record.thumbnail ? <View ref={thumbnailRef} collapsable={false} style={grid ? [styles.memoryGridCover, { aspectRatio: Math.max(0.75, Math.min(1.25, record.thumbnail.width / Math.max(1, record.thumbnail.height))) }] : styles.thumbnailFrame}>{grid ? <Image source={{ uri: record.thumbnail.url }} style={StyleSheet.absoluteFill} resizeMode="cover" onError={onThumbnailError} /> : <FocusedCardThumbnail thumbnail={record.thumbnail} onError={onThumbnailError} />}</View> : grid ? <View style={[styles.memoryGridCover, styles.memoryTextCover, { backgroundColor: pencilFillFor(record.id) }]}><Text style={styles.memoryTextCoverTitle} numberOfLines={6}>{record.originalPreview || record.displayTitle}</Text></View> : null}
         <View style={styles.cardTextColumn}>
           {processing ? (
             <>
@@ -3240,7 +3230,7 @@ function CardCard({ record, grid = false, collectionName, selecting = false, sel
                 <Text style={styles.sampleBadge}>{t("tutorial.hide")}</Text>
               </Pressable>
             </> : null}
-            {processing ? <ActivityIndicator size="small" color={theme.colors.accent} /> : !selecting ? (
+            {processing ? <ActivityIndicator size="small" color={theme.colors.accentStrong} /> : !selecting ? (
               <Pressable ref={moreButtonRef} accessibilityLabel={t("quick_note.actions")} style={styles.cardMoreButton} hitSlop={8} onPress={(event) => {
                 event.stopPropagation();
                 moreButtonRef.current?.measureInWindow((x, y, width, height) => onOpenActions({ x, y, width, height }));
@@ -3251,6 +3241,20 @@ function CardCard({ record, grid = false, collectionName, selecting = false, sel
           </View>
         </View>
       </View>
+  );
+  if (grid) {
+    const enter = firstAppearance && enterIndex !== undefined && enterIndex < motion.maxStaggered
+      ? FadeInDown.duration(motion.duration.enter).delay(enterIndex * motion.stagger)
+      : undefined;
+    return <Reanimated.View entering={enter} style={styles.memoryGridCell}>
+      <SketchPressable ref={cardRef} seed={record.id} draw={firstAppearance} drawDelay={(enterIndex ?? 0) * motion.stagger} fill={selected ? theme.colors.accentFaint : theme.colors.surface} disabled={processing} dimWhenDisabled={false} accessibilityState={{ disabled: processing, selected }} style={styles.memoryGridCard} contentStyle={styles.memoryGridSketch} onPress={open}>
+        {content}
+      </SketchPressable>
+    </Reanimated.View>;
+  }
+  return (
+    <Pressable ref={cardRef} style={[styles.card, selected && styles.cardSelected]} disabled={processing} accessibilityState={{ disabled: processing, selected }} onPress={open}>
+      {content}
     </Pressable>
   );
 }
@@ -3360,16 +3364,18 @@ const styles = StyleSheet.create({
   memoryTab: { minHeight: 46, justifyContent: "center", alignItems: "center" },
   memoryTabActive: {},
   memoryTabText: { fontSize: 17, lineHeight: 24, color: theme.colors.textFaint, fontWeight: "600" },
-  memoryTabIndicator: { width: 16, height: 3, marginTop: 4, borderRadius: 2, backgroundColor: theme.colors.accent },
+  memoryTabBlob: { position: "absolute", left: -11, right: -11, top: 9, bottom: 8 },
   memoryTabSelected: { color: theme.colors.text },
   memoryToolbar: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 22 },
   memoryGridRow: { gap: 14, alignItems: "flex-start" },
-  memoryGridCard: { width: "auto", flex: 1, maxWidth: "50%", borderBottomWidth: 0, paddingTop: 0, paddingBottom: 24 },
+  memoryGridCell: { flex: 1, maxWidth: "50%" },
+  memoryGridCard: { marginBottom: 20 },
+  memoryGridSketch: { padding: 6, paddingBottom: 4 },
   memoryGridContent: { flexDirection: "column", alignItems: "stretch", gap: 9 },
-  memoryGridCover: { width: "100%", aspectRatio: 0.85, borderRadius: theme.radius.card, overflow: "hidden", backgroundColor: theme.colors.surfaceMuted },
+  memoryGridCover: { width: "100%", aspectRatio: 0.85, borderRadius: 9, overflow: "hidden", backgroundColor: theme.colors.surfaceMuted },
   memoryGridTitle: { fontSize: 15, lineHeight: 21, fontWeight: "600", marginTop: 0, paddingHorizontal: 2, color: theme.colors.text },
-  memoryTextCover: { justifyContent: "flex-start", paddingHorizontal: 16, paddingVertical: 18, backgroundColor: theme.colors.surface, borderWidth: theme.hairline, borderColor: theme.colors.border },
-  memoryTextCoverTitle: { fontSize: 15, lineHeight: 24, color: theme.colors.textSecondary, fontWeight: "400" },
+  memoryTextCover: { justifyContent: "flex-start", paddingHorizontal: 14, paddingVertical: 16 },
+  memoryTextCoverTitle: { fontSize: 15, lineHeight: 24, color: theme.colors.textStrong, fontWeight: "400" },
   memoryGridFooter: { flexWrap: "nowrap", gap: 4, marginTop: 0, minHeight: 20, paddingHorizontal: 2 },
   memoryGridDate: { color: theme.colors.textFaint, fontSize: 11 },
   memoryLanding: { flexGrow: 1, alignItems: "center", justifyContent: "flex-start", gap: 20, padding: 24, paddingBottom: 140 },
@@ -3383,11 +3389,11 @@ const styles = StyleSheet.create({
   headerDate: { color: theme.colors.textMuted, fontSize: 13 },
   headerActions: { position: "relative", zIndex: 5, marginLeft: "auto", flexDirection: "row", alignItems: "center", gap: 2 },
   headerCharacter: { width: 38, height: 42, alignItems: "center", justifyContent: "center" },
-  recordButton: { minHeight: 44, paddingHorizontal: 13, borderRadius: theme.radius.pill, backgroundColor: theme.colors.accentStrong, flexDirection: "row", alignItems: "center", gap: 5 },
+  recordButton: { minHeight: 44, paddingHorizontal: 13, borderRadius: theme.radius.pill, backgroundColor: theme.colors.accent, flexDirection: "row", alignItems: "center", gap: 5 },
   recordButtonText: { color: theme.colors.surface, fontSize: 13, fontWeight: "600" },
   headerIconButton: { width: 42, height: 42, alignItems: "center", justifyContent: "center" },
   searchDictionaryCoachmark: { position: "absolute", top: 45, right: 1, minWidth: 122, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, backgroundColor: theme.colors.ink, alignItems: "center", shadowColor: "#000000", shadowOpacity: 0.16, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 8 },
-  searchDictionaryCoachmarkText: { color: theme.colors.onAccent, fontSize: 12, lineHeight: 17, fontWeight: "500" },
+  searchDictionaryCoachmarkText: { color: theme.colors.onInk, fontSize: 12, lineHeight: 17, fontWeight: "500" },
   searchDictionaryCoachmarkArrow: { position: "absolute", top: -5, right: 16, width: 10, height: 10, backgroundColor: theme.colors.ink, transform: [{ rotate: "45deg" }] },
   headerAssistantUnavailable: { opacity: 0.42 },
   libraryMenuBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.12)" },
@@ -3411,15 +3417,15 @@ const styles = StyleSheet.create({
   collectionChipTextSelected: { color: theme.colors.text, fontWeight: "500" },
   searchRow: { marginHorizontal: 20, marginBottom: 18, minHeight: 46, paddingLeft: 13, paddingRight: 4, borderRadius: 12, backgroundColor: theme.colors.surfaceMuted, flexDirection: "row", alignItems: "center", gap: 8 },
   searchInput: { flex: 1, minHeight: 44, color: theme.colors.text, fontSize: 14 },
-  searchSubmit: { minWidth: 58, height: 38, paddingHorizontal: 11, borderRadius: 10, backgroundColor: theme.colors.accentStrong, alignItems: "center", justifyContent: "center" },
+  searchSubmit: { minWidth: 58, height: 38, paddingHorizontal: 11, borderRadius: 10, backgroundColor: theme.colors.accent, alignItems: "center", justifyContent: "center" },
   searchSubmitText: { color: theme.colors.surface, fontSize: 13, fontWeight: "600" },
   libraryList: { flex: 1 },
   list: { paddingHorizontal: theme.gutter, paddingTop: 6, paddingBottom: 120 },
   recallShortcuts: { marginHorizontal: 22, marginBottom: 8, paddingVertical: 6, flexDirection: "row", gap: 7 },
   recallShortcut: { flex: 1, minHeight: 44, paddingHorizontal: 8, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.border, borderRadius: 11, backgroundColor: theme.colors.surface, alignItems: "center", justifyContent: "center" },
-  memoryRoundBanner: { minHeight: 50, marginBottom: 18, paddingHorizontal: 16, borderRadius: theme.radius.card, backgroundColor: theme.colors.accentFaint, flexDirection: "row", alignItems: "center", gap: 10 },
-  memoryRoundDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: theme.colors.accent },
-  memoryRoundBannerTitle: { flex: 1, color: theme.colors.accentPressed, fontSize: 15, lineHeight: 21, fontWeight: "600" },
+  memoryRoundBanner: { marginTop: 4, marginBottom: 22 },
+  memoryRoundBannerInner: { minHeight: 60, paddingLeft: 12, paddingRight: 16, flexDirection: "row", alignItems: "center", gap: 12 },
+  memoryRoundBannerTitle: { flex: 1, color: theme.colors.text, fontSize: 16, lineHeight: 22, fontWeight: "700" },
   recallShortcutTitle: { color: theme.colors.text, fontSize: 12, fontWeight: "500" },
   batchActionBar: { position: "absolute", left: 0, right: 0, bottom: 0, minHeight: 64, paddingTop: 8, paddingHorizontal: 62, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.border, backgroundColor: theme.colors.surface, flexDirection: "row", justifyContent: "space-between" },
   batchActionBarCentered: { justifyContent: "center" },
@@ -3461,8 +3467,10 @@ const styles = StyleSheet.create({
   emptyCard: { marginTop: 32, paddingVertical: 48, paddingHorizontal: 18, alignItems: "center" },
   emptyTitle: { color: theme.colors.text, textAlign: "center", ...theme.type.heading },
   emptyText: { maxWidth: 280, marginTop: 8, color: theme.colors.textMuted, textAlign: "center", ...theme.type.subhead },
-  emptyAction: { marginTop: 24, minHeight: 44, paddingHorizontal: 22, borderRadius: theme.radius.pill, backgroundColor: theme.colors.accent, alignItems: "center", justifyContent: "center" },
-  emptyActionText: { color: theme.colors.onAccent, fontSize: 15, fontWeight: "600" },
+  emptyMascot: { marginBottom: 18 },
+  emptyAction: { marginTop: 24 },
+  emptyActionInner: { minHeight: 46, paddingHorizontal: 26, alignItems: "center", justifyContent: "center" },
+  emptyActionText: { color: theme.colors.onAccent, fontSize: 15, fontWeight: "700" },
   card: { width: "100%", paddingVertical: 17, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.border },
   cardSelected: { backgroundColor: theme.colors.surfaceSunken },
   cardSelectionIcon: { width: 28, alignItems: "flex-start", justifyContent: "center" },
@@ -3488,12 +3496,12 @@ const styles = StyleSheet.create({
   cardDate: { marginTop: 9, color: theme.colors.textMuted, fontSize: 11 },
   processingText: { marginTop: 6, color: theme.colors.textMuted, fontSize: 11, lineHeight: 17 },
   unifiedComposerDock: { position: "absolute", left: 18, right: 18 },
-  memoryEntryDock: { position: "absolute", left: 28, right: 28, flexDirection: "row", alignItems: "center", justifyContent: "space-around", paddingVertical: 6, paddingHorizontal: 10, borderRadius: theme.radius.pill, backgroundColor: theme.colors.surface, borderWidth: theme.hairline, borderColor: theme.colors.border, ...theme.shadow.float },
+  memoryEntryDock: { position: "absolute", left: 28, right: 28, flexDirection: "row", alignItems: "center", justifyContent: "space-around", paddingVertical: 6, paddingHorizontal: 10 },
   memoryPhotoShortcut: { flex: 1, minHeight: 50, alignItems: "center", justifyContent: "center", gap: 3 },
+  memoryPhotoShortcutPressed: { opacity: 0.55 },
   memoryEntryLabel: { fontSize: 11, lineHeight: 14, color: theme.colors.textSecondary, textAlign: "center", fontWeight: "500" },
-  memoryEntryButton: { width: 54, height: 54, borderRadius: 27, alignItems: "center", justifyContent: "center", backgroundColor: theme.colors.surface },
-  memoryPhotoEntry: { backgroundColor: theme.colors.accent, shadowColor: theme.colors.accent, shadowOpacity: 0.28, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 5 },
-  memoryDraftDot: { position: "absolute", top: 10, right: 11, width: 8, height: 8, borderRadius: 4, borderWidth: 1.5, borderColor: theme.colors.accent, backgroundColor: theme.colors.onAccent },
+  memoryEntryButton: { width: 54, height: 54, alignItems: "center", justifyContent: "center" },
+  memoryDraftDot: { position: "absolute", top: 10, right: 11, width: 8, height: 8, borderRadius: 4, borderWidth: 1.5, borderColor: theme.colors.ink, backgroundColor: theme.colors.accent },
   memoryCollapseInput: { alignSelf: "center", width: 44, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center", backgroundColor: theme.colors.surface, marginBottom: 6 },
   inspirationCard: { position: "absolute", left: 0, right: 0, bottom: 62, zIndex: 4, minHeight: 64, paddingLeft: 12, paddingRight: 10, paddingVertical: 9, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.borderStrong, borderRadius: 18, backgroundColor: "rgba(255,255,255,0.98)", flexDirection: "row", alignItems: "center", gap: 9, shadowColor: "#000000", shadowOpacity: 0.07, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 6 },
   inspirationOrb: { position: "absolute", right: 8, bottom: 62, zIndex: 3, width: 40, height: 40, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.borderStrong, borderRadius: 20, backgroundColor: "rgba(234,246,241,0.98)", alignItems: "center", justifyContent: "center", shadowColor: "#000000", shadowOpacity: 0.07, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 5 },
@@ -3539,7 +3547,7 @@ const styles = StyleSheet.create({
   unifiedComposerTool: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
   unifiedComposerToolbarSpacer: { flex: 1 },
   unifiedComposerMic: { width: 38, height: 38, borderRadius: 19, flexShrink: 0 },
-  unifiedComposerSend: { width: 28, height: 28, marginHorizontal: 5, marginVertical: 6, borderRadius: 14, backgroundColor: theme.colors.accentStrong, alignItems: "center", justifyContent: "center" },
+  unifiedComposerSend: { width: 28, height: 28, marginHorizontal: 5, marginVertical: 6, borderRadius: 14, backgroundColor: theme.colors.accent, alignItems: "center", justifyContent: "center" },
   unifiedComposerSendDisabled: { backgroundColor: theme.colors.disabled },
   quickNoteAddMenuDivider: { height: StyleSheet.hairlineWidth, marginHorizontal: 14, backgroundColor: theme.colors.border },
   quickNoteAttachmentRow: { paddingHorizontal: 7, paddingTop: 5, paddingBottom: 2, gap: 8 },

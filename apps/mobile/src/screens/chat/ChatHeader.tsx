@@ -66,14 +66,14 @@ const styles = StyleSheet.create({
     height: 40,
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: theme.colors.accent,
+    borderColor: theme.colors.accentStrong,
     alignItems: "center",
     justifyContent: "center",
   },
   characterAvatarWrap: { borderWidth: 0, borderRadius: 0 },
   logoText: {
     fontSize: 12,
-    color: theme.colors.accent,
+    color: theme.colors.accentStrong,
     letterSpacing: 0,
   },
   headerBody: {
@@ -88,7 +88,7 @@ const styles = StyleSheet.create({
   },
   headerSubTitle: {
     marginTop: 2,
-    color: theme.colors.accent,
+    color: theme.colors.accentStrong,
     fontSize: 11.5,
     lineHeight: 16,
   },

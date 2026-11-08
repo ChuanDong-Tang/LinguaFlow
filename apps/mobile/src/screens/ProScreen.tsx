@@ -2559,7 +2559,7 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.ink,
   },
   managerPlanButtonSecondary: { borderWidth: 1, borderColor: theme.colors.borderStrong, backgroundColor: theme.colors.surface },
-  managerPlanButtonText: { color: theme.colors.onAccent, fontSize: 12, fontWeight: "600", textAlign: "center" },
+  managerPlanButtonText: { color: theme.colors.onInk, fontSize: 12, fontWeight: "600", textAlign: "center" },
   managerPlanButtonTextSecondary: { color: theme.colors.text },
   managerFooterActions: { marginTop: 24, flexDirection: "row", justifyContent: "center", gap: 28 },
   managerFooterLink: { color: theme.colors.textStrong, fontSize: 13, textDecorationLine: "underline" },
@@ -2767,7 +2767,7 @@ const styles = StyleSheet.create({
     opacity: 0.7,
   },
   subscribeText: {
-    color: theme.colors.onAccent,
+    color: theme.colors.onInk,
     fontSize: 13,
     fontWeight: "500",
     textAlign: "center",
