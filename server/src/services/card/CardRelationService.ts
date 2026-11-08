@@ -192,7 +192,7 @@ export class CardRelationService {
     };
   }
 
-  async relations(userId: string, recordId: string, _requestedLimit?: number): Promise<Array<{
+  async relations(userId: string, recordId: string, _requestedLimit?: number, topicLimit = 1): Promise<Array<{
     recordId: string;
     topic: string | null;
     card: CardRelationPreview | null;
@@ -230,8 +230,9 @@ export class CardRelationService {
       } else selected.push({ recordId: item.recordId, topic: item.topic, reasons: [item.reason] });
     };
     for (const phrase of phrases.slice(0, 4)) add(phrase);
-    const topic = topics[0];
-    if (topic) add(topic);
+    // The detail page shows the single best topic match; the "相关回忆" feed
+    // asks for more (topicLimit) to browse everything on the same theme.
+    for (const topic of topics.slice(0, Math.max(1, Math.min(30, Math.floor(topicLimit) || 1)))) add(topic);
     const refs = selected.flatMap((item) => {
       const ref = parseCardRecordId(item.recordId);
       return ref ? [{ sourceKind: ref.source, sourceId: ref.sourceId }] : [];

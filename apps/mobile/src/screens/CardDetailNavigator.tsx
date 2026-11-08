@@ -507,7 +507,9 @@ export function CardDetailNavigator({
       onUpdateMetadata={async (input) => {
         if (!detail) return false;
         try {
-          const updated = await updateCardContent(detail.id, input);
+          let updated = await updateCardContent(detail.id, input);
+          // A hand-edited rewrite drops the old blanks; rebuild them automatically.
+          if (input.rewrittenText !== undefined) updated = await applyAutomaticCloze(updated, ["expression"]).catch(() => updated);
           const stableDetail = await stabilizeCardDetailImages(detail, updated);
           setDetail(stableDetail);
           detailCacheRef.current.set(detail.id, { detail: stableDetail, loadedAt: Date.now() });

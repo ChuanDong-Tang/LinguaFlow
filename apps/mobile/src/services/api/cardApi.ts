@@ -573,13 +573,13 @@ export type CardRelationPreview = {
   thumbnail: { url: string; urlExpiresAt: string | null; width: number; height: number } | null;
 };
 
-export async function getCardRelations(recordId: string, limit = 20): Promise<Array<{
+export async function getCardRelations(recordId: string, limit = 20, topics = 1): Promise<Array<{
   recordId: string;
   topic: string | null;
   card: CardRelationPreview | null;
   reasons: CardRelationReason[];
 }>> {
-  return request(`/cards/${encodeURIComponent(recordId)}/relations?limit=${encodeURIComponent(String(limit))}`);
+  return request(`/cards/${encodeURIComponent(recordId)}/relations?limit=${encodeURIComponent(String(limit))}&topics=${encodeURIComponent(String(topics))}`);
 }
 
 export type RecallCandidate = {

@@ -1156,9 +1156,10 @@ export function registerCardRoutes(app: FastifyInstance, deps: CardRouteDeps): v
       return reply.status(200).send({ ok: true, request_id: requestId, data: [] });
     }
     const { recordId } = req.params as { recordId: string };
-    const rawLimit = (req.query as { limit?: unknown } | null)?.limit;
-    const limit = typeof rawLimit === "string" ? Number(rawLimit) : undefined;
-    const data = await deps.cardRelationService.relations(userId, recordId, limit);
+    const query = (req.query ?? {}) as { limit?: unknown; topics?: unknown };
+    const limit = typeof query.limit === "string" ? Number(query.limit) : undefined;
+    const topicLimit = typeof query.topics === "string" ? Number(query.topics) : undefined;
+    const data = await deps.cardRelationService.relations(userId, recordId, limit, topicLimit);
     return reply.status(200).send({ ok: true, request_id: requestId, data });
   });
 

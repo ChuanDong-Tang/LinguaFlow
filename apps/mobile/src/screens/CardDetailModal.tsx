@@ -18,7 +18,7 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { KeyboardAvoidingView, KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import Svg, { Defs, Mask, Path, Rect } from "react-native-svg";
 import { playIncorrectFeedbackSound, playSuccessFeedbackSound } from "../services/audio/gameFeedbackAudio";
-import {
+import { setCardFavorite,
   saveCardClozeUpdate,
   getCardArticleAudio,
   getCardAudioTimeline,
@@ -79,6 +79,15 @@ import {
   shouldStartRecommendationPractice,
 } from "../services/card/clozeOnboarding";
 import OioCharacter from "../../assets/app/oio-character.svg";
+import { Eye, Star } from "phosphor-react-native";
+import { FlashList } from "@shopify/flash-list";
+import { OioMascot } from "../components/sketch/OioMascot";
+import { getCurrentEntitlement } from "../services/api/meApi";
+import { useAndroidBack } from "../hooks/useAndroidBack";
+import { pencilFillFor } from "../components/sketch/Sketch";
+import { haptic } from "../feedback/haptics";
+import { subscribeCardEncounters } from "../services/card/cardEncounters";
+import { setCardPracticeMode, useCardPracticeMode, type CardPracticeMode } from "../services/preferences/cardPracticeMode";
 import { extractTargetLanguageCorpus } from "@lf/core/text/corpusText";
 
 type DetailTab = "review" | "cloze" | "dictation";
@@ -96,9 +105,9 @@ function CardLanguageModeIcon({ mode }: { mode: ContentDisplayMode }) {
   </View>;
 }
 
-function initialClozeInteractionMode(autoStart: boolean, blankCount: number): ClozeInteractionMode {
+function initialClozeInteractionMode(autoStart: boolean, blankCount: number, preferred: "choice" | "keyboard" = "choice"): ClozeInteractionMode {
   if (!autoStart || blankCount === 0) return "edit";
-  return "choice";
+  return preferred;
 }
 type ClozeChoiceTrayState = { puzzle: ClozeAnswerPuzzle; selectedIds: string[]; incorrect: boolean };
 type ClozeKeyboardTrayState = { ownerKey: string; blankId: string; value: string; incorrect: boolean; anchor?: CardBlankActionAnchor };
@@ -168,7 +177,7 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
   hideRelations?: boolean;
   hidePhraseRecommendation?: boolean;
   onUpdateContent?: (input: { title: string | null; originalText: string; collectionId: string | null; selectedTargets: Array<"expression" | "translation" | "reply"> }) => Promise<boolean | void>;
-  onUpdateMetadata?: (input: { title?: string | null; collectionId?: string | null; dateKey?: string; recordedAt?: string }) => Promise<boolean | void>;
+  onUpdateMetadata?: (input: { title?: string | null; collectionId?: string | null; dateKey?: string; recordedAt?: string; rewrittenText?: string }) => Promise<boolean | void>;
   onEditCard?: () => void;
   pendingGenerationTargets?: CardGenerationTarget[];
   failedGenerationTargets?: CardGenerationTarget[];
@@ -223,6 +232,25 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
   }
   const [editing, setEditing] = useState(initialEditing && !detail?.isSample);
   const [detailActionMenuVisible, setDetailActionMenuVisible] = useState(false);
+  const [practiceCommand, setPracticeCommand] = useState<{ mode: CardPracticeMode | "edit"; nonce: number } | null>(null);
+  const [rewriteEditorVisible, setRewriteEditorVisible] = useState(false);
+  const currentPracticeMode = useCardPracticeMode();
+  useAndroidBack(detailActionMenuVisible, () => setDetailActionMenuVisible(false));
+  function choosePracticeMode(mode: CardPracticeMode | "edit" | "dictation"): void {
+    setDetailActionMenuVisible(false);
+    haptic.select();
+    if (mode === "dictation") { setTab("dictation"); return; }
+    setPracticeCommand({ mode, nonce: Date.now() });
+  }
+  async function openRewriteEditor(): Promise<void> {
+    setDetailActionMenuVisible(false);
+    const entitlement = await getCurrentEntitlement().catch(() => null);
+    if (entitlement && entitlement.tier !== "plus" && entitlement.tier !== "pro") {
+      Alert.alert(t("card_detail.edit_rewrite"), t("card_detail.edit_rewrite_members_only"));
+      return;
+    }
+    setRewriteEditorVisible(true);
+  }
   const [playbackMode, setPlaybackMode] = useState(false);
   const languageControlRef = useRef<CardLanguageControl | null>(null);
   const [languageControl, setLanguageControl] = useState<Omit<CardLanguageControl, "onPress"> | null>(null);
@@ -230,6 +258,7 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
     languageControlRef.current = control;
     setLanguageControl((current) => current?.label === control.label && current.mode === control.mode && current.loading === control.loading ? current : { label: control.label, mode: control.mode, loading: control.loading });
   }, []);
+  void languageControl;
   const languageButton = languageControl ? <Pressable accessibilityRole="button" accessibilityLabel={languageControl.label} disabled={languageControl.loading} style={styles.cardModeOption} onPress={() => languageControlRef.current?.onPress()}>
     {languageControl.loading ? <ActivityIndicator size="small" color={theme.colors.textSecondary} /> : <CardLanguageModeIcon mode={languageControl.mode} />}
   </Pressable> : null;
@@ -676,16 +705,32 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
             </Pressable>
           </View> : <Text numberOfLines={1} style={styles.title}>{practiceMode ? t("card_detail.tab.dictation") : recallPosition ? `${recallPosition.index + 1} / ${recallPosition.total}` : ""}</Text>}
           <View style={styles.headerEnd}>
-            {tab === "review" ? languageButton : null}
             {tab === "review" && (onUpdateContent || onEditCard) ? <Pressable accessibilityLabel="卡片操作" style={styles.iconHeaderButton} onPress={() => setDetailActionMenuVisible(true)}><Icon name="ellipsis-horizontal" size={23} color={theme.colors.text} /></Pressable> : null}
           </View>
         </View>
         {recallPosition && tab === "review" ? recallPosition.kind === "browse"
           ? <MemoryBrowseControl hasNextSet={Boolean(onRecallFinish)} index={recallPosition.index} total={recallPosition.total} disabled={loading || editing || imageAdding || recallInteractionLocked || playbackMode} onPrevious={onRecallPrevious ? () => leaveCard(onRecallPrevious, false) : undefined} onNext={onRecallNext ? () => leaveCard(onRecallNext, false) : undefined} onExit={() => leaveCard(onRecallFinish ?? onClose, false)} />
           : <Text numberOfLines={1} style={[styles.recallContextLabel, !recallContextLabel && styles.recallContextLabelHidden]}>{recallContextLabel ?? " "}</Text> : null}
-        {detailActionMenuVisible ? <View style={styles.detailActionLayer}><Pressable style={StyleSheet.absoluteFill} onPress={() => setDetailActionMenuVisible(false)} /><View style={styles.detailActionMenu}><Pressable style={styles.detailActionItem} onPress={() => { setDetailActionMenuVisible(false); (onEditCard ?? (() => setEditing(true)))(); }}><Icon name="create-outline" size={17} color={theme.colors.textSecondary} /><Text style={styles.detailActionText}>编辑</Text></Pressable><View style={styles.detailActionDivider} /><Pressable style={styles.detailActionItem} onPress={() => { setDetailActionMenuVisible(false); Alert.alert("移入回收站？", "卡片将在回收站保留 30 天，期间可以随时恢复。", [{ text: t("common.cancel"), style: "cancel" }, { text: "移入回收站", style: "destructive", onPress: () => { if (detail) void deleteCardRecord(detail.id).then(onClose); } }]); }}><Icon name="trash-outline" size={17} color={theme.colors.danger} /><Text style={[styles.detailActionText, { color: theme.colors.danger }]}>删除</Text></Pressable></View></View> : null}
+        {detailActionMenuVisible ? <View style={styles.detailActionLayer}><Pressable style={StyleSheet.absoluteFill} onPress={() => setDetailActionMenuVisible(false)} /><View style={styles.detailMenu}>
+          {detail?.rewrittenText && detail.mode !== "corpus" && onUpdateMetadata ? <Pressable style={styles.detailActionItem} onPress={() => void openRewriteEditor()}><Icon name="create-outline" size={17} color={theme.colors.textSecondary} /><Text style={styles.detailActionText}>{t("card_detail.edit_rewrite")}</Text></Pressable> : null}
+          <Pressable style={styles.detailActionItem} onPress={() => { setDetailActionMenuVisible(false); (onEditCard ?? (() => setEditing(true)))(); }}><Icon name="document-text-outline" size={17} color={theme.colors.textSecondary} /><Text style={styles.detailActionText}>{t(detail?.mode === "corpus" ? "card_detail.edit_card" : "card_detail.edit_original")}</Text></Pressable>
+          <View style={styles.detailActionDivider} />
+          <Text style={styles.detailMenuLabel}>{t("card_detail.practice_mode")}</Text>
+          <View style={styles.detailMenuModes}>
+            {(["choice", "keyboard", "dictation", "edit"] as const).filter((mode) => mode !== "dictation" || (!detail?.isSample && hasProAccess === true)).map((mode) => {
+              const active = mode === currentPracticeMode && tab === "review";
+              return <Pressable key={mode} accessibilityRole="radio" accessibilityState={{ checked: active }} style={[styles.detailMenuMode, active && styles.detailMenuModeOn]} onPress={() => choosePracticeMode(mode)}><Text style={[styles.detailMenuModeText, active && styles.detailMenuModeTextOn]}>{t(`card_detail.practice_mode.${mode}`)}</Text></Pressable>;
+            })}
+          </View>
+          <View style={styles.detailActionDivider} />
+          <Pressable style={styles.detailActionItem} onPress={() => { setDetailActionMenuVisible(false); Alert.alert("移入回收站？", "卡片将在回收站保留 30 天，期间可以随时恢复。", [{ text: t("common.cancel"), style: "cancel" }, { text: "移入回收站", style: "destructive", onPress: () => { if (detail) void deleteCardRecord(detail.id).then(onClose); } }]); }}><Icon name="trash-outline" size={17} color={theme.colors.danger} /><Text style={[styles.detailActionText, { color: theme.colors.danger }]}>{t("common.delete")}</Text></Pressable>
+        </View></View> : null}
+        {detail && rewriteEditorVisible ? <RewriteEditorModal text={detail.rewrittenText ?? ""} onClose={() => setRewriteEditorVisible(false)} onSave={async (text) => {
+          const saved = await onUpdateMetadata?.({ rewrittenText: text });
+          if (saved !== false) setRewriteEditorVisible(false);
+        }} /> : null}
         {loading && !detail ? <ActivityIndicator color={theme.colors.accentStrong} style={styles.loader} /> : null}
-        {practiceDetail && contentBinding && tab === "review" ? <Review onLanguageControlChange={updateLanguageControl} hidePhraseRecommendation={hidePhraseRecommendation} key={practiceDetail.id} detail={practiceDetail} imageAdding={imageAdding} contentBinding={contentBinding} playbackMode={playbackMode} practiceEnabled={canPracticeActiveBlock} canUseDictation={!detail?.isSample && hasProAccess === true} autoStartClozePractice={clozeEntryModeRef.current.autoStart} clozeState={resolvedClozeState} clozeVersion={resolvedClozeVersion} onClozeChange={updateCloze} onLearningContentClozeChange={updateLearningContentCloze} onSelectLearningContent={setSelectedLearningContentType} onActivateLearningContent={onActivateLearningContent} onSaveOriginal={onUpdateContent ? async (originalText) => { const accepted = await onUpdateContent({ title: practiceDetail.title ?? null, originalText, collectionId: practiceDetail.collectionId ?? null, selectedTargets: practiceDetail.mode === "corpus" ? [] : practiceDetail.replyText ? ["expression", "reply"] : ["expression"] }); if (accepted === false) throw new Error(t("card_detail.error.try_again")); } : undefined} onUpdateMetadata={onUpdateMetadata} onRemoveImage={onRemoveImage} onCoverPositionChange={onCoverPositionChange} relations={relations} onOpenRelated={onOpenRelated} relationFocusSentence={relationFocusSentence} onOpenDictation={() => setTab("dictation")} pendingGenerationTargets={pendingGenerationTargets} failedGenerationTargets={failedGenerationTargets} retryingGenerationTarget={retryingGenerationTarget} onRetryGeneration={onRetryGeneration} onGeneratePhraseRecommendation={onGeneratePhraseRecommendation} onRecallFinish={recallPosition?.kind === "browse" ? undefined : onRecallFinish} onClozeAttempt={onClozeAttempt} onPendingClozeCheckHandlerChange={registerPendingClozeCheck} onInteractionLockChange={(locked) => { setDetailInteractionLocked(locked); if (recallPosition) setRecallInteractionLocked(locked); }} onImageSwipeContextChange={(active, index) => { imageSwipeContextRef.current = { active, index }; }} focusLearningContent={clozeTipEligible && clozeGuideStep === 1} onLearningTargetReady={handleClozeLearningTargetReady} focusActionBar={clozeTipEligible && clozeGuideStep === 2} onActionBarTargetReady={handleClozeActionBarTargetReady} /> : null}
+        {practiceDetail && contentBinding && tab === "review" ? <Review practiceCommand={practiceCommand} onLanguageControlChange={updateLanguageControl} hidePhraseRecommendation={hidePhraseRecommendation} key={practiceDetail.id} detail={practiceDetail} imageAdding={imageAdding} contentBinding={contentBinding} playbackMode={playbackMode} practiceEnabled={canPracticeActiveBlock} canUseDictation={!detail?.isSample && hasProAccess === true} autoStartClozePractice={clozeEntryModeRef.current.autoStart} clozeState={resolvedClozeState} clozeVersion={resolvedClozeVersion} onClozeChange={updateCloze} onLearningContentClozeChange={updateLearningContentCloze} onSelectLearningContent={setSelectedLearningContentType} onActivateLearningContent={onActivateLearningContent} onSaveOriginal={onUpdateContent ? async (originalText) => { const accepted = await onUpdateContent({ title: practiceDetail.title ?? null, originalText, collectionId: practiceDetail.collectionId ?? null, selectedTargets: practiceDetail.mode === "corpus" ? [] : practiceDetail.replyText ? ["expression", "reply"] : ["expression"] }); if (accepted === false) throw new Error(t("card_detail.error.try_again")); } : undefined} onUpdateMetadata={onUpdateMetadata} onRemoveImage={onRemoveImage} onCoverPositionChange={onCoverPositionChange} relations={relations} onOpenRelated={onOpenRelated} relationFocusSentence={relationFocusSentence} onOpenDictation={() => setTab("dictation")} pendingGenerationTargets={pendingGenerationTargets} failedGenerationTargets={failedGenerationTargets} retryingGenerationTarget={retryingGenerationTarget} onRetryGeneration={onRetryGeneration} onGeneratePhraseRecommendation={onGeneratePhraseRecommendation} onRecallFinish={recallPosition?.kind === "browse" ? undefined : onRecallFinish} onClozeAttempt={onClozeAttempt} onPendingClozeCheckHandlerChange={registerPendingClozeCheck} onInteractionLockChange={(locked) => { setDetailInteractionLocked(locked); if (recallPosition) setRecallInteractionLocked(locked); }} onImageSwipeContextChange={(active, index) => { imageSwipeContextRef.current = { active, index }; }} focusLearningContent={clozeTipEligible && clozeGuideStep === 1} onLearningTargetReady={handleClozeLearningTargetReady} focusActionBar={clozeTipEligible && clozeGuideStep === 2} onActionBarTargetReady={handleClozeActionBarTargetReady} /> : null}
         {practiceDetail && contentBinding && tab === "dictation" && hasProAccess === true ? <Dictation detail={practiceDetail} contentBinding={contentBinding} /> : null}
       </SafeAreaView>
       {recallPosition && (recallHandoff?.direction === "next" ? recallHandoff.detail : recallNextDetail) ? <View pointerEvents="none" style={[styles.recallAdjacentPage, { left: windowWidth }]}><RecallAdjacentCard detail={(recallHandoff?.direction === "next" ? recallHandoff.detail : recallNextDetail)!} position={recallHandoff?.direction === "next" ? recallHandoff.position : { index: recallPosition.index + 1, total: recallPosition.total }} contextLabel={recallHandoff?.direction === "next" ? recallHandoff.contextLabel : recallNextContextLabel} canUseDictation={!detail?.isSample && hasProAccess === true} browse={recallPosition.kind === "browse"} languageMode={languageControl?.mode} /></View> : null}
@@ -698,10 +743,8 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
         onAdvance={() => {
           setClozeTipVisible(false);
           setClozeTipTarget(null);
-          if (clozeGuideStep === 1) {
-            setClozeGuideStep(2);
-            return;
-          }
+          // Practice now starts on its own; the old step 2 (pointing at the
+          // removed bottom bar) is skipped.
           setClozeTipEligible(false);
           if (detail) void completeClozeOnboarding(detail.id);
         }}
@@ -2026,7 +2069,7 @@ function detailGalleryImages(images: NonNullable<CardRecordDetail["images"]>, le
   }));
 }
 
-function Review({ onLanguageControlChange, hidePhraseRecommendation = true, detail, imageAdding, contentBinding, playbackMode, practiceEnabled, canUseDictation, autoStartClozePractice, clozeState, clozeVersion, onClozeChange, onLearningContentClozeChange, onSelectLearningContent, onActivateLearningContent, onSaveOriginal, onUpdateMetadata, onRemoveImage, onCoverPositionChange, relations, onOpenRelated, relationFocusSentence = null, onOpenDictation, pendingGenerationTargets = [], failedGenerationTargets = [], retryingGenerationTarget = null, onRetryGeneration, onGeneratePhraseRecommendation, onRecallFinish, onClozeAttempt, onPendingClozeCheckHandlerChange, onInteractionLockChange, onImageSwipeContextChange, focusLearningContent = false, onLearningTargetReady, focusActionBar = false, onActionBarTargetReady }: {
+function Review({ practiceCommand, onLanguageControlChange, hidePhraseRecommendation = true, detail, imageAdding, contentBinding, playbackMode, practiceEnabled, canUseDictation, autoStartClozePractice, clozeState, clozeVersion, onClozeChange, onLearningContentClozeChange, onSelectLearningContent, onActivateLearningContent, onSaveOriginal, onUpdateMetadata, onRemoveImage, onCoverPositionChange, relations, onOpenRelated, relationFocusSentence = null, onOpenDictation, pendingGenerationTargets = [], failedGenerationTargets = [], retryingGenerationTarget = null, onRetryGeneration, onGeneratePhraseRecommendation, onRecallFinish, onClozeAttempt, onPendingClozeCheckHandlerChange, onInteractionLockChange, onImageSwipeContextChange, focusLearningContent = false, onLearningTargetReady, focusActionBar = false, onActionBarTargetReady }: {
   detail: CardRecordDetail;
   imageAdding: boolean;
   contentBinding: CardContentBinding;
@@ -2043,7 +2086,7 @@ function Review({ onLanguageControlChange, hidePhraseRecommendation = true, deta
   onSelectLearningContent?: (contentType: CardLearningContentType) => void;
   onActivateLearningContent?: (contentType: CardLearningContentType) => Promise<CardRecordDetail>;
   onSaveOriginal?: (text: string) => Promise<void>;
-  onUpdateMetadata?: (input: { title?: string | null; collectionId?: string | null; dateKey?: string; recordedAt?: string }) => Promise<boolean | void>;
+  onUpdateMetadata?: (input: { title?: string | null; collectionId?: string | null; dateKey?: string; recordedAt?: string; rewrittenText?: string }) => Promise<boolean | void>;
   onRemoveImage?: (imageId?: string) => void;
   onCoverPositionChange?: (imageId: string, focusX: number, focusY: number) => Promise<void>;
   relations: CardRelationItem[];
@@ -2064,6 +2107,8 @@ function Review({ onLanguageControlChange, hidePhraseRecommendation = true, deta
   onLearningTargetReady?: (target: ClozeOnboardingTarget) => void;
   focusActionBar?: boolean;
   onActionBarTargetReady?: (target: ClozeOnboardingTarget) => void;
+  /** From the ⋯ menu: switch practice mode ("edit" = edit blanks). */
+  practiceCommand?: { mode: CardPracticeMode | "edit"; nonce: number } | null;
 }) {
   const { width: reviewWindowWidth, height: reviewWindowHeight } = useWindowDimensions();
   const reviewInsets = useSafeAreaInsets();
@@ -2100,7 +2145,8 @@ function Review({ onLanguageControlChange, hidePhraseRecommendation = true, deta
   const primaryTextBlock = rewriteBlock ?? originalBlock;
   const replyBlock = detail.contentBlocks.find((candidate) => candidate.contentType === "reply");
   const firstImageBlock = images[0] ? detail.contentBlocks.find((block) => block.contentType === `image:${images[0]!.id}`) : null;
-  const playbackBlocks = useMemo(() => [firstImageBlock, primaryTextBlock, replyBlock]
+  // Playback reads the memory and the reply; image descriptions are opt-in reading only.
+  const playbackBlocks = useMemo(() => [primaryTextBlock, replyBlock]
     .filter((block): block is NonNullable<typeof block> => Boolean(block?.segments.length)), [firstImageBlock, primaryTextBlock, replyBlock]);
   const playbackPrimaryBlock = playbackBlocks[0] ?? null;
   const playbackBinding = playbackPrimaryBlock
@@ -2136,7 +2182,9 @@ function Review({ onLanguageControlChange, hidePhraseRecommendation = true, deta
   const recommendationReveal = useRef(new Animated.Value(0)).current;
   const recommendationSearching = useRef(new Animated.Value(0)).current;
   const recommendationCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [clozeMode, setClozeMode] = useState<ClozeInteractionMode>(() => initialClozeInteractionMode(autoStartClozePractice, wholeCardBlankCount));
+  const practicePreference = useCardPracticeMode();
+  const [clozeMode, setClozeMode] = useState<ClozeInteractionMode>(() => initialClozeInteractionMode(true, wholeCardBlankCount, practicePreference));
+  void autoStartClozePractice;
   const clozeModeCardIdRef = useRef(detail.id);
   const fillMode = clozeMode !== "edit";
   const clozeInputMode: ClozeInputMode = clozeMode === "choice" ? "choice" : "keyboard";
@@ -2193,14 +2241,23 @@ function Review({ onLanguageControlChange, hidePhraseRecommendation = true, deta
     return () => { active = false; };
   }, []);
   const [answersVisible, setAnswersVisible] = useState(false);
-  const showReadingBody = memoryReaderExpanded({
-    hasPhoto: images.length > 0,
-    requested: readingExpanded,
-    sample: Boolean(detail.isSample),
-    practice: fillMode || answersVisible || autoStartClozePractice,
-    guided: focusLearningContent || focusActionBar,
-    relation: Boolean(relationFocusSentence),
-  });
+  // The reading page always shows the full card (the old "展开回忆" fold is gone).
+  const showReadingBody = true;
+  const [imageDescriptionOpen, setImageDescriptionOpen] = useState(false);
+  const [relatedFeedVisible, setRelatedFeedVisible] = useState(false);
+  const [favorited, setFavorited] = useState(Boolean(detail.practiceSummary?.favorited));
+  const [encounterCount, setEncounterCount] = useState(detail.practiceSummary?.encounterCount);
+  useEffect(() => { setFavorited(Boolean(detail.practiceSummary?.favorited)); setEncounterCount(detail.practiceSummary?.encounterCount); }, [detail.id]);
+  useEffect(() => subscribeCardEncounters((recordId, count) => { if (recordId === detail.id) setEncounterCount(count); }), [detail.id]);
+  function toggleFavorite(): void {
+    const next = !favorited;
+    setFavorited(next);
+    haptic.light();
+    void setCardFavorite(detail.id, next).catch(() => {
+      setFavorited(!next);
+      showNotice({ message: t("card_detail.error.try_again"), type: "error", position: "top-center" });
+    });
+  }
   useEffect(() => {
     // Once opened (including by a practice action), do not hide the text again.
     if (showReadingBody) setReadingExpanded(true);
@@ -2208,9 +2265,10 @@ function Review({ onLanguageControlChange, hidePhraseRecommendation = true, deta
   const activeDisplayBlock = wholeCardPracticeBlocks.find((block) => (
     block.contentType === contentBinding.contentType && block.contentVersion === contentBinding.contentVersion
   ));
-  const defaultDisplayMode = activeDisplayBlock && cardSecondarySegments(activeDisplayBlock).length
-    ? "bilingual" as const
-    : "target" as const;
+  // Default shows the learning text only; the flip button turns it over to
+  // the original (or translation) instead of the old sentence-aligned view.
+  const defaultDisplayMode = "target" as const;
+  void activeDisplayBlock;
   const [displayMode, setDisplayMode] = useState<ContentDisplayMode>(defaultDisplayMode);
   useEffect(() => { setDisplayMode(defaultDisplayMode); }, [detail.id]);
   const [auxiliaryLoading, setAuxiliaryLoading] = useState(false);
@@ -2674,6 +2732,27 @@ function Review({ onLanguageControlChange, hidePhraseRecommendation = true, deta
     if (practiceKeyboardDismissTimerRef.current) clearTimeout(practiceKeyboardDismissTimerRef.current);
   }, []);
 
+  // Blanks are practiced by default in the remembered mode (选择 unless the user
+  // picked 填空). "编辑挖空" from the ⋯ menu suspends practice until a mode is picked.
+  const editingBlanksRef = useRef(false);
+  useEffect(() => {
+    if (wholeCardBlankCount === 0 || editingBlanksRef.current) return;
+    if (clozeMode !== practicePreference) toggleClozeMode(practicePreference);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [practicePreference, wholeCardBlankCount > 0]);
+  useEffect(() => {
+    if (!practiceCommand) return;
+    if (practiceCommand.mode === "edit") {
+      editingBlanksRef.current = true;
+      if (clozeMode !== "edit") toggleClozeMode(clozeInputMode);
+      return;
+    }
+    editingBlanksRef.current = false;
+    setCardPracticeMode(practiceCommand.mode);
+    if (wholeCardBlankCount > 0 && clozeMode !== practiceCommand.mode) toggleClozeMode(practiceCommand.mode);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [practiceCommand?.nonce]);
+
   function toggleClozeMode(mode: ClozeInputMode): void {
     cancelPendingPracticeKeyboardDismiss();
     if (clozeMode === mode) {
@@ -2702,7 +2781,7 @@ function Review({ onLanguageControlChange, hidePhraseRecommendation = true, deta
   }
 
   function cycleDisplayMode(): void {
-    const next = displayMode === "target" ? "bilingual" : displayMode === "bilingual" ? "auxiliary" : "target";
+    const next = displayMode === "auxiliary" ? "target" : "auxiliary";
     setDisplayMode(next);
     if (next === "target" || auxiliaryLoading || !onActivateLearningContent) return;
     const activeBlock = detail.contentBlocks.find((block) => block.contentType === contentBinding.contentType && block.contentVersion === contentBinding.contentVersion);
@@ -3560,55 +3639,22 @@ function Review({ onLanguageControlChange, hidePhraseRecommendation = true, deta
           alwaysBounceVertical={false}
         >
           <View collapsable={false} style={{ backgroundColor: theme.colors.surface }}>
-          <CardImageGallery readingPresentation={detail.isSample ? undefined : showReadingBody ? "photo" : "compact"} images={detailGalleryImages(images, detail.thumbnail?.url)} loading={imageAdding} dateLabel={`${formatDate(detail.dateKey)} · ${formatTime(recordedAt)}`} onRemove={showReadingBody ? onRemoveImage : undefined} onCoverPositionChange={showReadingBody ? onCoverPositionChange : undefined} onSwipeContextChange={onImageSwipeContextChange} onIndexChange={(index) => {
+          <CardImageGallery readingPresentation={detail.isSample ? undefined : "photo"} images={detailGalleryImages(images, detail.thumbnail?.url)} loading={imageAdding} dateLabel={`${formatDate(detail.dateKey)} · ${formatTime(recordedAt)}`} onRemove={onRemoveImage} onCoverPositionChange={onCoverPositionChange} onSwipeContextChange={onImageSwipeContextChange} onIndexChange={(index) => {
             setImageIndex(index);
             const image = images[index];
             if (image) onSelectLearningContent?.(`image:${image.id}`);
-          }} />
+          }} renderBottomRightAction={currentImage && !detail.isSample ? () => <Pressable accessibilityRole="button" accessibilityState={{ expanded: imageDescriptionOpen }} style={({ pressed }) => [styles.imageDescriptionChip, imageDescriptionOpen && styles.imageDescriptionChipOn, pressed && { opacity: 0.8 }]} onPress={() => {
+            haptic.select();
+            const opening = !imageDescriptionOpen;
+            setImageDescriptionOpen(opening);
+            if (opening && imageDescriptionAction === "generate") {
+              showNotice({ message: t("card_detail.generating"), type: "info", position: "top-center", durationMs: 1200 });
+              onRetryGeneration?.("image_description");
+            }
+          }}><Text style={[styles.imageDescriptionChipText, imageDescriptionOpen && styles.imageDescriptionChipTextOn]}>{t("card_detail.image_description")}</Text></Pressable> : undefined} />
           </View>
-          {titleEditing ? <View style={styles.inlineTitleEditor}>
-            <TextInput autoFocus value={titleDraft} editable={!metadataSaving} maxLength={80} placeholder={t("card_detail.title_optional")} placeholderTextColor={theme.colors.textMuted} style={styles.inlineTitleInput} onChangeText={setTitleDraft} onSubmitEditing={() => void saveInlineTitle()} />
-            <Pressable disabled={metadataSaving} style={styles.inlineTitleAction} onPress={() => { setTitleDraft(detail.title ?? detail.displayTitle); setTitleEditing(false); }}><Icon name="close" size={19} color={theme.colors.textMuted} /></Pressable>
-            <Pressable disabled={metadataSaving} style={styles.inlineTitleAction} onPress={() => void saveInlineTitle()}>{metadataSaving ? <ActivityIndicator size="small" color={theme.colors.accentStrong} /> : <Icon name="checkmark" size={21} color={theme.colors.accentStrong} />}</Pressable>
-          </View> : detail.displayTitle.trim() ? <Pressable disabled={!showReadingBody || !onUpdateMetadata} style={({ pressed }) => [styles.cardTitleRow, pressed && styles.metadataPressed]} onPress={() => setTitleEditing(true)}>
-            <Text numberOfLines={2} style={[styles.cardDisplayTitle, styles.cardDisplayTitleInRow]}>{detail.displayTitle}</Text>
-            {showReadingBody && onUpdateMetadata ? <Icon name="create-outline" size={17} color={theme.colors.textMuted} /> : null}
-          </Pressable> : null}
-          <View style={styles.cardMetadataRow}>
-            <Pressable disabled={!showReadingBody || !onUpdateMetadata} style={({ pressed }) => [styles.recordTimeButton, pressed && styles.metadataPressed]} onPress={() => setRecordTimeEditorVisible(true)}>
-              <Text style={styles.date}>{formatDate(detail.dateKey)} · {formatTime(recordedAt)}</Text>
-            </Pressable>
-            <Pressable disabled={!showReadingBody || !onUpdateMetadata || metadataSaving} style={({ pressed }) => [styles.collectionMetaButton, pressed && styles.metadataPressed]} onPress={() => setCollectionPickerVisible(true)}>
-              <Icon name="folder-outline" size={14} color={theme.colors.textMuted} />
-              <Text numberOfLines={1} style={styles.collectionMetaText}>{collectionLabel}</Text>
-              {showReadingBody && onUpdateMetadata ? <Icon name="chevron-down" size={13} color={theme.colors.textMuted} /> : null}
-            </Pressable>
-          </View>
-          {showReadingBody && contentRelations[0] ? <RelationChip onPress={() => setRelationsVisible(true)} /> : null}
-          {!showReadingBody ? <View style={{ paddingTop: 20, gap: 18 }}>
-            <Pressable accessibilityRole="button" accessibilityState={{ expanded: false }} onPress={() => setReadingExpanded(true)} style={{ minHeight: 48, flexDirection: "row", alignItems: "center", justifyContent: "flex-start", gap: 8 }}>
-              <Text style={{ color: theme.colors.accentStrong, fontSize: 15 }}>{memoryReaderCopy(getLanguage())}</Text>
-              <Icon name="chevron-down" size={18} color={theme.colors.accentStrong} />
-            </Pressable>
-            {detail.originalText.trim() ? <Text numberOfLines={3} style={{ color: theme.colors.textSecondary, fontSize: 16, lineHeight: 25 }}>{detail.originalText.trim()}</Text> : null}
-          </View> : null}
-          <View style={!showReadingBody ? { display: "none" } : undefined} onLayout={(event) => { readingBodyYRef.current = event.nativeEvent.layout.y; learningTargetContentYRef.current = readingBodyYRef.current + learningTargetLocalYRef.current; }}>
-          {currentImage ? <View ref={currentImageIsLearningContent ? learningTargetRef : undefined} onLayout={currentImageIsLearningContent ? (event) => { learningTargetLocalYRef.current = event.nativeEvent.layout.y; learningTargetContentYRef.current = readingBodyYRef.current + learningTargetLocalYRef.current; } : undefined}>
-            <CollapsibleCardSection
-              label={t("card_detail.image_description")}
-              tone="image"
-              collapsed={collapsedSections.imageDescription}
-              action={imageDescriptionAction}
-              onToggle={() => {
-                toggleSection("imageDescription");
-              }}
-              onAction={() => {
-                void Haptics.selectionAsync().catch(() => undefined);
-                showNotice({ message: t("card_detail.generating"), type: "info", position: "top-center", durationMs: 1200 });
-                onRetryGeneration?.("image_description");
-              }}
-              compact
-            >
+          <View onLayout={(event) => { readingBodyYRef.current = event.nativeEvent.layout.y; learningTargetContentYRef.current = readingBodyYRef.current + learningTargetLocalYRef.current; }}>
+          {currentImage && imageDescriptionOpen ? <View style={styles.imageDescriptionPopover} ref={currentImageIsLearningContent ? learningTargetRef : undefined} onLayout={currentImageIsLearningContent ? (event) => { learningTargetLocalYRef.current = event.nativeEvent.layout.y; learningTargetContentYRef.current = readingBodyYRef.current + learningTargetLocalYRef.current; } : undefined}>
             <View style={[styles.imageDescriptionSection, styles.imageDescriptionBody]}>
             {currentImageBlock && currentImage.descriptionText ? <>
               {renderLearningBlock(currentImageBlock)}
@@ -3626,7 +3672,12 @@ function Review({ onLanguageControlChange, hidePhraseRecommendation = true, deta
                 ? <FailedGenerationSection target="image_description" showLabel={false} retrying={retryingGenerationTarget === "image_description"} onRetry={onRetryGeneration} />
                 : null}
             </View>
-            </CollapsibleCardSection>
+          </View> : null}
+          {detail.displayTitle.trim() || primaryTextBlock ? <View style={styles.readingTitleRow}>
+            <Text numberOfLines={3} style={styles.readingTitle}>{detail.displayTitle}</Text>
+            {primaryTextBlock && detail.originalText.trim() && (detail.mode === "corpus" || detail.rewrittenText) ? <Pressable accessibilityRole="button" accessibilityLabel={t(displayMode === "auxiliary" ? "card_detail.flip_back" : "card_detail.flip_original")} accessibilityState={{ selected: displayMode === "auxiliary" }} hitSlop={8} disabled={auxiliaryLoading} style={({ pressed }) => [styles.flipButton, displayMode === "auxiliary" && styles.flipButtonOn, pressed && { opacity: 0.7 }]} onPress={() => { haptic.select(); cycleDisplayMode(); }}>
+              {auxiliaryLoading ? <ActivityIndicator size="small" color={theme.colors.textSecondary} /> : <Icon name="sync-outline" size={17} color={displayMode === "auxiliary" ? theme.colors.onInk : theme.colors.text} />}
+            </Pressable> : null}
           </View> : null}
           {!detail.originalText.trim() && onSaveOriginal ? <View style={styles.moduleComposer}>
             <TextInput
@@ -3663,32 +3714,51 @@ function Review({ onLanguageControlChange, hidePhraseRecommendation = true, deta
               <Pressable disabled={!originalDraft.trim() || originalSaving || originalStt.status !== "idle"} style={[styles.moduleComposerSend, (!originalDraft.trim() || originalSaving || originalStt.status !== "idle") && styles.moduleComposerSendDisabled]} onPress={() => void saveOriginalModule()}>{originalSaving ? <ActivityIndicator size="small" color={theme.colors.surface} /> : <Icon name="arrow-up" size={18} color={theme.colors.surface} />}</Pressable>
             </View>
           </View> : null}
-          {rewriteBlock || originalBlock || expressionPending || expressionFailed ? <View ref={contentBinding.contentType === "rewrite" || contentBinding.contentType === "original" ? learningTargetRef : undefined} style={styles.flipCardTextBlock} onLayout={contentBinding.contentType === "rewrite" || contentBinding.contentType === "original" ? (event) => { learningTargetLocalYRef.current = event.nativeEvent.layout.y; learningTargetContentYRef.current = readingBodyYRef.current + learningTargetLocalYRef.current; } : undefined}>
-            {rewriteBlock || frontLearningReady ? <CollapsibleCardSection label={t(detail.mode === "corpus" ? "card_detail.input_corpus" : "card_detail.module.expression_description")} tone={detail.mode === "corpus" ? "default" : "rewrite"} collapsed={collapsedSections.learning} onToggle={() => toggleSection("learning")} compact>
-                {primaryTextBlock ? renderLearningBlock(primaryTextBlock) : <Text selectable style={styles.rewrite}>{detail.originalText}</Text>}
-                {primaryText.trim() ? <View style={styles.rewriteModuleActions}>
-                  {!detail.replyText && !detail.isSample && detail.originalText.trim() ? <Pressable
-                    accessibilityLabel={t(replyFailed ? "common.retry" : "chat.settings.generate_reply")}
-                    disabled={!onRetryGeneration || replyGenerating || retryingGenerationTarget !== null}
-                    style={({ pressed }) => [styles.replyGenerateButton, (!onRetryGeneration || replyGenerating || retryingGenerationTarget !== null) && styles.replyGenerateButtonDisabled, pressed && styles.replyGenerateButtonPressed]}
-                    onPress={() => onRetryGeneration?.("reply")}
-                  >
-                    {replyGenerating
-                      ? <ActivityIndicator size="small" color={theme.colors.accentStrong} />
-                      : <Icon name={replyFailed ? "refresh-outline" : "chatbubble-ellipses-outline"} size={16} color={theme.colors.accentStrong} />}
-                    <Text style={styles.replyGenerateButtonText}>{t(replyGenerating ? "card_detail.generating" : replyFailed ? "common.retry" : "chat.settings.generate_reply")}</Text>
-                  </Pressable> : null}
-                  <CardSectionCopyButton onPress={() => void copySection(primaryText)} />
-                </View> : null}
-              </CollapsibleCardSection>
+          {rewriteBlock || originalBlock || expressionPending || expressionFailed ? <View ref={contentBinding.contentType === "rewrite" || contentBinding.contentType === "original" ? learningTargetRef : undefined} style={styles.readingBody} onLayout={contentBinding.contentType === "rewrite" || contentBinding.contentType === "original" ? (event) => { learningTargetLocalYRef.current = event.nativeEvent.layout.y; learningTargetContentYRef.current = readingBodyYRef.current + learningTargetLocalYRef.current; } : undefined}>
+            {rewriteBlock || frontLearningReady
+              ? primaryTextBlock ? renderLearningBlock(primaryTextBlock) : <Text selectable style={styles.rewrite}>{detail.originalText}</Text>
               : expressionPending
                 ? <PendingGenerationSection target="expression" />
                 : <FailedGenerationSection target="expression" retrying={retryingGenerationTarget === "expression"} onRetry={onRetryGeneration} />}
           </View> : null}
-          {detail.replyText && replyBlock ? <CollapsibleCardSection label={t("card_detail.reply")} collapsed={collapsedSections.reply} onToggle={() => toggleSection("reply")}>
-            {renderLearningBlock(replyBlock)}
-            <CardSectionCopyButton onPress={() => void copySection(replyBlock.text)} />
-          </CollapsibleCardSection> : null}
+          {detail.replyText && replyBlock && displayMode !== "auxiliary" ? <View style={styles.replyBubbleRow}>
+            <OioMascot size={30} idle={false} />
+            <View style={styles.replyBubble}>{renderLearningBlock(replyBlock)}</View>
+          </View> : null}
+          {!detail.isSample ? <View style={styles.readingMeta}>
+            <Pressable disabled={!onUpdateMetadata || metadataSaving} accessibilityRole="button" style={({ pressed }) => [styles.readingTag, pressed && styles.metadataPressed]} onPress={() => setCollectionPickerVisible(true)}>
+              <Text numberOfLines={1} style={styles.readingTagText}># {collectionLabel}</Text>
+            </Pressable>
+            {detail.topic?.trim() ? <Pressable accessibilityRole="button" style={({ pressed }) => [styles.relatedRow, pressed && styles.metadataPressed]} onPress={() => { haptic.light(); setRelatedFeedVisible(true); }}>
+              <Icon name="search-outline" size={16} color={theme.colors.textSecondary} />
+              <Text style={styles.relatedLabel}>{t("card_detail.related_memories")}</Text>
+              <Text numberOfLines={1} style={styles.relatedKeyword}>{detail.topic.trim()}</Text>
+              <Icon name="chevron-forward" size={15} color={theme.colors.textMuted} />
+            </Pressable> : null}
+          </View> : null}
+          <View style={styles.readingFooter}>
+            <Pressable disabled={!onUpdateMetadata} hitSlop={6} onPress={() => setRecordTimeEditorVisible(true)}>
+              <Text style={styles.readingFooterTime}>{formatDate(detail.dateKey)} · {formatTime(recordedAt)}</Text>
+            </Pressable>
+            <View style={styles.readingFooterActions}>
+              {hasBlanks && wholeCardPracticeBlocks.length ? <Pressable accessibilityRole="button" accessibilityLabel={answersVisible ? t("card_detail.dictation.hide_answer") : t("card_detail.dictation.show_answer")} hitSlop={6} style={styles.footerIcon} onPress={() => { haptic.select(); setAnswersVisible((current) => !current); }}>
+                <Icon name={answersVisible ? "eye-off-outline" : "eye-outline"} size={20} color={answersVisible ? theme.colors.text : theme.colors.textSecondary} />
+              </Pressable> : null}
+              {primaryText.trim() ? <Pressable accessibilityRole="button" accessibilityLabel={t("card_detail.copy")} hitSlop={6} style={styles.footerIcon} onPress={() => void copySection(primaryText)}>
+                <Icon name="copy-outline" size={19} color={theme.colors.textSecondary} />
+              </Pressable> : null}
+              {!detail.replyText && !detail.isSample && detail.originalText.trim() ? <Pressable accessibilityRole="button" accessibilityLabel={t(replyFailed ? "common.retry" : "chat.settings.generate_reply")} hitSlop={6} disabled={!onRetryGeneration || replyGenerating || retryingGenerationTarget !== null} style={styles.footerIcon} onPress={() => { haptic.light(); onRetryGeneration?.("reply"); }}>
+                {replyGenerating ? <ActivityIndicator size="small" color={theme.colors.textSecondary} /> : <Icon name={replyFailed ? "refresh-outline" : "chatbubble-ellipses-outline"} size={19} color={theme.colors.textSecondary} />}
+              </Pressable> : null}
+              {!detail.isSample ? <Pressable accessibilityRole="button" accessibilityLabel={t(favorited ? "card_detail.unfavorite" : "card_detail.favorite")} accessibilityState={{ selected: favorited }} hitSlop={6} style={styles.footerIcon} onPress={toggleFavorite}>
+                <Star size={20} color={favorited ? theme.colors.text : theme.colors.textSecondary} weight={favorited ? "fill" : "regular"} />
+              </Pressable> : null}
+              {encounterCount !== undefined && !detail.isSample ? <View style={styles.footerEncounter} accessibilityLabel={tf("library.encounter_count", { count: encounterCount })}>
+                <Eye size={16} color={theme.colors.textMuted} />
+                <Text style={styles.footerEncounterText}>{encounterCount}</Text>
+              </View> : null}
+            </View>
+          </View>
           </View>
         </KeyboardAwareScrollView>
       </View>
@@ -3706,12 +3776,7 @@ function Review({ onLanguageControlChange, hidePhraseRecommendation = true, deta
         }}
       />
     </View> : null}
-    {showReadingBody ? <View ref={actionBarRef} style={styles.detailActionBar}>
-      {!detail.isSample ? <DetailActionButton label={t("card_detail.tab.dictation")} icon="headset-outline" disabled={!practiceEnabled || !canUseDictation || !frontLearningReady} onPress={onOpenDictation} /> : null}
-      <DetailActionButton label={answersVisible ? t("card_detail.dictation.hide_answer") : t("card_detail.dictation.show_answer")} icon={answersVisible ? "eye-off-outline" : "eye-outline"} active={answersVisible} disabled={!wholeCardPracticeBlocks.length || !hasBlanks} onPress={() => setAnswersVisible((current) => !current)} />
-      <DetailActionButton label={t("card_detail.cloze.keyboard_mode")} textIcon={t("card_detail.tab.cloze_short")} active={fillMode && clozeInputMode === "keyboard"} disabled={!wholeCardPracticeBlocks.length || !hasBlanks} onPress={() => toggleClozeMode("keyboard")} />
-      <DetailActionButton label={t("card_detail.cloze.choice_mode")} textIcon={t("card_detail.tab.choice_short")} active={fillMode && clozeInputMode === "choice"} disabled={!wholeCardPracticeBlocks.length || !hasBlanks} onPress={() => toggleClozeMode("choice")} />
-    </View> : null}
+    <RelatedFeedModal visible={relatedFeedVisible} recordId={detail.id} topic={detail.topic ?? ""} onClose={() => setRelatedFeedVisible(false)} onOpen={(recordId, reasons) => { setRelatedFeedVisible(false); onOpenRelated?.(recordId, reasons); }} />
     <RelationSheet
       visible={relationsVisible}
       relations={contentRelations}
@@ -3904,6 +3969,83 @@ function parseLocalRecordTime(dateText: string, timeText: string): Date | null {
   const result = new Date(year, month - 1, day, hour, minute, 0, 0);
   if (result.getFullYear() !== year || result.getMonth() !== month - 1 || result.getDate() !== day || result.getHours() !== hour || result.getMinutes() !== minute) return null;
   return result;
+}
+
+/** "相关回忆": every memory on the same theme as this card, as a masonry feed. */
+function RelatedFeedModal({ visible, recordId, topic, onClose, onOpen }: {
+  visible: boolean;
+  recordId: string;
+  topic: string;
+  onClose: () => void;
+  onOpen: (recordId: string, reasons: CardRelationReason[]) => void;
+}) {
+  const [items, setItems] = useState<Array<{ recordId: string; card: CardRelationPreview; reasons: CardRelationReason[] }> | null>(null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    if (!visible) return;
+    let active = true;
+    setItems(null);
+    setFailed(false);
+    void getCardRelations(recordId, 50, 30)
+      .then((relations) => {
+        if (!active) return;
+        setItems(relations.flatMap((relation) => relation.card && relation.reasons.some((reason) => reason.type === "topic")
+          ? [{ recordId: relation.recordId, card: relation.card, reasons: relation.reasons }] : []));
+      })
+      .catch(() => { if (active) setFailed(true); });
+    return () => { active = false; };
+  }, [recordId, visible]);
+  useAndroidBack(visible, onClose);
+  return <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
+    <SafeAreaView style={styles.relatedFeedPage}>
+      <View style={styles.relatedFeedHeader}>
+        <Pressable accessibilityRole="button" accessibilityLabel={t("card_detail.a11y.close")} hitSlop={8} style={styles.historyButton} onPress={onClose}><Icon name="chevron-down" size={22} /></Pressable>
+        <View style={styles.relatedFeedTitleBlock}>
+          <Text style={styles.relatedFeedEyebrow}>{t("card_detail.related_memories")}</Text>
+          <Text numberOfLines={1} style={styles.relatedFeedTitle}>{topic}</Text>
+        </View>
+        <View style={styles.historyButton} />
+      </View>
+      {items === null && !failed ? <ActivityIndicator style={{ marginTop: 40 }} color={theme.colors.textSecondary} /> : null}
+      {failed ? <Text style={styles.relatedFeedEmpty}>{t("main.error.network_retry")}</Text> : null}
+      {items && !items.length ? <Text style={styles.relatedFeedEmpty}>{t("card_detail.related_empty")}</Text> : null}
+      {items && items.length ? <FlashList
+        data={items}
+        masonry
+        numColumns={2}
+        keyExtractor={(item) => item.recordId}
+        contentContainerStyle={styles.relatedFeedList}
+        renderItem={({ item }) => <Pressable accessibilityRole="button" style={({ pressed }) => [styles.relatedFeedCard, pressed && { opacity: 0.8 }]} onPress={() => { haptic.light(); onOpen(item.recordId, item.reasons); }}>
+          {item.card.thumbnail
+            ? <Image source={{ uri: item.card.thumbnail.url }} style={[styles.relatedFeedCover, { aspectRatio: Math.max(0.75, Math.min(1.25, item.card.thumbnail.width / Math.max(1, item.card.thumbnail.height))) }]} />
+            : <View style={[styles.relatedFeedCover, styles.relatedFeedTextCover, { backgroundColor: pencilFillFor(item.recordId) }]}><Text numberOfLines={5} style={styles.relatedFeedTextCoverTitle}>{item.card.displayTitle || item.card.originalText}</Text></View>}
+          {item.card.thumbnail ? <Text numberOfLines={2} style={styles.relatedFeedCardTitle}>{item.card.displayTitle}</Text> : null}
+          <Text style={styles.relatedFeedCardDate}>{item.card.dateKey}</Text>
+        </Pressable>}
+      /> : null}
+    </SafeAreaView>
+  </Modal>;
+}
+
+/** Hand-edit the AI rewrite (Plus/Pro). Blanks are rebuilt afterwards. */
+function RewriteEditorModal({ text, onClose, onSave }: { text: string; onClose: () => void; onSave: (text: string) => Promise<void> }) {
+  const [value, setValue] = useState(text);
+  const [saving, setSaving] = useState(false);
+  useAndroidBack(true, onClose);
+  const changed = value.trim() && value.trim() !== text.trim();
+  return <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
+    <SafeAreaView style={styles.relatedFeedPage}>
+      <View style={styles.relatedFeedHeader}>
+        <Pressable accessibilityRole="button" accessibilityLabel={t("common.cancel")} hitSlop={8} style={styles.historyButton} onPress={onClose}><Icon name="close" size={22} /></Pressable>
+        <Text style={styles.relatedFeedTitle}>{t("card_detail.edit_rewrite")}</Text>
+        <Pressable accessibilityRole="button" disabled={!changed || saving} hitSlop={8} style={[styles.rewriteSaveButton, (!changed || saving) && { opacity: 0.4 }]} onPress={() => { setSaving(true); void onSave(value.trim()).finally(() => setSaving(false)); }}>
+          {saving ? <ActivityIndicator size="small" color={theme.colors.onAccent} /> : <Text style={styles.rewriteSaveText}>{t("common.save")}</Text>}
+        </Pressable>
+      </View>
+      <Text style={styles.rewriteEditorHint}>{t("card_detail.edit_rewrite_hint")}</Text>
+      <TextInput multiline autoFocus value={value} onChangeText={setValue} editable={!saving} textAlignVertical="top" style={styles.rewriteEditorInput} />
+    </SafeAreaView>
+  </Modal>;
 }
 
 function CollapsibleCardSection({ label, tone = "default", collapsed, onToggle, onActivate, action = "toggle", onAction, compact = false, children }: { label: string; tone?: "default" | "image" | "rewrite"; collapsed: boolean; onToggle: () => void; onActivate?: () => void; action?: "toggle" | "generate" | "loading"; onAction?: () => void; compact?: boolean; children: React.ReactNode }) {
@@ -5221,6 +5363,54 @@ function formatDate(value: string): string { const [year, month, day] = value.sp
 function formatTime(value: string): string { const date = new Date(value); return Number.isNaN(date.getTime()) ? "" : date.toLocaleTimeString(getLanguage(), { hour: "2-digit", minute: "2-digit" }); }
 
 const styles = createStyles(() => ({
+  imageDescriptionChip: { minHeight: 30, paddingHorizontal: 12, borderRadius: 15, backgroundColor: "rgba(28, 28, 26, 0.55)", justifyContent: "center" },
+  imageDescriptionChipOn: { backgroundColor: theme.colors.surface },
+  imageDescriptionChipText: { color: "#FFFFFF", fontSize: 12, fontWeight: "600" },
+  imageDescriptionChipTextOn: { color: theme.colors.text },
+  imageDescriptionPopover: { marginTop: 10, padding: 12, borderRadius: 14, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceSunken },
+  readingTitleRow: { marginTop: 18, flexDirection: "row", alignItems: "flex-start", gap: 10 },
+  readingTitle: { flex: 1, color: theme.colors.text, fontSize: 21, lineHeight: 29, fontWeight: "700" },
+  flipButton: { width: 34, height: 34, marginTop: -2, borderRadius: 17, borderWidth: 1, borderColor: theme.colors.border, alignItems: "center", justifyContent: "center" },
+  flipButtonOn: { backgroundColor: theme.colors.ink, borderColor: theme.colors.ink },
+  readingBody: { marginTop: 12 },
+  replyBubbleRow: { marginTop: 22, flexDirection: "row", alignItems: "flex-start", gap: 10 },
+  replyBubble: { flex: 1, padding: 12, borderRadius: 16, borderTopLeftRadius: 4, backgroundColor: theme.colors.surfaceSunken, borderWidth: 1, borderColor: theme.colors.border },
+  readingMeta: { marginTop: 26, gap: 10 },
+  readingTag: { alignSelf: "flex-start", maxWidth: "100%", paddingVertical: 4 },
+  readingTagText: { color: theme.colors.textSecondary, fontSize: 14, fontWeight: "600" },
+  relatedRow: { minHeight: 44, paddingHorizontal: 12, borderRadius: 12, borderWidth: 1, borderColor: theme.colors.border, flexDirection: "row", alignItems: "center", gap: 8 },
+  relatedLabel: { color: theme.colors.textSecondary, fontSize: 13 },
+  relatedKeyword: { flex: 1, color: theme.colors.text, fontSize: 14, fontWeight: "600" },
+  readingFooter: { marginTop: 24, paddingTop: 14, borderTopWidth: theme.hairline, borderTopColor: theme.colors.border, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
+  readingFooterTime: { color: theme.colors.textMuted, fontSize: 12 },
+  readingFooterActions: { flexDirection: "row", alignItems: "center", gap: 4 },
+  footerIcon: { width: 38, height: 38, alignItems: "center", justifyContent: "center" },
+  footerEncounter: { flexDirection: "row", alignItems: "center", gap: 3, paddingHorizontal: 6 },
+  footerEncounterText: { color: theme.colors.textMuted, fontSize: 12, fontVariant: ["tabular-nums"] },
+  detailMenu: { position: "absolute", top: 52, right: 12, width: 248, paddingVertical: 6, borderRadius: 16, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border, ...theme.shadow.menu },
+  detailMenuLabel: { paddingHorizontal: 16, paddingTop: 6, color: theme.colors.textMuted, fontSize: 12, fontWeight: "600" },
+  detailMenuModes: { flexDirection: "row", flexWrap: "wrap", gap: 6, paddingHorizontal: 12, paddingVertical: 8 },
+  detailMenuMode: { minHeight: 34, paddingHorizontal: 12, borderRadius: 17, borderWidth: 1, borderColor: theme.colors.border, justifyContent: "center" },
+  detailMenuModeOn: { backgroundColor: theme.colors.ink, borderColor: theme.colors.ink },
+  detailMenuModeText: { color: theme.colors.text, fontSize: 13 },
+  detailMenuModeTextOn: { color: theme.colors.onInk, fontWeight: "600" },
+  relatedFeedPage: { flex: 1, backgroundColor: theme.colors.canvas },
+  relatedFeedHeader: { minHeight: 56, paddingHorizontal: 10, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  relatedFeedTitleBlock: { flex: 1, alignItems: "center" },
+  relatedFeedEyebrow: { color: theme.colors.textMuted, fontSize: 12 },
+  relatedFeedTitle: { color: theme.colors.text, fontSize: 17, fontWeight: "700" },
+  relatedFeedEmpty: { marginTop: 48, textAlign: "center", color: theme.colors.textMuted, fontSize: 14 },
+  relatedFeedList: { paddingHorizontal: 13, paddingBottom: 40 },
+  relatedFeedCard: { margin: 6, padding: 6, borderRadius: 14, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surface, gap: 6 },
+  relatedFeedCover: { width: "100%", borderRadius: 9 },
+  relatedFeedTextCover: { aspectRatio: 0.85, alignItems: "center", justifyContent: "center", padding: 12 },
+  relatedFeedTextCoverTitle: { color: theme.colors.text, fontSize: 16, lineHeight: 23, fontWeight: "700", textAlign: "center" },
+  relatedFeedCardTitle: { color: theme.colors.text, fontSize: 13, fontWeight: "600", paddingHorizontal: 2 },
+  relatedFeedCardDate: { color: theme.colors.textMuted, fontSize: 11, paddingHorizontal: 2 },
+  rewriteSaveButton: { minHeight: 34, paddingHorizontal: 14, borderRadius: 17, backgroundColor: theme.colors.accent, alignItems: "center", justifyContent: "center" },
+  rewriteSaveText: { color: theme.colors.onAccent, fontSize: 14, fontWeight: "700" },
+  rewriteEditorHint: { paddingHorizontal: 20, color: theme.colors.textMuted, fontSize: 13 },
+  rewriteEditorInput: { flex: 1, margin: 16, padding: 14, borderRadius: 14, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surface, fontSize: 17, lineHeight: 27 },
   moduleComposer: { marginTop: 8, padding: 12, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.border, borderRadius: 14, backgroundColor: theme.colors.surfaceMuted },
   moduleComposerInput: { minHeight: 72, maxHeight: 180, padding: 0, color: theme.colors.text, fontSize: 16, lineHeight: 24, textAlignVertical: "top" },
   standaloneOriginalInput: { height: 132, minHeight: 132, maxHeight: 132 },
@@ -5562,7 +5752,7 @@ const styles = createStyles(() => ({
   relationCard: { marginTop: 10, padding: 14, borderRadius: theme.radius.control, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surface },
   relationTitleRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   relationTitle: { flex: 1, color: theme.colors.text, fontSize: 15, fontWeight: "600" },
-  relationMatch: { color: theme.colors.success, backgroundColor: theme.colors.success, fontWeight: "700" },
+  relationMatch: { color: theme.colors.text, backgroundColor: theme.colors.highlight, fontWeight: "700" },
   reasonList: { marginTop: 10, flexDirection: "row", flexWrap: "wrap", gap: 7 },
   draftContent: { paddingHorizontal: 22, paddingTop: 10, paddingBottom: 52 },
   draftContentPage: { flex: 1, paddingHorizontal: 22 },
