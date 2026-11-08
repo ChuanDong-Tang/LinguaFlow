@@ -46,3 +46,8 @@ For a bug or regression affecting a currently released App version, including
 emergency fixes, OTA eligibility, exact-version repair, or reports that
 production users still see an issue, read and follow
 `skills/linguaflow-live-version-repair/SKILL.md` before acting.
+
+For any Mobile UI, styling, animation, or interaction work (new screens,
+restyles, components, empty states, motion, haptics, memory-game feel), read
+and follow `skills/linguaflow-sketch-style/SKILL.md`, `skills/linguaflow-motion/SKILL.md`,
+and `skills/linguaflow-interaction-feel/SKILL.md` before acting.
