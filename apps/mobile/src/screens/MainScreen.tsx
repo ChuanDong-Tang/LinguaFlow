@@ -15,8 +15,8 @@ import { MemoryArchiveDeck } from "./home/MemoryArchiveDeck";
 import { MemoryCollectionFilters } from "./home/MemoryCollectionFilters";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { KeyboardAwareScrollView, useReanimatedKeyboardAnimation } from "react-native-keyboard-controller";
-import Reanimated, { FadeInDown, useAnimatedRef, useAnimatedStyle, useSharedValue, withTiming, ZoomIn } from "react-native-reanimated";
-import { SketchBlob, SketchBox, SketchPressable, pencilFillFor, useFirstAppearance } from "../components/sketch/Sketch";
+import Reanimated, { FadeInDown, useAnimatedRef, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
+import { SketchBox, SketchPressable, SketchUnderline, pencilFillFor, useFirstAppearance } from "../components/sketch/Sketch";
 import { OioMascot, type OioMascotHandle } from "../components/sketch/OioMascot";
 import { haptic } from "../feedback/haptics";
 import { motion } from "../motion";
@@ -1649,7 +1649,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
 
       <View style={{ flex: 1 }} {...homeTabsResponder.panHandlers}>
       {!selectingRecords && libraryView !== TRASH_VIEW ? <View style={styles.memoryTabs}>
-        {(["memory", "today", "blind"] as const).map((tab) => <Pressable key={tab} accessibilityRole="tab" accessibilityState={{ selected: homeTab === tab }} style={[styles.memoryTab, homeTab === tab && styles.memoryTabActive]} onPress={() => { if (homeTab !== tab) haptic.select(); setHomeTab(tab); }}>{homeTab === tab ? <Reanimated.View entering={ZoomIn.springify().damping(motion.spring.indicator.damping).stiffness(motion.spring.indicator.stiffness)} style={styles.memoryTabBlob}><SketchBlob seed={`home-tab-${tab}`} color={HOME_TAB_FILLS[tab]} style={StyleSheet.absoluteFill} /></Reanimated.View> : null}<Text style={[styles.memoryTabText, homeTab === tab && styles.memoryTabSelected]}>{homeCopy[tab]}</Text></Pressable>)}
+        {(["memory", "today", "blind"] as const).map((tab) => <Pressable key={tab} accessibilityRole="tab" accessibilityState={{ selected: homeTab === tab }} style={[styles.memoryTab, homeTab === tab && styles.memoryTabActive]} onPress={() => { if (homeTab !== tab) haptic.select(); setHomeTab(tab); }}><Text style={[styles.memoryTabText, homeTab === tab && styles.memoryTabSelected]}>{homeCopy[tab]}</Text>{homeTab === tab ? <SketchUnderline key={tab} seed={`home-tab-${tab}`} width={30} style={styles.memoryTabUnderline} /> : <View style={styles.memoryTabUnderlineSpace} />}</Pressable>)}
       </View> : null}
       {!selectingRecords && editorialHome ? <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 16 }}><View style={{ flex: 1, minWidth: 0 }}><MemoryCollectionFilters editorial={editorialHome} collections={collections} selected={libraryView} onSelect={selectLibraryView} onTouching={value => { touchingCollectionFilters.current = value; }} /></View>{editorialHome ? <Pressable accessibilityRole="button" accessibilityLabel={gridLayout ? homeCopy.list : homeCopy.grid} style={[styles.headerIconButton, { marginRight: 14, marginBottom: 8 }]} onPress={() => setHomeLayout(gridLayout ? "list" : "grid")}><Icon name={gridLayout ? "list-outline" : "grid-outline"} size={19} color={theme.colors.textSecondary} /></Pressable> : null}</View> : null}
       {homeTab === "blind" && libraryView !== TRASH_VIEW && !selectingRecords ? <ScrollView style={{ flex: 1, minHeight: 0 }} contentContainerStyle={styles.memoryLanding}>
@@ -1739,7 +1739,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
           <Text style={styles.memoryEntryLabel}>{homeCopy.todayPhotos}</Text>
         </Pressable>
         <SketchPressable seed="home-plus" radius={27} fill={theme.colors.accent} feedback="medium" accessibilityRole="button" accessibilityLabel={t("quick_note.expand_editor")} contentStyle={styles.memoryEntryButton} onPress={() => setQuickNoteExpanded(true)}>
-          <Icon name="add" size={29} color={theme.colors.ink} weight="bold" />
+          <Icon name="add" size={29} color={theme.colors.onAccent} weight="bold" />
           {draft.text || draft.images.length ? <View style={styles.memoryDraftDot} /> : null}
         </SketchPressable>
         <Pressable accessibilityRole="button" accessibilityLabel={homeCopy.randomPhotos} style={({ pressed }) => [styles.memoryPhotoShortcut, pressed && styles.memoryPhotoShortcutPressed]} onPress={() => { haptic.light(); Keyboard.dismiss(); setPhotoBrowser("random"); }}>
@@ -1992,8 +1992,6 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
     </SafeAreaView>
   );
 }
-
-const HOME_TAB_FILLS = { memory: theme.palette.yellow100, today: theme.palette.leaf100, blind: theme.palette.sky100 } as const;
 
 function MemoryRoundShortcut({ active, resume, onPress }: { active: boolean; resume: boolean; onPress: () => void }) {
   const mascot = useRef<OioMascotHandle>(null);
@@ -3364,7 +3362,8 @@ const styles = StyleSheet.create({
   memoryTab: { minHeight: 46, justifyContent: "center", alignItems: "center" },
   memoryTabActive: {},
   memoryTabText: { fontSize: 17, lineHeight: 24, color: theme.colors.textFaint, fontWeight: "600" },
-  memoryTabBlob: { position: "absolute", left: -11, right: -11, top: 9, bottom: 8 },
+  memoryTabUnderline: { marginTop: 1 },
+  memoryTabUnderlineSpace: { height: 10 },
   memoryTabSelected: { color: theme.colors.text },
   memoryToolbar: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 22 },
   memoryGridRow: { gap: 14, alignItems: "flex-start" },

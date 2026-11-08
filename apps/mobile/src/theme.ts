@@ -47,12 +47,13 @@ export const theme = {
     textFaint: palette.ink400,
     border: palette.sand200,
     borderStrong: palette.sand300,
-    // Yellow pencil: the primary action fill. Text on it is always ink.
-    accent: palette.yellow500,
-    accentPressed: palette.yellow600,
-    accentSoft: palette.yellow100,
-    accentFaint: palette.yellow50,
-    onAccent: palette.ink900,
+    // Black and white everywhere except the mascot: the primary action is a
+    // solid ink fill with paper-colored text; soft emphasis is pencil gray.
+    accent: palette.ink900,
+    accentPressed: palette.ink700,
+    accentSoft: palette.sand100,
+    accentFaint: palette.sand50,
+    onAccent: palette.white,
     // Emphasis for text, icons, outlines and spinners (never yellow text).
     accentStrong: palette.ink900,
     ink: palette.ink900,
@@ -71,8 +72,8 @@ export const theme = {
     scrim: "rgba(28, 28, 26, 0.32)",
     scrimLight: "rgba(28, 28, 26, 0.12)",
   },
-  // Pastel fills for text-only covers and tags; pick by stable hash of an id.
-  pencilFills: [palette.yellow100, palette.leaf100, palette.petal100, palette.sky100] as readonly string[],
+  // Pencil-gray fills for text-only covers; pick by stable hash of an id.
+  pencilFills: ["#F4F4F1", "#EFEFEB", "#F7F7F4", "#ECECE7"] as readonly string[],
   radius: {
     tiny: 4,
     control: 10,

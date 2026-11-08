@@ -1,17 +1,17 @@
 ---
 name: linguaflow-sketch-style
-description: OIO's visual language for the mobile app — hand-drawn ink outlines filled with soft colored-pencil color (direction "B3 彩铅填色"). Use whenever creating or restyling any mobile screen, component, empty state, dialog, icon, illustration, or color/token choice, so new UI matches the OIO mascot and the rest of the app.
+description: OIO's visual language for the mobile app — hand-drawn black-and-white ink outlines with pencil-gray fills; only the mascot is colored; light and inverted modes. Use whenever creating or restyling any mobile screen, component, empty state, dialog, icon, illustration, or color/token choice, so new UI matches the OIO mascot and the rest of the app.
 ---
 
-# OIO sketch style — 彩铅填色
+# OIO sketch style — 黑白手绘
 
 The OIO mascot (`apps/mobile/assets/app/oio-character.svg`) is the source of the
 whole language: round ink lines on white paper, with one small patch of flat
 color. Every screen should look like it was drawn by the same hand with the same
 pen, then lightly colored in with pencils.
 
-Visual thesis: **black hand-drawn outlines, white paper, soft flat fills used to
-mean something.** Photos stay full color and become the brightest thing on screen.
+Visual thesis: **black hand-drawn outlines on white paper (or white on black in
+inverted mode), with pencil-gray fills.** Only the mascot and photos carry color.
 
 Pair this skill with `skills/linguaflow-motion/SKILL.md` (how things move) and
 `skills/linguaflow-interaction-feel/SKILL.md` (how things respond). The approved
@@ -20,31 +20,40 @@ phone is the target).
 
 ## Tokens
 
-All values live in `apps/mobile/src/theme.ts`. Never write hex literals in
-screens; add a token if one is missing.
+All values live in `apps/mobile/src/theme.ts`, which has a light palette and an
+inverted (dark) palette chosen at startup (see "Appearance" below). Never write
+hex literals in screens; add a token if one is missing.
 
-| Role | Token | Value | Meaning |
+**Black and white everywhere except the mascot.** The mascot keeps its white
+body and green pocket in both modes; nothing else in the UI uses hue.
+
+| Role | Token | Light | Inverted |
 |---|---|---|---|
-| Paper | `colors.canvas` | `#FDFDFB` | Page background |
-| Card paper | `colors.surface` | `#FFFFFF` | Inside outlined objects |
-| Ink | `colors.ink` / `colors.text` | `#1C1C1A` | All outlines, titles, icons |
-| Graphite | `colors.textSecondary` | `#62615C` | Secondary text, pencil shadow |
-| Faint | `colors.textMuted` | `#A6A59F` | Dates, disabled labels |
-| Yellow | `colors.accent` | `#FFD25E` | **Primary action fill** (one per screen) |
-| Butter | `sketch.fill.yellow` | `#FFF1B8` | Featured block (e.g. memory game banner) |
-| Leaf | `sketch.fill.green` | `#E2F1CC` | Progress, success, correct answer (`#D4ECB4` when selected) |
-| Petal | `sketch.fill.pink` | `#FFE2E8` | Soft error / wrong answer background |
-| Sky | `sketch.fill.blue` | `#DCEEFB` | Neutral information, tags |
-| Mascot green | `palette.mascotGreen` | `#A8D65E` / `#2F6B3F` | Mascot pocket and progress dots only |
+| Paper | `colors.canvas` | `#FDFDFB` | `#1A1A18` |
+| Card paper | `colors.surface` | `#FFFFFF` | `#222220` |
+| Ink (lines, titles, icons) | `colors.ink` / `colors.text` | `#1C1C1A` | `#ECEBE6` |
+| Graphite | `colors.textSecondary` | `#62615C` | `#A9A8A2` |
+| Faint | `colors.textMuted` | `#8A8983` | `#7E7D78` |
+| Primary action fill | `colors.accent` | ink | ink |
+| Text on primary | `colors.onAccent` | paper | paper |
+| Soft emphasis fill | `colors.accentSoft` | pencil gray | dark pencil gray |
+| Text-only covers | `theme.pencilFills` | 4 light grays | 4 dark grays |
 
-Text on a fill is always ink. Never put white text on yellow or pastel. White
-text appears only on solid ink fills.
+Semantic colors (`danger`, `success`) are reserved for real errors/success and
+stay muted. Pick a cover gray by stable hash of the record id (`pencilFillFor`),
+never by list index.
 
 ### Color discipline
-- One yellow primary action per screen. Secondary actions are white with an ink outline.
-- Green means "done / right / progress". Pink means "not right". Do not use them as decoration.
-- Pastel cover fills for text-only cards rotate through yellow/green/pink/blue chosen by a stable hash of the record id, never by list index (the color must not change when the list reorders).
-- At most one pastel fill per object. No gradients, no glass blur, no colored shadows, no coral (the 2026-11 coral palette is retired).
+- One solid ink primary action per screen. Secondary actions are paper with an ink outline.
+- No yellow, pastel, gradient, glass blur, or colored shadow. Emphasis comes from ink weight, a drawn underline, or a gray pencil fill.
+- Photos are the only full-color content and stay untouched.
+
+### Appearance (inverted mode)
+Users choose 浅色 / 深色 / 跟随系统 in 我的 → 外观. The palette is selected once at
+JS startup (`src/appearance/`), and changing it reloads the app. Therefore:
+- Always read colors from `theme` at module level as today; never cache a hex string from elsewhere.
+- Any new color must be added to both palettes.
+- Check every new screen in both modes before handing off.
 
 ## Line
 
@@ -67,8 +76,9 @@ Use the shared primitives in `apps/mobile/src/components/sketch/` instead of
 re-implementing paths:
 
 - `SketchBox` — outline (+ optional fill, pencil shadow) around any children; measures itself.
-- `SketchButton` — primary (yellow fill) / secondary (white) / ink variants with press behavior.
-- `SketchBlob` — soft filled shape behind a selected tab or label.
+- `SketchPressable` — pressable drawn box (primary = ink fill) with paper press and haptic.
+- `SketchBlob` — soft gray filled shape behind a label.
+- `OioMascot` — the mascot with blink / hop / tilt.
 - `SketchUnderline` — wavy underline for cloze blanks and emphasis.
 - `sketchPath.ts` — pure, deterministic path generators (`wobbleRect`, `wobbleEllipse`, `wave`); add new shapes here and keep them pure.
 
@@ -81,8 +91,8 @@ lines, not the letters. Use the existing `theme.type` scale.
 ## Icons and illustration
 
 - Icons: Phosphor via `components/Icon.tsx`, regular weight, ink color. No duotone color fills on icons.
-- Illustrations and empty states use the OIO mascot (blink, hop, tilt poses) or simple ink line drawings with at most one pastel fill.
-- The mascot is never recolored except its pocket (mascot green).
+- Illustrations and empty states use the OIO mascot (blink, hop, tilt poses) or simple ink line drawings with at most one gray fill.
+- The mascot is never recolored; it keeps its white body and green pocket in both modes.
 
 ## Do / Don't
 
@@ -94,6 +104,6 @@ lines, not the letters. Use the existing `theme.type` scale.
 ## Verification
 
 Before handing off a styled screen: screenshot it on the iOS simulator and the
-Android emulator, compare against `references/mockup.html` (B3), check text
+Android emulator, compare against `references/mockup.html` (B3 layout, without the colors), check both light and inverted modes, check text
 contrast on every fill, and confirm the outlines do not change between two
 renders of the same data.

@@ -32,9 +32,9 @@ No haptics on scroll, on passive updates, or more than once per 120 ms.
 - **Pressed**: see the press pattern in linguaflow-motion (paper press / dim).
 - **Disabled**: faint text, outline at 40% opacity, no shadow, no haptic; explain why nearby if it is not obvious.
 - **Loading**: keep the element's size; replace the label with a small ink spinner or a pencil "…" line; block double taps.
-- **Success**: brief green fill or drawn check, then return to rest. Do not show a modal for success.
-- **Error**: pink fill on the affected element plus one sentence saying what happened and what to do. Keep the user's input.
-- **Empty**: mascot + one line of what goes here + one yellow primary action.
+- **Success**: a drawn check, then return to rest. Do not show a modal for success.
+- **Error**: an ink strike or outline emphasis on the affected element plus one sentence saying what happened and what to do. Keep the user's input.
+- **Empty**: mascot + one line of what goes here + one ink primary action.
 
 Touch targets are at least 44×44 pt. Destructive actions ask once, inline, never twice.
 
@@ -47,11 +47,11 @@ Touch targets are at least 44×44 pt. Destructive actions ask once, inline, neve
 ## Memory game feel
 
 - **Answering**: tapping an option answers immediately (no separate "check" step for choice questions).
-- **Correct**: option fills leaf green with a drawn check, the blank fills with the word and a drawn underline, mascot hops, `haptic.success()`. "下一题" (yellow primary) appears with a small pop. A swipe or tap advances.
-- **Wrong**: option shakes, gets an ink strike line and petal fill, becomes disabled, mascot tilts, `haptic.warning()`, copy "再想想". The user can try again; the answer is revealed after the second wrong try.
-- **Progress**: hand-drawn dots, filled mascot green when done, the current dot slightly larger. Never a percentage bar.
+- **Correct**: option gets a drawn ring and check, the blank fills with the word and a drawn underline, mascot hops, `haptic.success()`. "下一题" (ink primary) appears with a small pop. A swipe or tap advances.
+- **Wrong**: option shakes, gets an ink strike line and fades to faint, becomes disabled, mascot tilts, `haptic.warning()`, copy "再想想". The user can try again; the answer is revealed after the second wrong try.
+- **Progress**: hand-drawn dots, filled ink when done, the current dot slightly larger. Never a percentage bar.
 - **Streak**: 3 correct in a row → mascot does a double hop and a short line of praise ("连对 3 题"). No confetti, no sounds unless the user enabled sound.
-- **Round summary**: a drawn card that summarizes the round (cards reviewed, new words, streak), one yellow "再来一组" and one secondary "回到主页". The summary is a moment of calm, not a scoreboard.
+- **Round summary**: a drawn card that summarizes the round (cards reviewed, new words, streak), one ink "再来一组" and one secondary "回到主页". The summary is a moment of calm, not a scoreboard.
 
 ## Feedback copy
 
