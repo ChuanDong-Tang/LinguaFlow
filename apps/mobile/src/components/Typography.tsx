@@ -1,4 +1,5 @@
 import React, { createContext, forwardRef, useContext } from "react";
+import { isDarkAppearance } from "../theme";
 import { Text as NativeText, TextInput as NativeTextInput, StyleSheet, type TextProps, type TextInputProps } from "react-native";
 import { useFontSize } from "../services/preferences/fontSizePreference";
 import { scaledFontMetrics } from "../services/preferences/fontSizeState";
@@ -21,5 +22,5 @@ export const TextInput = forwardRef<NativeTextInput, TextInputProps>(function Te
     const value = flat[key as keyof typeof flat];
     return typeof value === "number" ? [[key, value * Math.max(1, scale)]] : [];
   }));
-  return <NativeTextInput {...props} ref={ref} style={[style, scaledFontMetrics(flat, scale), bounds]} />;
+  return <NativeTextInput keyboardAppearance={isDarkAppearance ? "dark" : "light"} {...props} ref={ref} style={[style, scaledFontMetrics(flat, scale), bounds]} />;
 });

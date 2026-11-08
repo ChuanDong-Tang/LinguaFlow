@@ -2933,7 +2933,7 @@ function SidebarRow({ icon, leading, label, count, selected = false, muted = fal
       <Pressable accessibilityLabel={expanded ? t("sidebar.a11y.collapse_collection") : t("sidebar.a11y.expand_collection")} disabled={!expandable} style={styles.sidebarDisclosure} onPress={(event) => { event.stopPropagation(); onToggle?.(); }}>
         {expandable ? <Icon name={expanded ? "chevron-down" : "chevron-forward"} size={14} color={theme.colors.textMuted} /> : null}
       </Pressable>
-      {icon ? <Icon name={icon} size={19} color={muted ? theme.colors.textMuted : selected ? "#111111" : "#555555"} /> : null}
+      {icon ? <Icon name={icon} size={19} color={muted ? theme.colors.textMuted : selected ? "#111111" : theme.colors.textSecondary} /> : null}
       {leading ? <View style={muted && styles.sidebarLeadingMuted}>{leading}</View> : null}
       <Text numberOfLines={1} style={[styles.sidebarRowLabel, muted && styles.sidebarRowLabelMuted, selected && styles.sidebarRowLabelSelected]}>{label}</Text>
       {count !== undefined ? <Text style={styles.sidebarRowCount}>{count}</Text> : null}
@@ -3541,7 +3541,7 @@ const styles = StyleSheet.create({
   // Keep native font metrics identical before and after typing the first character.
   unifiedComposerTextInputAndroid: { lineHeight: undefined, includeFontPadding: false },
   unifiedComposerTextInputTwoLines: { height: 58, paddingTop: 8, paddingBottom: 8, paddingRight: 38 },
-  unifiedComposerCollapse: { position: "absolute", top: 9, right: 9, zIndex: 2, width: 32, height: 32, borderRadius: 16, backgroundColor: "rgba(255,255,255,0.82)", alignItems: "center", justifyContent: "center" },
+  unifiedComposerCollapse: { position: "absolute", top: 9, right: 9, zIndex: 2, width: 32, height: 32, borderRadius: 16, backgroundColor: theme.colors.surface, alignItems: "center", justifyContent: "center" },
   unifiedComposerToolbar: { minHeight: 40, paddingHorizontal: 5, flexDirection: "row", alignItems: "center", gap: 5 },
   unifiedComposerTool: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
   unifiedComposerToolbarSpacer: { flex: 1 },

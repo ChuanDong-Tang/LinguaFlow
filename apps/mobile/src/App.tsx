@@ -1,5 +1,6 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Alert, Animated, AppState, DevSettings, Image, Linking, Modal, Pressable, StyleSheet, View } from "react-native";
+import { Alert, Animated, AppState, DevSettings, Image, Linking, Modal, Pressable, StatusBar, StyleSheet, View } from "react-native";
+import { reloadForAppearance, systemAppearanceChanged } from "./appearance/preference";
 import { Text, TextInput } from "./components/Typography";
 import { Icon } from "./components/Icon";
 import * as AuthSession from "expo-auth-session";
@@ -75,7 +76,7 @@ import {
   type ChatContact,
 } from "./domain/chat/contacts";
 import { fetchChatContacts, loadCachedChatContacts } from "./services/api/chatContactsApi";
-import { theme } from "./theme";
+import { isDarkAppearance, theme } from "./theme";
 import type { CardDraft } from "./services/card/cardDraftStorage";
 import { getAvailableAppUpdate } from "./services/api/appVersionApi";
 import { reconcileMembershipSilently } from "./services/subscription/autoRenewSync";
@@ -278,6 +279,15 @@ export default function App() {
     });
     return () => subscription.remove();
   }, [appAuthenticated, sessionRevision]);
+
+  useEffect(() => {
+    // "Follow system" is resolved at startup; if the system switched while the
+    // app was in the background, reload once on return so styles match.
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active" && systemAppearanceChanged()) void reloadForAppearance();
+    });
+    return () => subscription.remove();
+  }, []);
 
   useEffect(() => {
     if (appBooting) return;
@@ -1056,6 +1066,7 @@ export default function App() {
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
+    <StatusBar barStyle={isDarkAppearance ? "light-content" : "dark-content"} backgroundColor={theme.colors.canvas} />
     <SafeAreaProvider initialMetrics={initialWindowMetrics}>
       <KeyboardProvider>
         <FloatingNoticeProvider>

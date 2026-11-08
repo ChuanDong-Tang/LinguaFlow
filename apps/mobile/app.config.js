@@ -26,7 +26,7 @@ module.exports = {
     orientation: "portrait",
     platforms: ["ios", "android"],
     icon: "./assets/icon.png",
-    userInterfaceStyle: "light",
+    userInterfaceStyle: "automatic",
     newArchEnabled: true,
     ios: {
       bundleIdentifier: "com.yueyantech.oio",

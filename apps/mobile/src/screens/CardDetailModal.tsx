@@ -5369,7 +5369,7 @@ const styles = StyleSheet.create({
   recommendationRewardCard: { marginTop: 10, padding: 16, borderWidth: 1, borderColor: theme.colors.warningSoft, borderRadius: 18, backgroundColor: theme.colors.highlight },
   recommendationPhrase: { color: theme.colors.text, fontSize: 25, lineHeight: 32, fontWeight: "800", textAlign: "center" },
   recommendationMeaning: { marginTop: 7, color: theme.colors.success, fontSize: 15, lineHeight: 22, fontWeight: "500" },
-  recommendationSentence: { marginTop: 14, padding: 12, borderRadius: 13, backgroundColor: "rgba(255,255,255,0.72)", color: theme.colors.textSecondary, fontSize: 15, lineHeight: 23 },
+  recommendationSentence: { marginTop: 14, padding: 12, borderRadius: 13, backgroundColor: theme.colors.surface, color: theme.colors.textSecondary, fontSize: 15, lineHeight: 23 },
   recommendationSentenceHighlight: { color: theme.colors.text, backgroundColor: theme.colors.warning, fontWeight: "700" },
   recommendationSheetActions: { marginTop: 22, flexDirection: "row", gap: 10 },
   recommendationSecondaryAction: { minHeight: 46, paddingHorizontal: 18, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.border, borderRadius: 23, alignItems: "center", justifyContent: "center" },

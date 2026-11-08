@@ -1,10 +1,15 @@
 import { Platform, StyleSheet } from "react-native";
 
-// OIO design tokens — "彩铅填色": hand-drawn ink outlines on white paper with
-// soft colored-pencil fills that carry meaning. See skills/linguaflow-sketch-style.
-const palette = {
+import { appearance } from "./appearance/state";
+
+// OIO design tokens — black-and-white hand-drawn style; only the mascot and
+// photos carry color. Two palettes with identical keys: light (ink on paper)
+// and inverted (light ink on dark paper), chosen once at startup.
+// See skills/linguaflow-sketch-style.
+const lightPalette = {
   paper: "#FDFDFB",
   white: "#FFFFFF",
+  onDark: "#FFFFFF",
   sand50: "#F7F7F4",
   sand100: "#F2F1EC",
   sand200: "#E6E5E0",
@@ -14,23 +19,51 @@ const palette = {
   ink600: "#62615C",
   ink500: "#8A8983",
   ink400: "#A6A59F",
-  // Colored pencils
-  yellow500: "#FFD25E",
-  yellow600: "#F2C24A",
-  yellow100: "#FFF1B8",
-  yellow50: "#FFF8DB",
-  leaf100: "#E2F1CC",
-  leaf200: "#D4ECB4",
-  petal100: "#FFE2E8",
-  sky100: "#DCEEFB",
   mascotGreen: "#A8D65E",
   mascotGreenInk: "#2F6B3F",
   red700: "#B3261E",
+  redSoft: "#FBE9E7",
   green600: "#3E7B5B",
+  greenSoft: "#EAF3EC",
   amber600: "#B7791F",
   amber50: "#FBF3E4",
   highlight: "#FFE98A",
-} as const;
+  pencilShadow: "rgba(98, 97, 92, 0.35)",
+  scrim: "rgba(28, 28, 26, 0.32)",
+  scrimLight: "rgba(28, 28, 26, 0.12)",
+  shadowColor: "#1C1C1A",
+};
+
+const darkPalette: typeof lightPalette = {
+  paper: "#1A1A18",
+  white: "#232321",
+  onDark: "#1A1A18",
+  sand50: "#1F1F1D",
+  sand100: "#2A2A27",
+  sand200: "#353531",
+  sand300: "#4A4944",
+  ink900: "#ECEBE6",
+  ink700: "#D3D2CC",
+  ink600: "#A9A8A2",
+  ink500: "#868580",
+  ink400: "#6C6B66",
+  mascotGreen: "#A8D65E",
+  mascotGreenInk: "#2F6B3F",
+  red700: "#F08A80",
+  redSoft: "#3A2624",
+  green600: "#86C3A0",
+  greenSoft: "#22302A",
+  amber600: "#E3AA55",
+  amber50: "#352C1E",
+  highlight: "#6B5A1E",
+  pencilShadow: "rgba(236, 235, 230, 0.16)",
+  scrim: "rgba(0, 0, 0, 0.55)",
+  scrimLight: "rgba(0, 0, 0, 0.3)",
+  shadowColor: "#000000",
+};
+
+export const isDarkAppearance = appearance.resolved === "dark";
+const palette = isDarkAppearance ? darkPalette : lightPalette;
 
 export const theme = {
   palette,
@@ -53,27 +86,25 @@ export const theme = {
     accentPressed: palette.ink700,
     accentSoft: palette.sand100,
     accentFaint: palette.sand50,
-    onAccent: palette.white,
+    onAccent: palette.onDark,
     // Emphasis for text, icons, outlines and spinners (never yellow text).
     accentStrong: palette.ink900,
     ink: palette.ink900,
-    onInk: palette.white,
+    onInk: palette.onDark,
     danger: palette.red700,
-    dangerSoft: palette.petal100,
+    dangerSoft: palette.redSoft,
     success: palette.green600,
-    successSoft: palette.leaf100,
-    successFill: palette.leaf200,
-    info: palette.sky100,
+    successSoft: palette.greenSoft,
     warning: palette.amber600,
     warningSoft: palette.amber50,
     highlight: palette.highlight,
     disabled: palette.sand300,
-    pencilShadow: "rgba(98, 97, 92, 0.35)",
-    scrim: "rgba(28, 28, 26, 0.32)",
-    scrimLight: "rgba(28, 28, 26, 0.12)",
+    pencilShadow: palette.pencilShadow,
+    scrim: palette.scrim,
+    scrimLight: palette.scrimLight,
   },
   // Pencil-gray fills for text-only covers; pick by stable hash of an id.
-  pencilFills: ["#F4F4F1", "#EFEFEB", "#F7F7F4", "#ECECE7"] as readonly string[],
+  pencilFills: (isDarkAppearance ? ["#262624", "#2B2B28", "#232321", "#2F2F2C"] : ["#F4F4F1", "#EFEFEB", "#F7F7F4", "#ECECE7"]) as readonly string[],
   radius: {
     tiny: 4,
     control: 10,
@@ -93,17 +124,17 @@ export const theme = {
     caption: { fontSize: 12, lineHeight: 17, fontWeight: "400" },
     micro: { fontSize: 11, lineHeight: 15, fontWeight: "500", letterSpacing: 0.2 },
   },
-  // Memory game route colors: deeper colored-pencil tones.
-  gameRoute: ["#E8A92A", "#6FAA3E", "#E57A95", "#5E9FD6"] as readonly string[],
+  // Memory game route: graphite steps (black-and-white style).
+  gameRoute: [palette.ink900, palette.ink700, palette.ink600, palette.ink500] as readonly string[],
   hairline: StyleSheet.hairlineWidth,
   shadow: {
     // Barely-there lift for floating controls; flat surfaces use no shadow.
     float: Platform.select({
-      ios: { shadowColor: "#1C1C1A", shadowOpacity: 0.08, shadowRadius: 14, shadowOffset: { width: 0, height: 4 } },
+      ios: { shadowColor: palette.shadowColor, shadowOpacity: 0.08, shadowRadius: 14, shadowOffset: { width: 0, height: 4 } },
       default: { elevation: 4 },
     }),
     menu: Platform.select({
-      ios: { shadowColor: "#1C1C1A", shadowOpacity: 0.12, shadowRadius: 20, shadowOffset: { width: 0, height: 8 } },
+      ios: { shadowColor: palette.shadowColor, shadowOpacity: 0.12, shadowRadius: 20, shadowOffset: { width: 0, height: 8 } },
       default: { elevation: 10 },
     }),
   },

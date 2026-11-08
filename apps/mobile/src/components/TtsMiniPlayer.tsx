@@ -190,7 +190,7 @@ export function TtsMiniPlayer({ storageKey }: TtsMiniPlayerProps) {
           disabled={!canNavigatePrevious}
           onPress={navigateTtsPrevious}
         >
-          <Icon name="play-skip-back" size={16} color={canNavigatePrevious ? "#111111" : "#AEB4C0"} />
+          <Icon name="play-skip-back" size={16} color={canNavigatePrevious ? "#111111" : theme.colors.textFaint} />
         </Pressable>
       );
     }
@@ -218,7 +218,7 @@ export function TtsMiniPlayer({ storageKey }: TtsMiniPlayerProps) {
           disabled={!canNavigateNext}
           onPress={navigateTtsNext}
         >
-          <Icon name="play-skip-forward" size={16} color={canNavigateNext ? "#111111" : "#AEB4C0"} />
+          <Icon name="play-skip-forward" size={16} color={canNavigateNext ? "#111111" : theme.colors.textFaint} />
         </Pressable>
       );
     }
@@ -240,7 +240,7 @@ export function TtsMiniPlayer({ storageKey }: TtsMiniPlayerProps) {
             <Icon
               name="sync-outline"
               size={28}
-              color={canLoop && playback.loopMode !== "off" ? "#FFFFFF" : canLoop ? "#4D5361" : "#AEB4C0"}
+              color={canLoop && playback.loopMode !== "off" ? "#FFFFFF" : canLoop ? "#4D5361" : theme.colors.textFaint}
             />
           </Animated.View>
           {canLoop && playback.loopMode === "one" ? <Text style={styles.loopOne}>1</Text> : null}
@@ -291,7 +291,7 @@ export function TtsMiniPlayer({ storageKey }: TtsMiniPlayerProps) {
         <Icon
           name={expanded ? (opensLeft ? "chevron-forward" : "chevron-back") : visualDockSide === "right" ? "chevron-back" : "chevron-forward"}
           size={expanded ? 18 : 16}
-          color={expanded ? "#4D5361" : "#FFFFFF"}
+          color={expanded ? theme.colors.textSecondary : theme.colors.onInk}
         />
       </Pressable>
 
@@ -319,9 +319,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 6,
     borderRadius: 23,
-    backgroundColor: "rgba(255, 255, 255, 0.94)",
+    backgroundColor: theme.colors.surface,
     borderWidth: 1,
-    borderColor: "rgba(225, 228, 236, 0.9)",
+    borderColor: theme.colors.border,
     flexDirection: "row",
     alignItems: "center",
     shadowColor: "#111111",

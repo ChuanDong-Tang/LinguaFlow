@@ -20,7 +20,8 @@ import { theme } from "../../theme";
 // (skills/linguaflow-motion, "Mascot"). Source art: assets/app/oio-character.svg.
 
 const AnimatedEllipse = Reanimated.createAnimatedComponent(Ellipse);
-const INK = theme.colors.ink;
+// The mascot is a sticker: dark lines on its white body in both appearances.
+const INK = "#1C1C1A";
 
 export type OioMascotHandle = { hop: () => void; tilt: () => void };
 

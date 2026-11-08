@@ -194,7 +194,7 @@ export function ChatComposer({
             disabled={isSending ? true : false}
             hitSlop={6}
           >
-            <Icon name={"arrow-up"} size={18} color={disabled || isSending ? "#A0A4AF" : "#7F77F9"} />
+            <Icon name={"arrow-up"} size={18} color={disabled || isSending ? "#A0A4AF" : theme.colors.accentStrong} />
           </Pressable>
         )}
       </Pressable>
@@ -205,7 +205,7 @@ export function ChatComposer({
           disabled={isSending ? true : false}
           hitSlop={6}
         >
-          <Icon name={"arrow-up"} size={19} color={disabled || isSending ? "#A0A4AF" : "#7F77F9"} />
+          <Icon name={"arrow-up"} size={19} color={disabled || isSending ? "#A0A4AF" : theme.colors.accentStrong} />
         </Pressable>
       ) : null}
     </View>

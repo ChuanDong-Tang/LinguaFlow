@@ -34,6 +34,11 @@ import { listTtsVoices, type TtsVoiceOption } from "../services/api/ttsApi";
 import { stopTtsAudio } from "../services/tts/ttsPlayback";
 import { getLogs, type AppLog } from "../services/logger";
 import { theme } from "../theme";
+import { appearance, type AppearancePreference } from "../appearance/state";
+import { setAppearancePreference } from "../appearance/preference";
+import { haptic } from "../feedback/haptics";
+
+const APPEARANCES: AppearancePreference[] = ["light", "dark", "system"];
 import { prepareAndUploadAvatar } from "../services/profile/avatarUpload";
 import { TARGET_LANGUAGE_CODES } from "@lf/core/language/targetLanguages";
 import { SubscriptionManagementScreen } from "./ProScreen";
@@ -60,6 +65,7 @@ const UPDATE_ID_PATTERN = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-
 
 export function MeScreen({ isActive, onOpenAbout, onApplyAppLocale, sessionRevision, onBindEmail, onLogout, onDeleteAccount, onClose }: MeScreenProps) {
   const { size: fontSize } = useFontSize();
+  const [appearanceChoice, setAppearanceChoice] = useState<AppearancePreference>(appearance.preference);
   const { isMounted } = useMountedGuard();
   const appLocaleSyncSeqRef = useRef(0);
   const [session, setSession] = useState<AuthSession | null>(null);
@@ -286,7 +292,21 @@ export function MeScreen({ isActive, onOpenAbout, onApplyAppLocale, sessionRevis
             <View style={fontStyles.options}>
               {FONT_SIZES.map(size => <Pressable key={size} accessibilityRole="radio" accessibilityLabel={`${t("me.font_size")}: ${t(`me.font_size.${size}`)}`} accessibilityState={{ checked: fontSize === size }} onPress={() => {
                 void fontSizePreference.set(size).catch(() => Alert.alert(t("me.language.save_failed_title"), t("me.language.save_failed_message")));
-              }} style={[fontStyles.option, size === fontSize && fontStyles.selected]}><Text style={{ color: size === fontSize ? "#FFFFFF" : theme.colors.text }}>{t(`me.font_size.${size}`)}</Text></Pressable>)}
+              }} style={[fontStyles.option, size === fontSize && fontStyles.selected]}><Text style={{ color: size === fontSize ? theme.colors.onInk : theme.colors.text }}>{t(`me.font_size.${size}`)}</Text></Pressable>)}
+            </View>
+          </View>
+          <View style={fontStyles.row}>
+            <View style={fontStyles.label}><Icon name="contrast-outline" size={20} color={theme.colors.textSecondary} /><Text>{t("me.appearance")}</Text></View>
+            <View style={fontStyles.options}>
+              {APPEARANCES.map(option => <Pressable key={option} accessibilityRole="radio" accessibilityLabel={`${t("me.appearance")}: ${t(`me.appearance.${option}`)}`} accessibilityState={{ checked: appearanceChoice === option }} onPress={() => {
+                if (option === appearanceChoice) return;
+                haptic.select();
+                setAppearanceChoice(option);
+                void setAppearancePreference(option).catch(() => {
+                  setAppearanceChoice(appearance.preference);
+                  Alert.alert(t("me.language.save_failed_title"), t("me.language.save_failed_message"));
+                });
+              }} style={[fontStyles.option, option === appearanceChoice && fontStyles.selected]}><Text style={{ color: option === appearanceChoice ? theme.colors.onInk : theme.colors.text }}>{t(`me.appearance.${option}`)}</Text></Pressable>)}
             </View>
           </View>
           <SettingsRow icon="chatbox-ellipses-outline" label={t("feedback.title")} onPress={() => setFeedbackVisible(true)} />
@@ -878,7 +898,7 @@ function SelectField({
         <Text style={[styles.selectButtonText, !valueLabel && styles.selectButtonTextMuted]} numberOfLines={1}>
           {valueLabel || "-"}
         </Text>
-        <Icon name={open ? "chevron-up" : "chevron-down"} size={18} color={disabled ? "#B4BBC7" : "#343A45"} />
+        <Icon name={open ? "chevron-up" : "chevron-down"} size={18} color={disabled ? "#B4BBC7" : theme.colors.textStrong} />
       </Pressable>
       <Modal visible={open && !disabled && Boolean(anchor)} transparent animationType="none" onRequestClose={onClose}>
         <View style={styles.selectMenuOverlay}>
@@ -1144,7 +1164,7 @@ function SettingsRow({
   isLast?: boolean;
   tone?: "default" | "danger";
 }) {
-  const color = tone === "danger" ? "#C43D3D" : "#111111";
+  const color = tone === "danger" ? theme.colors.danger : theme.colors.text;
 
   return (
     <Pressable style={[styles.settingsRow, !isLast && styles.settingsRowBorder]} onPress={onPress}>
@@ -1529,7 +1549,7 @@ const styles = StyleSheet.create({
     borderRadius: 7,
     borderWidth: 1,
     borderColor: theme.colors.border,
-    backgroundColor: "rgba(255,255,255,0.72)",
+    backgroundColor: theme.colors.surface,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",

@@ -117,7 +117,7 @@ const styles = StyleSheet.create({
     zIndex: 999,
     elevation: 999,
     flex: 1,
-    backgroundColor: "rgba(255,255,255,0.42)",
+    backgroundColor: theme.colors.scrimLight,
     alignItems: "center",
     justifyContent: "center",
   },

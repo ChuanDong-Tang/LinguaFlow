@@ -4,7 +4,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import {
   ArrowClockwise, ArrowDown, ArrowLeft, ArrowRight, ArrowsClockwise, ArrowsIn, ArrowsOut, ArrowsOutCardinal, ArrowUp, ArrowUUpLeft,
   BookOpen, BookOpenText, CalendarBlank, CalendarDot, Camera, Cards, CaretDown, CaretLeft, CaretRight, CaretUp, ChatCircleDots,
-  ChatTeardropDots, Check, CheckCircle, Checks, CircleIcon as Circle, CloudArrowDown, Code, Copy, Cube, DotsThree, DownloadSimple, Ear, Eye,
+  ChatTeardropDots, Check, CircleHalf, CheckCircle, Checks, CircleIcon as Circle, CloudArrowDown, Code, Copy, Cube, DotsThree, DownloadSimple, Ear, Eye,
   EyeSlash, FileText, Flag, Folder, FolderOpen, GearSix, Globe, GraduationCap, Headphones, Image, ImageSquare, Info, Leaf, Lightbulb,
   Link, List, MagnifyingGlass, Microphone, MusicNote, MusicNotes, Pause, PencilSimple, Play, Plus, PlusCircle, ShareNetwork,
   ShieldCheck, Shuffle, SignOut, SkipBack, SkipForward, SpeakerHigh, SpeakerLow, Square, SquaresFour, Star, Stop, TextT, Translate,
@@ -37,7 +37,7 @@ const MAP: Partial<Record<string, [PhosphorIcon, IconWeight?]>> = {
   "mic-outline": [Microphone], "link-outline": [Link], "information-circle-outline": [Info], "git-network-outline": [ShareNetwork],
   flag: [Flag, "fill"], "exit-outline": [SignOut], "log-out-outline": [SignOut], "ear-outline": [Ear], "download-outline": [DownloadSimple],
   "cloud-download-outline": [CloudArrowDown], "camera-outline": [Camera], "book-outline": [BookOpen], "school-outline": [GraduationCap],
-  "eye-outline": [Eye], "eye-off-outline": [EyeSlash], "ellipse-outline": [Circle], "square-outline": [Square],
+  "eye-outline": [Eye], "eye-off-outline": [EyeSlash], "ellipse-outline": [Circle], "contrast-outline": [CircleHalf], "square-outline": [Square],
   "chatbubble-ellipses-outline": [ChatCircleDots], "chatbox-ellipses-outline": [ChatTeardropDots],
   "contract-outline": [ArrowsIn], "expand-outline": [ArrowsOut], "apps-outline": [SquaresFour], "grid-outline": [SquaresFour],
   "list-outline": [List], "menu-outline": [List], "bulb-outline": [Lightbulb], "code-slash-outline": [Code], "cube-outline": [Cube],

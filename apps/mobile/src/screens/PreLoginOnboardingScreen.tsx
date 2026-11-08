@@ -87,7 +87,7 @@ export function PreLoginOnboardingScreen({ step, draft, onChangeDraft, onBack, o
                 onPress={() => onChangeDraft(updateDraft(step, draft, option.value))}
               >
                 <View style={[styles.optionIcon, active && styles.optionIconActive]}>
-                  <Icon name={option.icon} size={20} color={active ? "#FFFFFF" : theme.colors.textSecondary} />
+                  <Icon name={option.icon} size={20} color={active ? theme.colors.onAccent : theme.colors.textSecondary} />
                 </View>
                 <View style={styles.optionCopy}>
                   <Text style={[styles.optionLabel, active && styles.optionLabelActive]}>{option.label}</Text>

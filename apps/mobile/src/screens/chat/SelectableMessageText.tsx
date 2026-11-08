@@ -413,7 +413,7 @@ export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, 
                 }
                 style={[
                   segment.highlighted
-                    ? { backgroundColor: segment.correct ? "#DDEFE2" : "#FFF0B8", color: theme.colors.warning }
+                    ? { backgroundColor: segment.correct ? "#DDEFE2" : theme.colors.highlight, color: theme.colors.warning }
                     : null,
                   segment.blank ? styles.fallbackBlank : null,
                   segment.hidden ? styles.fallbackBlankHidden : null,

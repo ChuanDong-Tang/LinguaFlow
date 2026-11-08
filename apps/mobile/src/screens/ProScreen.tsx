@@ -1951,7 +1951,7 @@ export function ProScreen({
                   style={[styles.managerPlanButton, tier === "plus" && styles.managerPlanButtonSecondary, (!canChoosePlan || isCurrent || isPending || isAnnualPurchaseBlocked || isPlanUnavailable) && styles.subscribeButtonDisabled]}
                   onPress={() => void handleSelectPlan(productCode)}
                 >
-                  {isAutoRenewLoading || isPaying ? <ActivityIndicator color={tier === "pro" ? "#FFFFFF" : "#111111"} /> : (
+                  {isAutoRenewLoading || isPaying ? <ActivityIndicator color={tier === "pro" ? theme.colors.onInk : theme.colors.text} /> : (
                     <Text style={[styles.managerPlanButtonText, tier === "plus" && styles.managerPlanButtonTextSecondary]}>
                       {isPending
                         ? t("subscription.manager.waiting")

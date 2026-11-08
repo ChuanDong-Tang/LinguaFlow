@@ -516,7 +516,7 @@ const AssistantMessageRow = React.memo(function AssistantMessageRow({
                   }}
                   disabled={!message.text.trim()}
                 >
-                  <Icon name="copy-outline" size={22} color={!message.text.trim() ? "#C1C5CE" : "#111111"} />
+                  <Icon name="copy-outline" size={22} color={!message.text.trim() ? "#C1C5CE" : theme.colors.text} />
                 </Pressable>
                 </View>
               </View>
