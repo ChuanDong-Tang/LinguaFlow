@@ -1,6 +1,8 @@
 import { CARD_TOPIC_MAX_CHARS, normalizeGeneratedCardTopic, type CardTopicLocale } from "./cardExpressionPrompt.js";
 
-export const CARD_TOPIC_PROMPT_VERSION = "card_topic_v2" as const;
+// v3: one call returns both a factual summary title (<topic>, used for
+// relations and search) and a catchy display headline (<headline>).
+export const CARD_TOPIC_PROMPT_VERSION = "card_topic_v3" as const;
 
 export function buildCardTopicPrompt(input: { text: string; appLocale?: string | null; topicMaxChars?: number }): {
   systemPrompt: string;
@@ -12,17 +14,26 @@ export function buildCardTopicPrompt(input: { text: string; appLocale?: string |
   const topicMaxChars = Number.isFinite(input.topicMaxChars) ? Math.max(1, Math.floor(input.topicMaxChars!)) : CARD_TOPIC_MAX_CHARS;
   return {
     version: CARD_TOPIC_PROMPT_VERSION,
-    systemPrompt: `Create one short display title in ${language} for a user's real-life record.
+    systemPrompt: `Write two short titles in ${language} for a user's real-life record.
 
-Rules:
-- Summarize the specific event, thought, or realization rather than a broad category.
+1. <topic>: a factual summary of the specific event, thought, or realization (not a broad category). It is used to find related memories.
+2. <headline>: the title shown on the card. Make it catchy and personal, like a good social-media post title that makes the user want to open it again: a vivid detail, a feeling, a small twist, or a question. It must stay true to the record — no invented facts, no clickbait exaggeration, no hashtags, at most one emoji.
+
+Rules for both:
 - Preserve the user's facts and meaning. Do not invent context.
-- Prefer a concise title without ending punctuation.
-- Keep the title within ${topicMaxChars} characters.
+- No ending punctuation except ? or !.
+- Keep each within ${topicMaxChars} characters.
 - Use ${language} only.
-- Return only <topic>title</topic>, with no markdown or explanation.`,
+- Return exactly <topic>…</topic><headline>…</headline>, with no markdown or explanation.`,
     userPrompt: `<user_text>${input.text}</user_text>`,
   };
+}
+
+/** Parse the v3 output; the headline is optional (older outputs lack it). */
+export function parseCardTitlesOutput(value: string, topicMaxChars = CARD_TOPIC_MAX_CHARS): { topic: string; headline: string | null } {
+  const topic = parseCardTopicOutput(value, topicMaxChars);
+  const headline = normalizeGeneratedCardTopic(/<headline>\s*([\s\S]*?)\s*<\/headline>/i.exec(value)?.[1] ?? "", topicMaxChars);
+  return { topic, headline: headline && headline !== topic ? headline : null };
 }
 
 export function parseCardTopicOutput(value: string, topicMaxChars = CARD_TOPIC_MAX_CHARS): string {

@@ -623,6 +623,7 @@ export class PrismaCardRepository implements CardRepository {
           replyLanguageCode: input.replyLanguageCode,
           replySourceHash: input.replySourceHash,
           topic: input.originalContentHash !== input.expectedOriginalContentHash ? null : undefined,
+          headline: input.originalContentHash !== input.expectedOriginalContentHash ? null : undefined,
           topicEditedAt: input.originalContentHash !== input.expectedOriginalContentHash ? null : undefined,
           inputChars: countCardCharacters(input.originalText ?? input.rewrittenText ?? ""),
           outputChars: countGraphemes(input.rewrittenText ?? ""),

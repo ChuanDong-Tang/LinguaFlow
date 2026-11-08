@@ -656,7 +656,7 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
     };
   }
 
-  async completeTopicJob(job: CardEnrichmentJobEntity, topic: string): Promise<boolean> {
+  async completeTopicJob(job: CardEnrichmentJobEntity, topic: string, headline: string | null = null): Promise<boolean> {
     return this.prisma.$transaction(async (tx) => {
       const claimed = await tx.cardEnrichmentJob.updateMany({
         where: { id: job.id, status: "processing", workerId: job.workerId },
@@ -671,7 +671,7 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
           deletedAt: null,
           originalContentHash: job.inputHash,
         },
-        data: { topic, topicEditedAt: null },
+        data: { topic, topicEditedAt: null, headline },
       });
       if (updated.count !== 1) return false;
       const card = await tx.card.findFirst({

@@ -1,7 +1,7 @@
 import type { AIProvider, ChatTextGenerationStreamEvent } from "@lf/core/ports/ai/AIProvider.js";
 import type { CardEnrichmentJobEntity, CardEnrichmentRepository } from "@lf/core/ports/repository/CardEnrichmentRepository.js";
 import type { SystemEventLogRepository } from "@lf/core/ports/repository/SystemEventLogRepository.js";
-import { buildCardTopicPrompt, parseCardTopicOutput } from "@lf/core/Prompts/cardTopicPrompt.js";
+import { buildCardTopicPrompt, parseCardTitlesOutput } from "@lf/core/Prompts/cardTopicPrompt.js";
 import { CARD_TOPIC_MAX_CHARS } from "@lf/core/Prompts/cardExpressionPrompt.js";
 import type { ResourceGovernor } from "../resource/ResourceGovernor.js";
 import type { ContentSafetyService } from "../contentSafety/ContentSafetyService.js";
@@ -65,7 +65,7 @@ export class CardTopicWorkerService {
         companionMode: "platform_topic",
         systemPrompt: prompt.systemPrompt,
         rawUserPrompt: true,
-        maxOutputTokens: 100,
+        maxOutputTokens: 160,
       }, (event) => {
         if (event.type === "delta") output += event.text;
         if (event.type === "done") tokenUsage = event.usage;
@@ -81,15 +81,16 @@ export class CardTopicWorkerService {
         usage: tokenUsage,
         provider: this.aiProvider,
       });
-      const topic = parseCardTopicOutput(output, topicMaxChars);
-      this.contentSafetyService?.assertAllowed(topic, "output");
+      const { topic, headline } = parseCardTitlesOutput(output, topicMaxChars);
+      const titles = headline ? `${topic}\n${headline}` : topic;
+      this.contentSafetyService?.assertAllowed(titles, "output");
       await this.contentSafetyService?.assertAllowedRemote({
-        text: topic,
+        text: titles,
         stage: "output",
         requestId: `card_topic_${job.id}`,
         userId: source.userId,
       });
-      if (!await this.repository.completeTopicJob(job, topic)) return;
+      if (!await this.repository.completeTopicJob(job, topic, headline)) return;
       await this.log(job, "success", null, {
         durationMs: Date.now() - startedAt,
         inputChars: source.originalText.length,
