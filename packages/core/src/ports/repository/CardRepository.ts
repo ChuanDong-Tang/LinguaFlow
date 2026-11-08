@@ -385,6 +385,8 @@ export interface CardRepository {
   }): Promise<CardEntryEntity[]>;
   /** Count one more encounter (the user opened the card). Null when not found. */
   recordEncounter(userId: string, cardId: string, at: Date): Promise<number | null>;
+  /** Attach a validated video link to a card the user owns. */
+  setLink(userId: string, cardId: string, link: { url: string; provider: string; title: string | null }): Promise<void>;
   /** Star or unstar a card. Returns false when the card does not exist. */
   setFavorite(userId: string, cardId: string, favoritedAt: Date | null): Promise<boolean>;
   listDateKeysByUser(userId: string, fromDateKey: string, toDateKey: string): Promise<string[]>;

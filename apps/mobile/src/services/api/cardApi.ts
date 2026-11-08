@@ -68,6 +68,7 @@ export type CardPracticeSummary = {
 
 export type CardRecordDetail = CardRecordSummary & {
   status: "completed";
+  link?: { url: string; provider: string; title: string | null } | null;
   originalText: string;
   rewrittenText: string | null;
   rewrittenLanguageCode: string | null;
@@ -239,6 +240,7 @@ export async function createCardEntry(input: {
   generateImageDescription?: boolean;
   imageUploadIds?: string[];
   imageUploadId?: string | null;
+  link?: { url: string; title: string | null } | null;
 }): Promise<CardRecordSummary> {
   return request<CardRecordSummary>("/cards", {
     method: "POST",

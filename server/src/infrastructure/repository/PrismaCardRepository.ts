@@ -263,6 +263,13 @@ export class PrismaCardRepository implements CardRepository {
     return row?.encounterCount ?? null;
   }
 
+  async setLink(userId: string, cardId: string, link: { url: string; provider: string; title: string | null }): Promise<void> {
+    await this.prisma.card.updateMany({
+      where: { id: cardId, userId },
+      data: { linkUrl: link.url, linkProvider: link.provider, linkTitle: link.title },
+    });
+  }
+
   async setFavorite(userId: string, cardId: string, favoritedAt: Date | null): Promise<boolean> {
     const updated = await this.prisma.card.updateMany({
       where: { id: cardId, userId, deletedAt: null },

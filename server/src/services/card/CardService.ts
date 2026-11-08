@@ -1,4 +1,5 @@
 import { deriveCardLearningStatus } from "@lf/core/text/cardLearningStatus.js";
+import { parseVideoUrl } from "@lf/core/text/videoLink.js";
 import { TUTORIAL_CLIENT_ID, tutorialPractice } from "./cardTutorial.js";
 import { countGraphemes, isUtf16GraphemeBoundary, truncateGraphemes } from "@lf/core/text/grapheme.js";
 import {
@@ -521,6 +522,12 @@ export class CardService {
       throw new CardValidationError(`A Card must contain a record, expression, or image and no more than ${this.limits.contentMaxChars} characters`);
     }
     if (requestedRewrite && !originalText) throw new CardValidationError("Original text is required for AI rewrite");
+    const link = input.body.link ? parseVideoUrl(String(input.body.link.url ?? "").trim()) : null;
+    if (input.body.link && !link) throw new CardValidationError("Only YouTube and Bilibili video links are supported");
+    const linkTitle = link ? (typeof input.body.link?.title === "string" ? input.body.link.title.trim().slice(0, 200) || null : null) : null;
+    const attachLink = async (cardId: string) => {
+      if (link) await this.repository.setLink(input.userId, cardId, { url: link.url, provider: link.provider, title: linkTitle });
+    };
     if (imageUploadIds.length > this.limits.imagesMaxPerCard) {
       throw new CardValidationError(`A Card can contain up to ${this.limits.imagesMaxPerCard} images`);
     }
@@ -599,6 +606,7 @@ export class CardService {
         if (error instanceof Error && error.message === "CARD_COLLECTION_NOT_FOUND") throw new CardNotFoundError();
         throw error;
       }
+      await attachLink(created.id);
       return this.summaryWithImage(created);
     }
     await this.entitlementService.assertCanUse(input.userId, inputChars, { dateKey });
@@ -628,6 +636,7 @@ export class CardService {
         imageUploadId,
         generateImageDescription,
       });
+      await attachLink(created.id);
       return this.summaryWithImage(created);
     } catch (error) {
       await this.taskGuard.release(input.userId, taskId);
@@ -1845,6 +1854,7 @@ export class CardService {
       mode: entry.mode,
       thumbnail: imageViews[0]?.thumbnail ?? null,
       status: "completed",
+      link: entry.linkUrl && entry.linkProvider ? { url: entry.linkUrl, provider: entry.linkProvider, title: entry.linkTitle ?? null } : null,
       originalText: entry.originalText ?? "",
       rewrittenText: entry.rewrittenText,
       rewrittenLanguageCode: entry.rewrittenLanguageCode,

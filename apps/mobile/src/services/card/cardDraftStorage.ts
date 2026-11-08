@@ -36,6 +36,8 @@ export type CardDraft = {
   enabledLayers: { expression: boolean; translation: boolean; reply: boolean };
   generateImageDescription: boolean;
   images: CardDraftImage[];
+  /** YouTube / Bilibili video this memory is about. */
+  link?: { url: string; provider: "youtube" | "bilibili"; title: string | null } | null;
 };
 
 const EMPTY_DRAFT: CardDraft = { mode: "rewrite", collectionId: null, title: "", text: "", rewrittenText: "", translationText: "", replyText: "", derivedFromText: "", clientId: null, recordId: null, submitted: false, clozeRanges: [], enabledLayers: { expression: true, translation: false, reply: false }, generateImageDescription: false, images: [] };

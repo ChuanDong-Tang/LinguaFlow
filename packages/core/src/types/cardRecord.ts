@@ -137,6 +137,8 @@ export interface CardRecordSummaryView {
 }
 
 export interface CardRecordDetailView extends CardRecordSummaryView {
+  /** Attached YouTube / Bilibili video, if any. */
+  link?: { url: string; provider: string; title: string | null } | null;
   originalText: string;
   rewrittenText: string | null;
   rewrittenLanguageCode: string | null;
@@ -217,6 +219,8 @@ export interface CreateCardEntryInput {
   generateImageDescription?: boolean;
   imageUploadIds?: string[];
   imageUploadId?: string | null;
+  /** A YouTube / Bilibili video this memory is about. */
+  link?: { url: string; title?: string | null } | null;
 }
 
 export interface UpdateCardContentInput {

@@ -844,6 +844,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
             generateRewrite: false,
             generateImageDescription: snapshot.generateImageDescription,
             imageUploadIds: snapshot.images.map((image) => image.uploadId).filter((uploadId): uploadId is string => Boolean(uploadId)),
+            link: snapshot.link ? { url: snapshot.link.url, title: snapshot.link.title } : null,
           });
       const firstDraftImage = snapshot.images[0];
       if (firstDraftImage?.uploadId && ((firstDraftImage.focusX ?? 0.5) !== 0.5 || (firstDraftImage.focusY ?? 0.5) !== 0.5)) {
@@ -973,6 +974,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
             generateRewrite: false,
             generateImageDescription: snapshot.generateImageDescription,
             imageUploadIds: snapshot.images.map((image) => image.uploadId).filter((uploadId): uploadId is string => Boolean(uploadId)),
+            link: snapshot.link ? { url: snapshot.link.url, title: snapshot.link.title } : null,
           });
       const firstDraftImage = snapshot.images[0];
       if (firstDraftImage?.uploadId && ((firstDraftImage.focusX ?? 0.5) !== 0.5 || (firstDraftImage.focusY ?? 0.5) !== 0.5)) {
@@ -1794,6 +1796,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
             onDraftEnabledLayersChange={(layers) => void updateDraftEnabledLayers(layers)}
             onDraftImageDescriptionChange={(enabled) => void updateDraftImageDescription(enabled)}
             onDraftCollectionChange={(collectionId) => void updateDraftCollection(collectionId)}
+            onDraftLinkChange={(link) => void commitDraft({ ...draftRef.current, link, clientId: draftRef.current.recordId ? draftRef.current.clientId : null, submitted: false })}
             onDraftCreateCollection={createDraftCollection}
             onDraftRenameCollection={renameDraftCollection}
             onDraftDeleteCollection={deleteDraftCollection}

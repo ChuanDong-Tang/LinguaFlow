@@ -6,7 +6,7 @@ import { saveTutorialPractice } from "../services/card/tutorialPracticeStorage";
 import { resolveCardSecondaryContent } from "../services/card/cardSecondaryContent";
 import { alignCardSpeechMarks } from "@lf/core/text/cardSpeechText";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, Alert, Animated, Easing, FlatList, Image, Keyboard, Modal, PanResponder, Platform, Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from "react-native";
+import { ActivityIndicator, Alert, Animated, Easing, FlatList, Image, Keyboard, Modal, PanResponder, Platform, Pressable, ScrollView, StyleSheet, useWindowDimensions, View, Linking } from "react-native";
 import { Text, TextInput } from "../components/Typography";
 import { useFontSize } from "../services/preferences/fontSizePreference";
 import Ionicons from "@expo/vector-icons/Ionicons";
@@ -84,6 +84,7 @@ import { FlashList } from "@shopify/flash-list";
 import { OioMascot } from "../components/sketch/OioMascot";
 import { getCurrentEntitlement } from "../services/api/meApi";
 import { useAndroidBack } from "../hooks/useAndroidBack";
+import { previewVideoLink } from "../services/card/videoLinkPreview";
 import { pencilFillFor } from "../components/sketch/Sketch";
 import { haptic } from "../feedback/haptics";
 import { subscribeCardEncounters } from "../services/card/cardEncounters";
@@ -134,7 +135,7 @@ function shuffleRecommendationOptions(values: string[]): string[] {
   return shuffled;
 }
 
-export function CardDetailModal({ detail, loading, imageAdding = false, transitionOrigin, draft, draftSafeArea, draftLimits, draftCollections = [], initialTab = "review", initialEditing = false, closeAfterEditing = false, onClose, returnLabel, onReplaceImage, onRemoveImage, onCoverPositionChange, onDraftChange, onDraftFieldChange, onDraftEnabledLayersChange, onDraftImageDescriptionChange, onDraftCollectionChange, onDraftCreateCollection, onDraftRenameCollection, onDraftDeleteCollection, onDraftSave, onDraftChooseImage, onDraftTakePhoto, onDraftSelectImage, onDraftRemoveImage, onDraftCoverPositionChange, canGoBack = false, canGoForward = false, onBack, onForward, onOpenRelated, relationFocusSentence = null, hideRelations = false, hidePhraseRecommendation = false, onUpdateContent, onUpdateMetadata, onEditCard, pendingGenerationTargets = [], failedGenerationTargets = [], retryingGenerationTarget = null, onRetryGeneration, onGeneratePhraseRecommendation, onActivateLearningContent, recallPosition, recallContextLabel, recallPreviousContextLabel, recallNextContextLabel, recallPreviousDetail, recallNextDetail, onRecallPrevious, onRecallNext, onRecallFinish, onClozeAttempt, onClozeStateChange }: {
+export function CardDetailModal({ detail, loading, imageAdding = false, transitionOrigin, draft, draftSafeArea, draftLimits, draftCollections = [], initialTab = "review", initialEditing = false, closeAfterEditing = false, onClose, returnLabel, onReplaceImage, onRemoveImage, onCoverPositionChange, onDraftChange, onDraftFieldChange, onDraftEnabledLayersChange, onDraftImageDescriptionChange, onDraftCollectionChange, onDraftLinkChange, onDraftCreateCollection, onDraftRenameCollection, onDraftDeleteCollection, onDraftSave, onDraftChooseImage, onDraftTakePhoto, onDraftSelectImage, onDraftRemoveImage, onDraftCoverPositionChange, canGoBack = false, canGoForward = false, onBack, onForward, onOpenRelated, relationFocusSentence = null, hideRelations = false, hidePhraseRecommendation = false, onUpdateContent, onUpdateMetadata, onEditCard, pendingGenerationTargets = [], failedGenerationTargets = [], retryingGenerationTarget = null, onRetryGeneration, onGeneratePhraseRecommendation, onActivateLearningContent, recallPosition, recallContextLabel, recallPreviousContextLabel, recallNextContextLabel, recallPreviousDetail, recallNextDetail, onRecallPrevious, onRecallNext, onRecallFinish, onClozeAttempt, onClozeStateChange }: {
   detail: CardRecordDetail | null;
   loading: boolean;
   imageAdding?: boolean;
@@ -160,6 +161,7 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
   onDraftEnabledLayersChange?: (layers: CardDraft["enabledLayers"]) => void;
   onDraftImageDescriptionChange?: (enabled: boolean) => void;
   onDraftCollectionChange?: (collectionId: string | null) => void;
+  onDraftLinkChange?: (link: CardDraft["link"]) => void;
   onDraftCreateCollection?: (name: string, parentId: string | null) => Promise<CardCollection>;
   onDraftRenameCollection?: (collectionId: string, name: string) => Promise<void>;
   onDraftDeleteCollection?: (collection: CardCollection) => Promise<void>;
@@ -647,6 +649,7 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
         onEnabledLayersChange={onDraftEnabledLayersChange}
         onImageDescriptionChange={onDraftImageDescriptionChange}
         onCollectionChange={onDraftCollectionChange}
+        onLinkChange={onDraftLinkChange}
         onCreateCollection={onDraftCreateCollection}
         onRenameCollection={onDraftRenameCollection}
         onDeleteCollection={onDraftDeleteCollection}
@@ -1111,7 +1114,7 @@ function confirmCorpusLanguageFilter(): Promise<boolean> {
   });
 }
 
-function DraftCard({ draft, sending, imageAdding, safeArea, limits, collections, onClose, onChangeText, onChangeField, onEnabledLayersChange, onImageDescriptionChange, onCollectionChange, onCreateCollection, onRenameCollection, onDeleteCollection, onSave, onChooseImage, onTakePhoto, onSelectImage, onRemoveImage, onCoverPositionChange }: {
+function DraftCard({ draft, sending, imageAdding, safeArea, limits, collections, onClose, onChangeText, onChangeField, onEnabledLayersChange, onImageDescriptionChange, onCollectionChange, onLinkChange, onCreateCollection, onRenameCollection, onDeleteCollection, onSave, onChooseImage, onTakePhoto, onSelectImage, onRemoveImage, onCoverPositionChange }: {
   draft: CardDraft;
   sending: boolean;
   imageAdding: boolean;
@@ -1124,6 +1127,7 @@ function DraftCard({ draft, sending, imageAdding, safeArea, limits, collections,
   onEnabledLayersChange?: (layers: CardDraft["enabledLayers"]) => void;
   onImageDescriptionChange?: (enabled: boolean) => void;
   onCollectionChange?: (collectionId: string | null) => void;
+  onLinkChange?: (link: CardDraft["link"]) => void;
   onCreateCollection?: (name: string, parentId: string | null) => Promise<CardCollection>;
   onRenameCollection?: (collectionId: string, name: string) => Promise<void>;
   onDeleteCollection?: (collection: CardCollection) => Promise<void>;
@@ -1141,6 +1145,19 @@ function DraftCard({ draft, sending, imageAdding, safeArea, limits, collections,
   const canSave = (count > 0 || draft.images.length > 0) && count <= limits.contentChars && imagesReady;
   const [photoRailVisible, setPhotoRailVisible] = useState(false);
   const [collectionPickerOpen, setCollectionPickerOpen] = useState(false);
+  const [linkInputOpen, setLinkInputOpen] = useState(false);
+  async function attachLink(raw: string): Promise<boolean> {
+    const preview = await previewVideoLink(raw);
+    if (!preview) {
+      showNotice({ message: t("card_detail.link.unsupported"), type: "info", position: "top-center" });
+      return false;
+    }
+    onLinkChange?.({ url: preview.url, provider: preview.provider, title: preview.title });
+    if (preview.cover && draft.images.length < limits.imagesPerCard) await onSelectImage?.(preview.cover);
+    if (!draft.title.trim() && preview.title) onChangeField?.("title", preview.title.slice(0, limits.titleChars));
+    haptic.success();
+    return true;
+  }
   const draftCollection = collections.find((collection) => collection.id === draft.collectionId) ?? null;
   const [recentPhotos, setRecentPhotos] = useState<MediaLibrary.Asset[]>([]);
   const [photosLoading, setPhotosLoading] = useState(false);
@@ -1252,6 +1269,11 @@ function DraftCard({ draft, sending, imageAdding, safeArea, limits, collections,
                 />
                 {draft.images.length ? <ImageDescriptionToggleAction active={draft.generateImageDescription} loading={sending} onPress={() => onImageDescriptionChange?.(!draft.generateImageDescription)} /> : null}
               </>
+              {draft.link ? <View style={styles.draftLinkChip}>
+                <Icon name="link-outline" size={16} color={theme.colors.textSecondary} />
+                <Text numberOfLines={1} style={styles.draftLinkText}>{draft.link.title || draft.link.url}</Text>
+                <Pressable accessibilityRole="button" accessibilityLabel={t("common.remove")} hitSlop={8} onPress={() => onLinkChange?.(null)}><Icon name="close" size={16} color={theme.colors.textMuted} /></Pressable>
+              </View> : null}
               <View style={styles.draftOriginalEditor}>
                 <TextInput
                   ref={originalInputRef}
@@ -1282,9 +1304,12 @@ function DraftCard({ draft, sending, imageAdding, safeArea, limits, collections,
             </ScrollView>
             {Platform.OS === "ios" && photoRailVisible ? <RecentPhotoLayer assets={recentPhotos} loading={photosLoading} maxSelection={Math.min(8, Math.max(0, limits.imagesPerCard - draft.images.length))} onDismiss={() => setPhotoRailVisible(false)} onSelect={(assets) => void selectRecentPhotos(assets)} onTakePhoto={() => { setPhotoRailVisible(false); onTakePhoto?.(); }} onOpenAll={() => { setPhotoRailVisible(false); onChooseImage?.(); }} /> : null}
             </>
+            {linkInputOpen ? <LinkInputModal onClose={() => setLinkInputOpen(false)} onSubmit={async (raw) => { if (await attachLink(raw)) setLinkInputOpen(false); }} /> : null}
             <CollectionPickerModal visible={collectionPickerOpen} title={t("card_detail.choose_collection")} collections={collections} value={draft.collectionId} onClose={() => setCollectionPickerOpen(false)} onSelect={(collectionId) => onCollectionChange?.(collectionId ?? null)} onCreateCollection={onCreateCollection} onRenameCollection={onRenameCollection} onDeleteCollection={onDeleteCollection} />
             <DraftComposerToolbar
               collectionLabel={draftCollection ? draftCollection.name : null}
+              hasLink={Boolean(draft.link)}
+              onLink={onLinkChange ? () => { Keyboard.dismiss(); haptic.light(); setLinkInputOpen(true); } : undefined}
               onCollection={() => { Keyboard.dismiss(); haptic.light(); setCollectionPickerOpen(true); }}
               imageCount={draft.images.length}
               actionLabel={draft.mode === "corpus" ? t("card_detail.save_action") : t("card_detail.rewrite_action")}
@@ -1578,10 +1603,12 @@ function DraftAiOptionsRow({ selected, disabled, onToggle }: {
   </View>;
 }
 
-function DraftComposerToolbar({ collectionLabel, onCollection, imageCount, hideMedia = false, actionLabel, sttStatus, sttAudioLevel, disabled, onCamera, onRecentPhotos, onStt, characterCount, characterLimit, canSave, onInvalidSave, onSave }: {
+function DraftComposerToolbar({ collectionLabel, onCollection, hasLink = false, onLink, imageCount, hideMedia = false, actionLabel, sttStatus, sttAudioLevel, disabled, onCamera, onRecentPhotos, onStt, characterCount, characterLimit, canSave, onInvalidSave, onSave }: {
   /** Current folder name (null = 未分类); the tag sits by the thumb, not at the top. */
   collectionLabel?: string | null;
   onCollection?: () => void;
+  hasLink?: boolean;
+  onLink?: () => void;
   imageCount: number;
   hideMedia?: boolean;
   actionLabel?: string;
@@ -1625,6 +1652,9 @@ function DraftComposerToolbar({ collectionLabel, onCollection, imageCount, hideM
       <Icon name={tool.icon} size={21} color={theme.colors.text} />
       {tool.count ? <View style={styles.draftComposerBadge}><Text style={styles.draftComposerBadgeText}>{tool.count}</Text></View> : null}
     </Pressable>) : null}
+    {onLink && !hideMedia ? <Pressable accessibilityRole="button" accessibilityLabel={t("card_detail.link.add")} disabled={disabled} style={[styles.draftComposerTool, compact && styles.draftComposerToolCompact]} onPress={onLink}>
+      <Icon name="link-outline" size={21} color={hasLink ? theme.colors.text : theme.colors.text} weight={hasLink ? "bold" : undefined} />
+    </Pressable> : null}
     {onCollection ? <Pressable accessibilityRole="button" accessibilityLabel={t("card_detail.a11y.choose_collection")} disabled={disabled} hitSlop={4} style={[styles.draftFolderTag, collectionLabel ? styles.draftFolderTagOn : null]} onPress={onCollection}>
       <Text numberOfLines={1} style={[styles.draftFolderTagText, collectionLabel ? styles.draftFolderTagTextOn : null]}>#{collectionLabel ? ` ${collectionLabel}` : ""}</Text>
     </Pressable> : null}
@@ -3690,6 +3720,11 @@ function Review({ practiceCommand, onLanguageControlChange, hidePhraseRecommenda
                 : null}
             </View>
           </View> : null}
+          {detail.link ? <Pressable accessibilityRole="link" style={({ pressed }) => [styles.readingLinkCard, pressed && styles.metadataPressed]} onPress={() => { haptic.light(); void Linking.openURL(detail.link!.url).catch(() => undefined); }}>
+            <Icon name="play-circle-outline" size={24} color={theme.colors.text} />
+            <Text numberOfLines={2} style={styles.readingLinkTitle}>{detail.link.title || detail.link.url}</Text>
+            <Text style={styles.readingLinkProvider}>{detail.link.provider === "bilibili" ? "Bilibili" : "YouTube"}</Text>
+          </Pressable> : null}
           {detail.displayTitle.trim() || primaryTextBlock ? <View style={styles.readingTitleRow}>
             <Text numberOfLines={3} style={styles.readingTitle}>{detail.displayTitle}</Text>
             {primaryTextBlock && detail.originalText.trim() && (detail.mode === "corpus" || detail.rewrittenText) ? <Pressable accessibilityRole="button" accessibilityLabel={t(displayMode === "auxiliary" ? "card_detail.flip_back" : "card_detail.flip_original")} accessibilityState={{ selected: displayMode === "auxiliary" }} hitSlop={8} disabled={auxiliaryLoading} style={({ pressed }) => [styles.flipButton, displayMode === "auxiliary" && styles.flipButtonOn, pressed && { opacity: 0.7 }]} onPress={() => { haptic.select(); cycleDisplayMode(); }}>
@@ -3987,6 +4022,29 @@ function parseLocalRecordTime(dateText: string, timeText: string): Date | null {
   const result = new Date(year, month - 1, day, hour, minute, 0, 0);
   if (result.getFullYear() !== year || result.getMonth() !== month - 1 || result.getDate() !== day || result.getHours() !== hour || result.getMinutes() !== minute) return null;
   return result;
+}
+
+/** Paste a YouTube / Bilibili link; its title and cover are filled in. */
+function LinkInputModal({ onClose, onSubmit }: { onClose: () => void; onSubmit: (raw: string) => Promise<void> }) {
+  const [value, setValue] = useState("");
+  const [busy, setBusy] = useState(false);
+  useAndroidBack(true, onClose);
+  return <Modal visible transparent animationType="fade" onRequestClose={onClose}>
+    <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.linkModalBackdrop}>
+      <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+      <View style={styles.linkModalCard}>
+        <Text style={styles.linkModalTitle}>{t("card_detail.link.add")}</Text>
+        <Text style={styles.linkModalHint}>{t("card_detail.link.hint")}</Text>
+        <TextInput autoFocus value={value} onChangeText={setValue} editable={!busy} autoCapitalize="none" autoCorrect={false} keyboardType="url" placeholder="https://" style={styles.linkModalInput} onSubmitEditing={() => { if (value.trim() && !busy) { setBusy(true); void onSubmit(value).finally(() => setBusy(false)); } }} />
+        <View style={styles.linkModalActions}>
+          <Pressable accessibilityRole="button" hitSlop={6} onPress={onClose} style={styles.linkModalButton}><Text style={styles.linkModalCancel}>{t("common.cancel")}</Text></Pressable>
+          <Pressable accessibilityRole="button" disabled={!value.trim() || busy} hitSlop={6} onPress={() => { setBusy(true); void onSubmit(value).finally(() => setBusy(false)); }} style={[styles.linkModalButton, styles.linkModalPrimary, (!value.trim() || busy) && { opacity: 0.4 }]}>
+            {busy ? <ActivityIndicator size="small" color={theme.colors.onAccent} /> : <Text style={styles.linkModalPrimaryText}>{t("card_detail.link.attach")}</Text>}
+          </Pressable>
+        </View>
+      </View>
+    </KeyboardAvoidingView>
+  </Modal>;
 }
 
 /** "相关回忆": every memory on the same theme as this card, as a masonry feed. */
@@ -5413,6 +5471,21 @@ function formatDate(value: string): string { const [year, month, day] = value.sp
 function formatTime(value: string): string { const date = new Date(value); return Number.isNaN(date.getTime()) ? "" : date.toLocaleTimeString(getLanguage(), { hour: "2-digit", minute: "2-digit" }); }
 
 const styles = createStyles(() => ({
+  draftLinkChip: { marginTop: 10, minHeight: 36, paddingHorizontal: 12, borderRadius: 18, borderWidth: 1, borderColor: theme.colors.border, flexDirection: "row", alignItems: "center", gap: 8, alignSelf: "flex-start", maxWidth: "100%" },
+  draftLinkText: { flexShrink: 1, color: theme.colors.text, fontSize: 13 },
+  linkModalBackdrop: { flex: 1, justifyContent: "center", padding: 24, backgroundColor: theme.colors.scrim },
+  linkModalCard: { padding: 18, gap: 10, borderRadius: 18, backgroundColor: theme.colors.surface },
+  linkModalTitle: { color: theme.colors.text, fontSize: 17, fontWeight: "700" },
+  linkModalHint: { color: theme.colors.textMuted, fontSize: 13 },
+  linkModalInput: { minHeight: 46, paddingHorizontal: 12, borderRadius: 12, borderWidth: 1, borderColor: theme.colors.border, fontSize: 15 },
+  linkModalActions: { flexDirection: "row", justifyContent: "flex-end", gap: 10, marginTop: 4 },
+  linkModalButton: { minHeight: 40, minWidth: 64, paddingHorizontal: 14, borderRadius: 20, alignItems: "center", justifyContent: "center" },
+  linkModalCancel: { color: theme.colors.textSecondary, fontSize: 15 },
+  linkModalPrimary: { backgroundColor: theme.colors.accent },
+  linkModalPrimaryText: { color: theme.colors.onAccent, fontSize: 15, fontWeight: "700" },
+  readingLinkCard: { marginTop: 14, minHeight: 52, paddingHorizontal: 14, borderRadius: 14, borderWidth: 1, borderColor: theme.colors.border, flexDirection: "row", alignItems: "center", gap: 10 },
+  readingLinkProvider: { color: theme.colors.textMuted, fontSize: 12, fontWeight: "600" },
+  readingLinkTitle: { flex: 1, color: theme.colors.text, fontSize: 14, fontWeight: "600" },
   draftFolderTag: { minWidth: 36, maxWidth: 120, height: 34, paddingHorizontal: 10, borderRadius: 17, borderWidth: 1, borderColor: theme.colors.border, alignItems: "center", justifyContent: "center" },
   draftFolderTagOn: { borderColor: theme.colors.ink },
   draftFolderTagText: { color: theme.colors.textSecondary, fontSize: 15, fontWeight: "700" },

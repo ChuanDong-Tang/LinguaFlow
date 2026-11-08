@@ -516,6 +516,9 @@ export function registerCardRoutes(app: FastifyInstance, deps: CardRouteDeps): v
             ? body.imageUploadIds.filter((value): value is string => typeof value === "string")
             : [],
           imageUploadId: typeof body.imageUploadId === "string" ? body.imageUploadId : null,
+          link: body.link && typeof body.link === "object" && typeof (body.link as { url?: unknown }).url === "string"
+            ? { url: (body.link as { url: string }).url, title: typeof (body.link as { title?: unknown }).title === "string" ? (body.link as { title: string }).title : null }
+            : null,
         },
       });
       return reply.status(202).send({ ok: true, request_id: requestId, data });

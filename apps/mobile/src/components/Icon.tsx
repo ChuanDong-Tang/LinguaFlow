@@ -7,7 +7,7 @@ import {
   BookOpen, BookOpenText, CalendarBlank, CalendarDot, Camera, Cards, CaretDown, CaretLeft, CaretRight, CaretUp, ChatCircleDots,
   ChatTeardropDots, Check, CircleHalf, CheckCircle, Checks, CircleIcon as Circle, CloudArrowDown, Code, Copy, Cube, DotsThree, DownloadSimple, Ear, Eye,
   EyeSlash, FileText, Flag, Folder, FolderOpen, GearSix, Globe, GraduationCap, Headphones, Image, ImageSquare, Info, Leaf, Lightbulb,
-  Link, List, MagnifyingGlass, Microphone, MusicNote, MusicNotes, Pause, PencilSimple, Play, Plus, PlusCircle, ShareNetwork,
+  Link, List, MagnifyingGlass, Microphone, MusicNote, MusicNotes, Pause, PencilSimple, Play, PlayCircle, Plus, PlusCircle, ShareNetwork,
   ShieldCheck, Shuffle, SignOut, SkipBack, SkipForward, SpeakerHigh, SpeakerLow, Square, SquaresFour, Star, Stop, TextT, Translate,
   Trash, User, UserMinus, Users, WarningCircle, X, XCircle, type IconProps, type IconWeight,
 } from "phosphor-react-native";
@@ -31,7 +31,7 @@ const MAP: Partial<Record<string, [PhosphorIcon, IconWeight?]>> = {
   "albums-outline": [Cards], "volume-high-outline": [SpeakerHigh], "volume-medium-outline": [SpeakerLow],
   search: [MagnifyingGlass], "search-outline": [MagnifyingGlass], "document-text-outline": [FileText], "reader-outline": [BookOpenText],
   "create-outline": [PencilSimple], "text-outline": [TextT], "language-outline": [Translate], "globe-outline": [Globe],
-  play: [Play, "fill"], pause: [Pause, "fill"], stop: [Stop, "fill"], "play-skip-forward": [SkipForward, "fill"], "play-skip-back": [SkipBack, "fill"],
+  play: [Play, "fill"], "play-circle-outline": [PlayCircle], pause: [Pause, "fill"], stop: [Stop, "fill"], "play-skip-forward": [SkipForward, "fill"], "play-skip-back": [SkipBack, "fill"],
   "images-outline": [ImageSquare], "image-outline": [Image], "today-outline": [CalendarDot], "calendar-outline": [CalendarBlank],
   "copy-outline": [Copy], "alert-circle": [WarningCircle, "fill"], "alert-circle-outline": [WarningCircle],
   "settings-outline": [GearSix], "musical-notes-outline": [MusicNotes], "musical-note-outline": [MusicNote], "move-outline": [ArrowsOutCardinal],
