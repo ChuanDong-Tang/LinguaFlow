@@ -172,6 +172,8 @@ export function pencilFillFor(id: string) {
 
 const styles = createStyles(() => ({
   svg: { position: "absolute", left: -PAD, top: -PAD },
-  grow: { flexGrow: 1 },
+  // No flexGrow here: inside full-height flex parents it stretched buttons to
+  // the whole screen. Callers size the box with `style` / `contentStyle`.
+  grow: {},
   disabled: { opacity: 0.45 },
 }));

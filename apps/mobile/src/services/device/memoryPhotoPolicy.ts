@@ -75,3 +75,23 @@ export function nextPhotoSet<T extends { id: string }>(photos: readonly T[], cur
   const pool = candidates.length || hasNextPage ? candidates : photos;
   return { assets: shuffled ? photoBatch(pool, size, random) : pool.slice(0, size), needsMore };
 }
+
+/** "近期" photos: from the start of the day `days - 1` days ago until now. */
+export function recentPhotoWindowStart(now: Date, days = 3): number {
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate() - (days - 1)).getTime();
+}
+
+export function isRecentPhoto(photo: DatedPhoto, now: Date, days = 3): boolean {
+  return photoTakenTime(photo) >= recentPhotoWindowStart(now, days);
+}
+
+/** 今天 / 昨天 / 前天 for recent photos; null when older (show the date instead). */
+export function relativePhotoDay(time: number, now: Date): "today" | "yesterday" | "two_days_ago" | null {
+  if (!(time > 0)) return null;
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const day = 24 * 60 * 60 * 1000;
+  if (time >= today && time < today + day) return "today";
+  if (time >= today - day && time < today) return "yesterday";
+  if (time >= today - 2 * day && time < today - day) return "two_days_ago";
+  return null;
+}

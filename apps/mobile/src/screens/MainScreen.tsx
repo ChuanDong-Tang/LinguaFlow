@@ -914,7 +914,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
     }
   }
 
-  async function submit(initialTab: CardDetailRequest["initialTab"] = "review"): Promise<void> {
+  async function submit(initialTab: CardDetailRequest["initialTab"] = "review", options?: { openAfterCreate?: boolean; onCreated?: (recordId: string) => void }): Promise<void> {
     if (submitInFlightRef.current) return;
     if (isCardGenerationInProgress()) {
       Alert.alert(t("main.error.try_later"), t("main.error.card_processing"));
@@ -1007,7 +1007,8 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
       setActiveRecordId(null);
       await commitDraft(snapshot.mode === "corpus" ? EMPTY_CORPUS_DRAFT : EMPTY_DRAFT);
       setSending(false);
-      onOpenCard(created.id, initialTab);
+      options?.onCreated?.(created.id);
+      if (options?.openAfterCreate !== false) onOpenCard(created.id, initialTab);
       if (snapshot.mode === "corpus") {
         void loadCardDraft("rewrite").then((saved) => commitDraft(saved));
       }
@@ -1190,13 +1191,22 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
     return accepted.length;
   }
 
-  async function confirmMemoryPhoto(asset: MediaLibrary.Asset, text: string): Promise<void> {
-    if (photoConfirmLock.current) return;
+  /**
+   * Photo inspiration: create a memory from one photo without leaving the
+   * browser. Resolves with the new card id once it exists (generation keeps
+   * running in the background), or null when it could not be created.
+   */
+  async function confirmMemoryPhoto(asset: MediaLibrary.Asset, text: string, title = ""): Promise<string | null> {
+    if (photoConfirmLock.current) return null;
     const current = draftRef.current;
     const revision = draftRevisionRef.current;
-    if (current.mode !== "rewrite" || current.text.trim() || current.title.trim() || current.images.length || current.recordId || sending || isCardGenerationInProgress()) {
+    if (current.mode !== "rewrite" || current.text.trim() || current.title.trim() || current.images.length || current.recordId || sending) {
       Alert.alert(t("card_detail.error.cannot_save"), getLanguage().startsWith("zh") ? "请先保存或处理已有草稿，再生成照片回忆。" : "Please finish your existing draft before creating a photo memory.");
-      throw new Error("Existing draft must be preserved");
+      return null;
+    }
+    if (isCardGenerationInProgress()) {
+      Alert.alert(t("main.error.try_later"), t("photo_flow.previous_generating"));
+      return null;
     }
     photoConfirmLock.current = true;
     try {
@@ -1204,19 +1214,23 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
       // this path from photo browsing, paging, or the initial selection action.
       const source = await readMemoryPhotoSource(asset, true);
       const prepared = await prepareCardDraftImage(source);
-      if (draftRevisionRef.current !== revision) throw new Error("Draft changed while preparing photo");
-      await commitDraft({ ...EMPTY_DRAFT, collectionId: current.collectionId, text, generateImageDescription: true, images: [prepared] });
+      if (draftRevisionRef.current !== revision) return null;
+      await commitDraft({ ...EMPTY_DRAFT, collectionId: current.collectionId, title, text, generateImageDescription: true, images: [prepared] });
       try {
         const ready = await uploadCardDraftImage(prepared, persistDraftImage);
         await updateCommittedDraft((value) => ({ ...value, images: [ready] }));
-      } catch (error) {
+      } catch {
+        // Keep the user's words: hand the draft to the full editor to retry.
         await updateCommittedDraft((value) => ({ ...value, images: value.images.map((image) => ({ ...image, status: "failed" as const })) }));
         setPhotoBrowser(null);
         showCardComposer();
-        throw error;
+        return null;
       }
-      setPhotoBrowser(null);
-      await submit("review");
+      return await new Promise<string | null>((resolve) => {
+        let settled = false;
+        void submit("review", { openAfterCreate: false, onCreated: (recordId) => { settled = true; resolve(recordId); } })
+          .finally(() => { if (!settled) resolve(null); });
+      });
     } finally { photoConfirmLock.current = false; }
   }
 
@@ -1773,7 +1787,11 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
         />
       </AnimatedSearchOverlay>
 
-      {photoBrowser ? <MemoryPhotoBrowser day={photoBrowser === "today" ? new Date(`${localDay}T12:00:00`) : undefined} random={photoBrowser === "random"} maxTextLength={cardLimits.contentChars} onClose={() => setPhotoBrowser(null)} onConfirm={confirmMemoryPhoto} /> : null}
+      {photoBrowser ? <MemoryPhotoBrowser random={photoBrowser === "random"} maxTextLength={cardLimits.contentChars} onClose={() => setPhotoBrowser(null)} onConfirm={confirmMemoryPhoto} onPracticeSet={(recordIds) => {
+        setPhotoBrowser(null);
+        const [first] = recordIds;
+        if (first) onOpenCard(first, "cloze", undefined, { browseRecordIds: recordIds });
+      }} /> : null}
       {composerVisible ? (
         <Modal visible transparent animationType="none" presentationStyle="overFullScreen" onRequestClose={closeCardComposer}>
           <Animated.View style={[styles.composerTransitionPage, {

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { memoryPhotoAccess, photoDayRange, mergePhotoPage, photoBatch, nextPhotoSet, memoryPhotoPreviewUri } from "./memoryPhotoPolicy";
+import { memoryPhotoAccess, photoDayRange, mergePhotoPage, photoBatch, nextPhotoSet, memoryPhotoPreviewUri, isRecentPhoto, relativePhotoDay } from "./memoryPhotoPolicy";
 
 test("photo previews resolve local files without passing Photos IDs or cloud URLs to Image", () => {
   assert.equal(memoryPhotoPreviewUri({ uri: "ph://asset", localUri: "file:///photo.jpg" }), "file:///photo.jpg");
@@ -47,4 +47,21 @@ test("next photo set loads beyond the current page before wrapping", () => {
   assert.deepEqual(nextPhotoSet(photos, photos.slice(2), 2, false, false), { assets: photos.slice(0, 2), needsMore: false });
   assert.deepEqual(nextPhotoSet(photos, photos.slice(0, 2), 2, true, false, () => 0).assets, photos.slice(2));
   assert.deepEqual(nextPhotoSet([], [], 15, false, false), { assets: [], needsMore: false });
+});
+
+test("recent window covers today and the two days before", () => {
+  const now = new Date(2026, 10, 9, 15, 0);
+  const photo = (date: Date) => ({ creationTime: date.getTime(), modificationTime: date.getTime() });
+  assert.equal(isRecentPhoto(photo(new Date(2026, 10, 7, 0, 1)), now), true);
+  assert.equal(isRecentPhoto(photo(new Date(2026, 10, 6, 23, 59)), now), false);
+  assert.equal(isRecentPhoto({ creationTime: 0, modificationTime: new Date(2026, 10, 8).getTime() }, now), true);
+});
+
+test("relative day labels for today, yesterday and the day before", () => {
+  const now = new Date(2026, 10, 9, 8, 0);
+  assert.equal(relativePhotoDay(new Date(2026, 10, 9, 23, 0).getTime(), now), "today");
+  assert.equal(relativePhotoDay(new Date(2026, 10, 8, 0, 0).getTime(), now), "yesterday");
+  assert.equal(relativePhotoDay(new Date(2026, 10, 7, 12, 0).getTime(), now), "two_days_ago");
+  assert.equal(relativePhotoDay(new Date(2026, 10, 6, 12, 0).getTime(), now), null);
+  assert.equal(relativePhotoDay(0, now), null);
 });
