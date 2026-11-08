@@ -1,68 +1,165 @@
-import React from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import React, { useEffect, useRef } from "react";
+import { Pressable, View } from "react-native";
+import Reanimated, { FadeIn, FadeInDown } from "react-native-reanimated";
 import { Text } from "./Typography";
-import type { ClozeAnswerPuzzle, ClozeAnswerPuzzleToken } from "../domain/cloze/clozeAnswerPuzzle";
+import {
+  EMPTY_SLOT,
+  isClozeAnswerPuzzleComplete,
+  placeClozeAnswerToken,
+  removeClozeAnswerToken,
+  type ClozeAnswerPuzzle,
+} from "../domain/cloze/clozeAnswerPuzzle";
 import { playSelectionFeedbackSound } from "../services/audio/gameFeedbackAudio";
+import { haptic } from "../feedback/haptics";
+import { motion } from "../motion";
+import { SketchCheck, SketchPressable } from "./sketch/Sketch";
+import { OioMascot, type OioMascotHandle } from "./sketch/OioMascot";
+import { t } from "../i18n";
 import { theme } from "../theme";
 import { createStyles } from "../styles";
 
+export type ClozeChoiceFeedback = { correct: boolean; answer: string };
+
+/**
+ * Choice practice for one blank (skills/linguaflow-interaction-feel, "Memory
+ * game feel"): place tokens into fixed slots, press 检查, then 继续 / 知道了.
+ */
 export function ClozeAnswerPuzzleTray({
   puzzle,
   selectedIds,
   incorrect = false,
   disabled = false,
+  feedback = null,
   onChange,
+  onCheck,
+  onProceed,
 }: {
   puzzle: ClozeAnswerPuzzle;
   selectedIds: string[];
   incorrect?: boolean;
   disabled?: boolean;
+  feedback?: ClozeChoiceFeedback | null;
   onChange: (selectedIds: string[]) => void;
+  onCheck?: () => void;
+  onProceed?: () => void;
 }) {
-  const selected = selectedIds
-    .map((id) => puzzle.target.find((token) => token.id === id))
-    .filter((token): token is ClozeAnswerPuzzleToken => Boolean(token));
-  const selectedSet = new Set(selectedIds);
-  const available = puzzle.shuffled.filter((token) => !selectedSet.has(token.id));
-  const remaining = puzzle.target.slice(selected.length);
+  const byId = new Map(puzzle.target.map((token) => [token.id, token]));
+  const placed = new Set(selectedIds.filter((id) => id !== EMPTY_SLOT));
+  const available = puzzle.shuffled.filter((token) => !placed.has(token.id));
+  const answered = Boolean(feedback);
+  const locked = disabled || answered;
+  const complete = isClozeAnswerPuzzleComplete(puzzle, selectedIds);
+  const words = puzzle.mode === "words";
+  const mascot = useRef<OioMascotHandle>(null);
+  useEffect(() => {
+    if (!feedback) return;
+    if (feedback.correct) mascot.current?.hop();
+    else mascot.current?.tilt();
+  }, [feedback]);
+
+  const tap = () => {
+    haptic.select();
+    void playSelectionFeedbackSound().catch(() => undefined);
+  };
   const remove = (id: string) => {
-    if (disabled) return;
-    onChange(selectedIds.filter((selectedId) => selectedId !== id));
-    void playSelectionFeedbackSound().catch(() => undefined);
+    if (locked) return;
+    tap();
+    onChange(removeClozeAnswerToken(selectedIds, id));
   };
-  const append = (id: string) => {
-    if (disabled) return;
-    onChange([...selectedIds, id]);
-    void playSelectionFeedbackSound().catch(() => undefined);
+  const place = (id: string) => {
+    if (locked) return;
+    tap();
+    onChange(placeClozeAnswerToken(puzzle, selectedIds, id));
   };
+
   return <View style={styles.root}>
-    <View style={[styles.answer, incorrect && styles.answerIncorrect]}>
-      <View style={[styles.wrap, styles.answerWrap, puzzle.mode === "characters" && styles.characterAnswerWrap]}>
+    <View style={[styles.answer, incorrect && !answered && styles.answerIncorrect]}>
+      <View style={[styles.wrap, styles.answerWrap, !words && styles.characterAnswerWrap]}>
         {puzzle.fixedPrefix ? <Text style={styles.fixedPrefix}>{puzzle.fixedPrefix}</Text> : null}
-        {selected.map((token) => <Pressable key={token.id} disabled={disabled} style={({ pressed }) => [styles.selectedTile, puzzle.mode === "characters" && styles.selectedCharacterTile, pressed && styles.pressed]} onPress={() => remove(token.id)}><Text style={[styles.selectedText, puzzle.mode === "characters" && styles.selectedCharacterText]}>{token.text}</Text></Pressable>)}
-        {remaining.map((token) => <View key={token.id} style={[styles.placeholder, puzzle.mode === "words" && styles.wordPlaceholder]} />)}
+        {puzzle.target.map((_, slot) => {
+          const id = selectedIds[slot];
+          const token = id && id !== EMPTY_SLOT ? byId.get(id) : undefined;
+          return token
+            ? <Pressable key={`slot-${slot}`} accessibilityRole="button" accessibilityLabel={token.text} disabled={locked} style={({ pressed }) => [styles.slotTile, !words && styles.slotCharacterTile, pressed && styles.pressed]} onPress={() => remove(token.id)}>
+              <Text style={[styles.slotText, !words && styles.slotCharacterText]}>{token.text}</Text>
+            </Pressable>
+            : <View key={`slot-${slot}`} style={[styles.slotEmpty, words ? styles.slotEmptyWord : styles.slotEmptyCharacter]} />;
+        })}
       </View>
     </View>
-    <View style={styles.wrap}>{available.map((token) => <Pressable key={token.id} disabled={disabled} style={({ pressed }) => [styles.tile, puzzle.mode === "characters" && styles.characterTile, pressed && styles.pressed]} onPress={() => append(token.id)}><Text style={styles.tileText}>{token.text}</Text></Pressable>)}</View>
+    {answered ? null : <View style={styles.wrap}>
+      {available.map((token) => <Pressable key={token.id} accessibilityRole="button" accessibilityLabel={token.text} disabled={locked} style={({ pressed }) => [styles.tile, !words && styles.characterTile, pressed && styles.pressed]} onPress={() => place(token.id)}>
+        <Text style={styles.tileText}>{token.text}</Text>
+      </Pressable>)}
+    </View>}
+    {feedback ? <Reanimated.View entering={FadeInDown.duration(motion.duration.enter)} style={[styles.feedback, feedback.correct ? styles.feedbackCorrect : styles.feedbackIncorrect]}>
+      <OioMascot ref={mascot} size={34} idle={false} />
+      <View style={styles.feedbackText}>
+        {feedback.correct
+          ? <View style={styles.feedbackTitleRow}><SketchCheck seed={`check-${feedback.answer}`} size={22} /><Text style={styles.feedbackTitle}>{t("cloze.feedback.correct")}</Text></View>
+          : <>
+            <Text style={styles.feedbackLabel}>{t("cloze.feedback.correct_answer")}</Text>
+            <Text style={styles.feedbackAnswer}>{feedback.answer}</Text>
+          </>}
+      </View>
+    </Reanimated.View> : null}
+    <View style={styles.actions}>
+      {!answered && placed.size > 0 ? <Reanimated.View entering={FadeIn.duration(motion.duration.quick)}>
+        <Pressable accessibilityRole="button" disabled={locked} hitSlop={6} style={({ pressed }) => [styles.resetButton, pressed && styles.pressed]} onPress={() => { haptic.light(); onChange([]); }}>
+          <Text style={styles.resetText}>{t("cloze.reset")}</Text>
+        </Pressable>
+      </Reanimated.View> : <View />}
+      {onCheck && onProceed ? <SketchPressable
+        seed={answered ? (feedback?.correct ? "cloze-continue" : "cloze-got-it") : "cloze-check"}
+        radius={22}
+        fill={answered || complete ? theme.colors.accent : theme.colors.surface}
+        feedback={null}
+        disabled={disabled || (!answered && !complete)}
+        accessibilityRole="button"
+        style={styles.primary}
+        contentStyle={styles.primaryInner}
+        onPress={() => (answered ? onProceed() : onCheck())}
+      >
+        <Text style={[styles.primaryText, (answered || complete) && styles.primaryTextOn]}>
+          {t(answered ? (feedback?.correct ? "cloze.continue" : "cloze.got_it") : "cloze.check")}
+        </Text>
+      </SketchPressable> : null}
+    </View>
   </View>;
 }
 
 const styles = createStyles(() => ({
   root: { gap: 12 },
-  answer: { minHeight: 54, borderRadius: 16, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surface, padding: 9, justifyContent: "center" },
-  answerIncorrect: { borderColor: theme.colors.accentSoft, backgroundColor: theme.colors.canvas },
+  answer: { minHeight: 60, borderRadius: 16, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surface, padding: 10, justifyContent: "center" },
+  answerIncorrect: { borderColor: theme.colors.borderStrong, backgroundColor: theme.colors.surfaceSunken },
   wrap: { flexDirection: "row", flexWrap: "wrap", gap: 8, justifyContent: "center" },
-  answerWrap: { minHeight: 32, alignItems: "center" },
+  answerWrap: { minHeight: 40, alignItems: "flex-end" },
   characterAnswerWrap: { gap: 4 },
-  placeholder: { width: 18, height: 2, borderRadius: 1, backgroundColor: theme.colors.border },
-  wordPlaceholder: { width: 48 },
-  fixedPrefix: { color: theme.colors.textSecondary, fontSize: 18, lineHeight: 28, fontWeight: "600", letterSpacing: .3 },
-  tile: { minWidth: 48, minHeight: 42, paddingHorizontal: 13, borderRadius: 13, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surface, alignItems: "center", justifyContent: "center" },
-  selectedTile: { minWidth: 42, minHeight: 34, paddingHorizontal: 10, borderRadius: 11, backgroundColor: theme.colors.accentSoft, alignItems: "center", justifyContent: "center" },
-  selectedCharacterTile: { minWidth: 16, minHeight: 28, paddingHorizontal: 1, borderRadius: 0, backgroundColor: "transparent" },
-  characterTile: { minWidth: 42, paddingHorizontal: 10 },
-  tileText: { color: theme.colors.text, fontSize: 17, fontWeight: "600" },
-  selectedText: { color: theme.colors.accentStrong, fontSize: 17, fontWeight: "700" },
-  selectedCharacterText: { color: theme.colors.text, fontSize: 18, lineHeight: 28, fontWeight: "600", letterSpacing: .3 },
-  pressed: { opacity: 0.68, transform: [{ scale: 0.97 }] },
+  fixedPrefix: { color: theme.colors.textSecondary, fontSize: 20, lineHeight: 34, fontWeight: "600", letterSpacing: 0.3 },
+  slotTile: { minWidth: 44, minHeight: 40, paddingHorizontal: 12, borderRadius: 12, borderWidth: 1.5, borderColor: theme.colors.ink, backgroundColor: theme.colors.surface, alignItems: "center", justifyContent: "center" },
+  slotCharacterTile: { minWidth: 30, paddingHorizontal: 6 },
+  slotText: { color: theme.colors.text, fontSize: 18, fontWeight: "700" },
+  slotCharacterText: { fontSize: 20, letterSpacing: 0.3 },
+  slotEmpty: { height: 40, borderBottomWidth: 2, borderColor: theme.colors.borderStrong, borderStyle: "dashed" },
+  slotEmptyWord: { width: 56 },
+  slotEmptyCharacter: { width: 26 },
+  tile: { minWidth: 52, minHeight: 46, paddingHorizontal: 14, borderRadius: 13, borderWidth: 1.5, borderColor: theme.colors.borderStrong, backgroundColor: theme.colors.surface, alignItems: "center", justifyContent: "center" },
+  characterTile: { minWidth: 46, paddingHorizontal: 10 },
+  tileText: { color: theme.colors.text, fontSize: 18, fontWeight: "600" },
+  pressed: { opacity: 0.7, transform: [{ scale: 0.96 }] },
+  feedback: { flexDirection: "row", alignItems: "center", gap: 12, padding: 12, borderRadius: 16, borderWidth: 1.5 },
+  feedbackCorrect: { borderColor: theme.colors.ink, backgroundColor: theme.colors.surface },
+  feedbackIncorrect: { borderColor: theme.colors.borderStrong, backgroundColor: theme.colors.surfaceMuted },
+  feedbackText: { flex: 1, gap: 2 },
+  feedbackTitleRow: { flexDirection: "row", alignItems: "center", gap: 6 },
+  feedbackTitle: { color: theme.colors.text, fontSize: 17, fontWeight: "700" },
+  feedbackLabel: { color: theme.colors.textSecondary, fontSize: 12, fontWeight: "600" },
+  feedbackAnswer: { color: theme.colors.text, fontSize: 18, fontWeight: "700" },
+  actions: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
+  resetButton: { minHeight: 44, paddingHorizontal: 6, justifyContent: "center" },
+  resetText: { color: theme.colors.textSecondary, fontSize: 14, fontWeight: "600" },
+  primary: { flexGrow: 0 },
+  primaryInner: { minHeight: 46, minWidth: 128, paddingHorizontal: 26, alignItems: "center", justifyContent: "center" },
+  primaryText: { color: theme.colors.textMuted, fontSize: 16, fontWeight: "700" },
+  primaryTextOn: { color: theme.colors.onAccent },
 }));

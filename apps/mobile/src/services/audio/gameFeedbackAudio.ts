@@ -1,49 +1,40 @@
 import { createAudioPlayer, setAudioModeAsync, type AudioPlayer } from "expo-audio";
 import { File, Paths } from "expo-file-system";
 
-// A short, quiet rising tone stored as PCM WAV so feedback never depends on the network.
-const SUCCESS_WAV_BASE64 = "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";
+// Game feedback sounds (skills/linguaflow-interaction-feel): soft and short, so
+// they reward without startling. All synthesized as PCM WAV — no network, no
+// third-party sound assets. Bump the file version when a waveform changes.
+
+const SAMPLE_RATE = 22_050;
 
 let activePlayer: AudioPlayer | null = null;
 let cleanupTimer: ReturnType<typeof setTimeout> | null = null;
 
-export async function playSuccessFeedbackSound(): Promise<void> {
-  await setAudioModeAsync({ playsInSilentMode: true, interruptionMode: "mixWithOthers" });
-  const file = new File(Paths.cache, "memory-success-feedback.wav");
-  if (!file.exists) file.write(decodeBase64(SUCCESS_WAV_BASE64));
-
-  cleanupPlayer();
-  const player = createAudioPlayer({ uri: file.uri });
-  activePlayer = player;
-  player.volume = 0.42;
-  player.play();
-  cleanupTimer = setTimeout(cleanupPlayer, 700);
+/** Correct answer: a bright two-note chime going up (like a small "ding-ding"). */
+export function playSuccessFeedbackSound(): Promise<void> {
+  return play("cloze-success-v3.wav", createChimeWav, 0.5, 700);
 }
 
-export async function playIncorrectFeedbackSound(): Promise<void> {
-  await setAudioModeAsync({ playsInSilentMode: true, interruptionMode: "mixWithOthers" });
-  const file = new File(Paths.cache, "practice-incorrect-feedback.wav");
-  if (!file.exists) file.write(createDescendingToneWav());
-
-  cleanupPlayer();
-  const player = createAudioPlayer({ uri: file.uri });
-  activePlayer = player;
-  player.volume = 0.34;
-  player.play();
-  cleanupTimer = setTimeout(cleanupPlayer, 520);
+/** Wrong answer: a gentle two-note fall, low and soft — "not quite". */
+export function playIncorrectFeedbackSound(): Promise<void> {
+  return play("cloze-incorrect-v3.wav", createSoftFallWav, 0.42, 600);
 }
 
-export async function playSelectionFeedbackSound(): Promise<void> {
-  await setAudioModeAsync({ playsInSilentMode: true, interruptionMode: "mixWithOthers" });
-  const file = new File(Paths.cache, "choice-tile-key-feedback-v2.wav");
-  if (!file.exists) file.write(createSelectionKeyWav());
+/** Placing or removing a word: a tiny wooden "pop". */
+export function playSelectionFeedbackSound(): Promise<void> {
+  return play("cloze-tap-v3.wav", createPopWav, 0.32, 160);
+}
 
+async function play(fileName: string, create: () => Uint8Array, volume: number, holdMs: number): Promise<void> {
+  await setAudioModeAsync({ playsInSilentMode: true, interruptionMode: "mixWithOthers" });
+  const file = new File(Paths.cache, fileName);
+  if (!file.exists) file.write(create());
   cleanupPlayer();
   const player = createAudioPlayer({ uri: file.uri });
   activePlayer = player;
-  player.volume = 0.24;
+  player.volume = volume;
   player.play();
-  cleanupTimer = setTimeout(cleanupPlayer, 140);
+  cleanupTimer = setTimeout(cleanupPlayer, holdMs);
 }
 
 function cleanupPlayer(): void {
@@ -53,17 +44,42 @@ function cleanupPlayer(): void {
   activePlayer = null;
 }
 
-function decodeBase64(value: string): Uint8Array {
-  const decoded = globalThis.atob(value);
-  const bytes = new Uint8Array(decoded.length);
-  for (let index = 0; index < decoded.length; index += 1) bytes[index] = decoded.charCodeAt(index);
-  return bytes;
+/** Bell-like note: quick attack, exponential decay, a soft octave partial. */
+function bell(time: number, start: number, frequency: number, decay: number, gain: number): number {
+  const t = time - start;
+  if (t < 0) return 0;
+  const attack = Math.min(1, t / 0.004);
+  const envelope = attack * Math.exp(-t * decay);
+  return gain * envelope * (Math.sin(2 * Math.PI * frequency * t) + 0.28 * Math.sin(2 * Math.PI * frequency * 2 * t) + 0.08 * Math.sin(2 * Math.PI * frequency * 3 * t));
 }
 
-function createDescendingToneWav(): Uint8Array {
-  const sampleRate = 16_000;
-  const durationSeconds = 0.28;
-  const sampleCount = Math.floor(sampleRate * durationSeconds);
+function createChimeWav(): Uint8Array {
+  return synthesize(0.62, (time) => bell(time, 0, 880, 9, 0.42) + bell(time, 0.11, 1318.5, 7, 0.46));
+}
+
+function createSoftFallWav(): Uint8Array {
+  return synthesize(0.5, (time) => {
+    const note = (start: number, frequency: number) => {
+      const t = time - start;
+      if (t < 0) return 0;
+      const envelope = Math.min(1, t / 0.012) * Math.exp(-t * 7);
+      // Rounded tone (sine + a little third harmonic) reads warmer than a buzz.
+      return envelope * (Math.sin(2 * Math.PI * frequency * t) + 0.12 * Math.sin(2 * Math.PI * frequency * 3 * t));
+    };
+    return 0.4 * (note(0, 349.2) + note(0.14, 261.6));
+  });
+}
+
+function createPopWav(): Uint8Array {
+  return synthesize(0.07, (time) => {
+    const frequency = 720 - 260 * Math.min(1, time / 0.03);
+    const envelope = Math.min(1, time / 0.002) * Math.exp(-time * 70);
+    return 0.5 * envelope * Math.sin(2 * Math.PI * frequency * time);
+  });
+}
+
+function synthesize(durationSeconds: number, sampleAt: (time: number) => number): Uint8Array {
+  const sampleCount = Math.floor(SAMPLE_RATE * durationSeconds);
   const dataSize = sampleCount * 2;
   const bytes = new Uint8Array(44 + dataSize);
   const view = new DataView(bytes.buffer);
@@ -73,55 +89,16 @@ function createDescendingToneWav(): Uint8Array {
   view.setUint32(16, 16, true);
   view.setUint16(20, 1, true);
   view.setUint16(22, 1, true);
-  view.setUint32(24, sampleRate, true);
-  view.setUint32(28, sampleRate * 2, true);
+  view.setUint32(24, SAMPLE_RATE, true);
+  view.setUint32(28, SAMPLE_RATE * 2, true);
   view.setUint16(32, 2, true);
   view.setUint16(34, 16, true);
   writeAscii(view, 36, "data");
   view.setUint32(40, dataSize, true);
+  const fadeOut = Math.floor(SAMPLE_RATE * 0.01);
   for (let index = 0; index < sampleCount; index += 1) {
-    const progress = index / sampleCount;
-    const frequency = 330 - progress * 120;
-    const envelope = Math.sin(Math.PI * progress) * 0.34;
-    const sample = Math.sin(2 * Math.PI * frequency * index / sampleRate) * envelope;
-    view.setInt16(44 + index * 2, Math.round(sample * 0x7fff), true);
-  }
-  return bytes;
-}
-
-function createSelectionKeyWav(): Uint8Array {
-  const sampleRate = 16_000;
-  const durationSeconds = 0.055;
-  const sampleCount = Math.floor(sampleRate * durationSeconds);
-  const dataSize = sampleCount * 2;
-  const bytes = new Uint8Array(44 + dataSize);
-  const view = new DataView(bytes.buffer);
-  writeAscii(view, 0, "RIFF");
-  view.setUint32(4, 36 + dataSize, true);
-  writeAscii(view, 8, "WAVEfmt ");
-  view.setUint32(16, 16, true);
-  view.setUint16(20, 1, true);
-  view.setUint16(22, 1, true);
-  view.setUint32(24, sampleRate, true);
-  view.setUint32(28, sampleRate * 2, true);
-  view.setUint16(32, 2, true);
-  view.setUint16(34, 16, true);
-  writeAscii(view, 36, "data");
-  view.setUint32(40, dataSize, true);
-  let noiseState = 0x5f3759df;
-  for (let index = 0; index < sampleCount; index += 1) {
-    const time = index / sampleRate;
-    noiseState = (noiseState * 1664525 + 1013904223) >>> 0;
-    const noise = ((noiseState / 0xffffffff) * 2) - 1;
-    const attack = Math.min(1, time / 0.0015);
-    const click = Math.sin(2 * Math.PI * 1_450 * time) * Math.exp(-time * 92) * 0.44;
-    const texture = noise * Math.exp(-time * 115) * 0.32;
-    const keyBody = Math.sin(2 * Math.PI * 185 * time) * Math.exp(-time * 48) * 0.2;
-    const returnClickTime = Math.max(0, time - 0.027);
-    const returnClick = time >= 0.027
-      ? Math.sin(2 * Math.PI * 980 * returnClickTime) * Math.exp(-returnClickTime * 150) * 0.12
-      : 0;
-    const sample = Math.max(-1, Math.min(1, (click + texture + keyBody + returnClick) * attack));
+    const tail = Math.min(1, (sampleCount - index) / fadeOut);
+    const sample = Math.max(-1, Math.min(1, sampleAt(index / SAMPLE_RATE) * tail));
     view.setInt16(44 + index * 2, Math.round(sample * 0x7fff), true);
   }
   return bytes;

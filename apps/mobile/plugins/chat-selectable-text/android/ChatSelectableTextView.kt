@@ -390,7 +390,8 @@ class ChatSelectableTextView(context: Context) : AppCompatTextView(context) {
     val backgroundPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
     parseRanges(highlightRangesJson).forEach { range ->
       val isCorrect = correctRanges.any { correct -> correct.start == range.start && correct.end == range.end }
-      backgroundPaint.color = Color.parseColor(if (isCorrect) "#DDEFE2" else "#FFF0B8")
+      // Black-and-white style: the text color at low opacity (works in dark mode).
+      backgroundPaint.color = withAlpha(currentTextColor, if (isCorrect) 0.18f else 0.10f)
       drawRangeLines(textLayout, textLength, range) { left, top, right, bottom ->
         canvas.drawRect(left, top, right, bottom, backgroundPaint)
       }
@@ -402,7 +403,7 @@ class ChatSelectableTextView(context: Context) : AppCompatTextView(context) {
       drawAnswerRange(canvas, textLayout, textLength, range, answerPaint)
     }
     val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-      color = Color.parseColor("#D05F78")
+      color = currentTextColor
       strokeWidth = 2f * density
       style = Paint.Style.STROKE
     }
@@ -415,7 +416,7 @@ class ChatSelectableTextView(context: Context) : AppCompatTextView(context) {
         }
       }
     val activePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-      color = Color.parseColor("#D05F78")
+      color = currentTextColor
       strokeWidth = 1.5f * density
       style = Paint.Style.STROKE
     }
@@ -437,7 +438,7 @@ class ChatSelectableTextView(context: Context) : AppCompatTextView(context) {
     val clipLeft = minOf(left, right)
     val clipRight = maxOf(left, right)
     if (clipRight <= clipLeft) return
-    answerPaint.color = Color.parseColor(if (range.incorrect) "#C65353" else "#242424")
+    answerPaint.color = if (range.incorrect) withAlpha(currentTextColor, 0.45f) else currentTextColor
     val checkpoint = canvas.save()
     canvas.clipRect(clipLeft, textLayout.getLineTop(line).toFloat(), clipRight, textLayout.getLineBottom(line).toFloat())
     canvas.drawText(range.text, left, extendedPaddingTop - scrollY + textLayout.getLineBaseline(line).toFloat(), answerPaint)
@@ -506,7 +507,7 @@ class ChatSelectableTextView(context: Context) : AppCompatTextView(context) {
     }
 
     if (!visualsHidden) parseRanges(highlightRangesJson).forEach { range ->
-      applyRangeSpan(spannable, range.start, range.end, visibleText.length, ForegroundColorSpan(Color.parseColor("#3D3420")))
+      applyRangeSpan(spannable, range.start, range.end, visibleText.length, ForegroundColorSpan(currentTextColor))
     }
 
     // Apply the blank span last so its underline stays visible over both the
@@ -867,6 +868,9 @@ class ChatSelectableTextView(context: Context) : AppCompatTextView(context) {
       emptyList()
     }
   }
+
+  private fun withAlpha(color: Int, alpha: Float): Int =
+    Color.argb((alpha * 255).toInt().coerceIn(0, 255), Color.red(color), Color.green(color), Color.blue(color))
 
   private fun parseColor(value: String, fallback: Int): Int {
     return try {

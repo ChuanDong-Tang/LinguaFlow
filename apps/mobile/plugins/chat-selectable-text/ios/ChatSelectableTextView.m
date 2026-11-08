@@ -352,7 +352,7 @@
   for (NSDictionary *range in (self.visualsHidden ? @[] : [self parseRanges:self.highlightRangesJson])) {
     NSRange safe = [self safeRangeFromDictionary:range length:attributed.length];
     if (safe.length == 0) continue;
-    [attributed addAttribute:NSForegroundColorAttributeName value:[self colorFromString:@"#3D3420" fallback:self.currentTextColor] range:safe];
+    [attributed addAttribute:NSForegroundColorAttributeName value:self.currentTextColor range:safe];
   }
 
   if (!self.answersVisible) {
@@ -381,8 +381,10 @@
   NSLayoutManager *layoutManager = textView.layoutManager;
   NSTextContainer *textContainer = textView.textContainer;
   [layoutManager ensureLayoutForTextContainer:textContainer];
-  UIColor *highlightColor = [self colorFromString:@"#FFF0B8" fallback:UIColor.yellowColor];
-  UIColor *correctHighlightColor = [self colorFromString:@"#DDEFE2" fallback:highlightColor];
+  // Black-and-white style: highlights are the text color at low opacity, so
+  // they read on both light and inverted (dark) backgrounds.
+  UIColor *highlightColor = [self.currentTextColor colorWithAlphaComponent:0.10];
+  UIColor *correctHighlightColor = [self.currentTextColor colorWithAlphaComponent:0.18];
   NSArray<NSDictionary *> *correctRanges = [self parseRanges:self.correctRangesJson];
   CGFloat fixedHeight = MIN(self.currentLineHeight.floatValue, MAX(8.0, self.currentFontSize.floatValue + 2.0));
 
@@ -428,7 +430,7 @@
   NSLayoutManager *layoutManager = textView.layoutManager;
   NSTextContainer *textContainer = textView.textContainer;
   [layoutManager ensureLayoutForTextContainer:textContainer];
-  UIColor *blankLineColor = [self colorFromString:@"#D05F78" fallback:self.currentTextColor];
+  UIColor *blankLineColor = self.currentTextColor;
 
   NSMutableArray<NSDictionary *> *underlineRanges = [NSMutableArray arrayWithArray:[self parseRanges:self.blankRangesJson]];
   void (^addUnderlineRange)(NSDictionary *) = ^(NSDictionary *underlineRange) {
@@ -500,7 +502,7 @@
     rect.origin.y += textView.textContainerInset.top;
     if (!CGRectIntersectsRect(rect, dirtyRect)) continue;
     UIColor *color = [item[@"incorrect"] boolValue]
-      ? [self colorFromString:@"#C65353" fallback:self.currentTextColor]
+      ? [self.currentTextColor colorWithAlphaComponent:0.45]
       : self.currentTextColor;
     NSMutableDictionary *attributes = [baseAttributes mutableCopy];
     attributes[NSForegroundColorAttributeName] = color;
@@ -517,7 +519,7 @@
   if (self.visualsHidden || textView.textStorage.length == 0) return;
   NSLayoutManager *layoutManager = textView.layoutManager;
   [layoutManager ensureLayoutForTextContainer:textView.textContainer];
-  UIColor *borderColor = [self colorFromString:@"#D05F78" fallback:self.currentTextColor];
+  UIColor *borderColor = self.currentTextColor;
   for (NSDictionary *item in [self parseRanges:self.activeRangeJson]) {
     NSRange range = [self safeRangeFromDictionary:item length:textView.textStorage.length];
     if (range.length == 0) continue;

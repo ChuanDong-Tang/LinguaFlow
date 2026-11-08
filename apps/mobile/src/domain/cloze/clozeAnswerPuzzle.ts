@@ -37,8 +37,32 @@ export function buildClozeAnswerPuzzle(answer: string, seed = answer): ClozeAnsw
   return { mode, isSingleWord, fixedPrefix: fixedValues.join(""), target, shuffled: seededShuffle(target, seed) };
 }
 
+// Answers are fixed slots: `selectedIds[i]` is the token placed in slot i, or
+// "" when that slot is empty. Taking a token out leaves its slot empty, so the
+// other tokens never shift (like Duolingo); a new token fills the first gap.
+export const EMPTY_SLOT = "";
+
+export function placeClozeAnswerToken(puzzle: ClozeAnswerPuzzle, selectedIds: string[], tokenId: string): string[] {
+  if (selectedIds.includes(tokenId)) return selectedIds;
+  const slots = Array.from({ length: puzzle.target.length }, (_, index) => selectedIds[index] ?? EMPTY_SLOT);
+  const gap = slots.indexOf(EMPTY_SLOT);
+  if (gap < 0) return selectedIds;
+  slots[gap] = tokenId;
+  return trimTrailingEmpty(slots);
+}
+
+export function removeClozeAnswerToken(selectedIds: string[], tokenId: string): string[] {
+  return trimTrailingEmpty(selectedIds.map((id) => id === tokenId ? EMPTY_SLOT : id));
+}
+
+function trimTrailingEmpty(slots: string[]): string[] {
+  let end = slots.length;
+  while (end > 0 && slots[end - 1] === EMPTY_SLOT) end -= 1;
+  return slots.slice(0, end);
+}
+
 export function isClozeAnswerPuzzleComplete(puzzle: ClozeAnswerPuzzle, selectedIds: string[]): boolean {
-  return selectedIds.length === puzzle.target.length;
+  return selectedIds.length === puzzle.target.length && selectedIds.every((id) => id !== EMPTY_SLOT);
 }
 
 export function isClozeAnswerPuzzleCorrect(puzzle: ClozeAnswerPuzzle, selectedIds: string[]): boolean {
@@ -49,7 +73,7 @@ export function isClozeAnswerPuzzleCorrect(puzzle: ClozeAnswerPuzzle, selectedId
 
 export function clozeAnswerPuzzleText(puzzle: ClozeAnswerPuzzle, selectedIds: string[]): string {
   const byId = new Map(puzzle.target.map((token) => [token.id, token]));
-  const selected = selectedIds.map((id) => byId.get(id)?.text ?? "").join(puzzle.mode === "words" ? " " : "");
+  const selected = selectedIds.map((id) => id === EMPTY_SLOT ? "_" : byId.get(id)?.text ?? "").join(puzzle.mode === "words" ? " " : "");
   return `${puzzle.fixedPrefix}${selected}`;
 }
 

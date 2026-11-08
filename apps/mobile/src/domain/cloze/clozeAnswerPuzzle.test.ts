@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildClozeAnswerPuzzle, clozeAnswerPuzzleText, isClozeAnswerPuzzleCorrect } from "./clozeAnswerPuzzle";
+import { EMPTY_SLOT, buildClozeAnswerPuzzle, clozeAnswerPuzzleText, isClozeAnswerPuzzleComplete, isClozeAnswerPuzzleCorrect, placeClozeAnswerToken, removeClozeAnswerToken } from "./clozeAnswerPuzzle";
 
 test("short single word reveals its first letter and keeps stable duplicate ids", () => {
   const puzzle = buildClozeAnswerPuzzle("apple", "apple-test");
@@ -54,4 +54,25 @@ test("combining marks stay attached to their grapheme", () => {
   const puzzle = buildClozeAnswerPuzzle("cafe\u0301", "accent-test");
   assert.equal(puzzle.fixedPrefix, "c");
   assert.deepEqual(puzzle.target.map((item) => item.text), ["a", "f", "e\u0301"]);
+});
+
+test("removing a placed word leaves a gap; the next word fills it", () => {
+  const puzzle = buildClozeAnswerPuzzle("reach out to them");
+  const [a, b, c, d] = puzzle.target.map((token) => token.id);
+  let slots = [a!, b!, c!];
+  slots = removeClozeAnswerToken(slots, b!);
+  assert.deepEqual(slots, [a, EMPTY_SLOT, c]);
+  assert.equal(isClozeAnswerPuzzleComplete(puzzle, slots), false);
+  slots = placeClozeAnswerToken(puzzle, slots, d!);
+  assert.deepEqual(slots, [a, d, c]);
+  slots = placeClozeAnswerToken(puzzle, slots, b!);
+  assert.deepEqual(slots, [a, d, c, b]);
+  assert.equal(isClozeAnswerPuzzleComplete(puzzle, slots), true);
+  assert.equal(isClozeAnswerPuzzleCorrect(puzzle, slots), false);
+});
+
+test("removing the last word trims the trailing gap", () => {
+  const puzzle = buildClozeAnswerPuzzle("over the moon");
+  const [a, b] = puzzle.target.map((token) => token.id);
+  assert.deepEqual(removeClozeAnswerToken([a!, b!], b!), [a]);
 });

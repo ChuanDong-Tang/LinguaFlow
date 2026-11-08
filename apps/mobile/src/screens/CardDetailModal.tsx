@@ -65,7 +65,7 @@ import {
   isClozeAnswerPuzzleCorrect,
   type ClozeAnswerPuzzle,
 } from "../domain/cloze/clozeAnswerPuzzle";
-import { ClozeAnswerPuzzleTray } from "../components/ClozeAnswerPuzzleTray";
+import { ClozeAnswerPuzzleTray, type ClozeChoiceFeedback } from "../components/ClozeAnswerPuzzleTray";
 import { useRealtimeSttInput, type RealtimeSttInputStatus } from "../hooks/useRealtimeSttInput";
 import { CollectionPickerModal, collectionPathName } from "./shared/CollectionPickerModal";
 import { hasLocalStrictProAccess } from "../services/entitlement/proAccess";
@@ -109,7 +109,8 @@ function initialClozeInteractionMode(autoStart: boolean, blankCount: number, pre
   if (!autoStart || blankCount === 0) return "edit";
   return preferred;
 }
-type ClozeChoiceTrayState = { puzzle: ClozeAnswerPuzzle; selectedIds: string[]; incorrect: boolean };
+type ClozeChoiceTrayState = { puzzle: ClozeAnswerPuzzle; selectedIds: string[]; incorrect: boolean; feedback: ClozeChoiceFeedback | null };
+type ChoiceTrayAction = { type: "change"; ids: string[] } | { type: "check" } | { type: "proceed" };
 type ClozeKeyboardTrayState = { ownerKey: string; blankId: string; value: string; incorrect: boolean; anchor?: CardBlankActionAnchor };
 type ClozeKeyboardCheckResult = { correct: boolean };
 type ClozeKeyboardHandler = {
@@ -2192,7 +2193,7 @@ function Review({ practiceCommand, onLanguageControlChange, hidePhraseRecommenda
   const [activeChoiceOwnerKey, setActiveChoiceOwnerKey] = useState<string | null>(null);
   const [selectedChoiceBlankId, setSelectedChoiceBlankId] = useState<string | null>(null);
   const activeChoiceOwnerKeyRef = useRef<string | null>(null);
-  const choiceAnswerHandlersRef = useRef(new Map<string, (selectedIds: string[]) => void>());
+  const choiceAnswerHandlersRef = useRef(new Map<string, (action: ChoiceTrayAction) => void>());
   const [activeKeyboardOwnerKey, setActiveKeyboardOwnerKey] = useState<string | null>(null);
   const [keyboardTray, setKeyboardTray] = useState<ClozeKeyboardTrayState | null>(null);
   const keyboardAnswerHandlersRef = useRef(new Map<string, ClozeKeyboardHandler>());
@@ -2584,6 +2585,8 @@ function Review({ practiceCommand, onLanguageControlChange, hidePhraseRecommenda
       && current.puzzle.target.map((item) => item.text).join("\u0000") === next.puzzle.target.map((item) => item.text).join("\u0000")
       && current.selectedIds.join("\u0000") === next.selectedIds.join("\u0000")
       && current.incorrect === next.incorrect
+      && current.feedback?.correct === next.feedback?.correct
+      && current.feedback?.answer === next.feedback?.answer
       ? current
       : next);
   }, []);
@@ -2647,14 +2650,18 @@ function Review({ practiceCommand, onLanguageControlChange, hidePhraseRecommenda
   };
   const advanceChoiceBlank = (ownerKey: string, blankId: string) => {
     completedChoiceBlankKeysRef.current.add(`${ownerKey}:${blankId}`);
-    const hasRemaining = practiceBlankQueue.some((item) => !completedChoiceBlankKeysRef.current.has(`${item.ownerKey}:${item.blankId}`));
-    if (hasRemaining) {
-      activeChoiceOwnerKeyRef.current = null;
-      setActiveChoiceOwnerKey(null);
-      setSelectedChoiceBlankId(null);
+    // 继续 / 知道了 jumps straight to the next unanswered blank.
+    const position = practiceBlankQueue.findIndex((item) => item.ownerKey === ownerKey && item.blankId === blankId);
+    const ordered = [...practiceBlankQueue.slice(position + 1), ...practiceBlankQueue.slice(0, Math.max(0, position))];
+    const next = ordered.find((item) => !completedChoiceBlankKeysRef.current.has(`${item.ownerKey}:${item.blankId}`));
+    if (next) {
+      activeChoiceOwnerKeyRef.current = next.ownerKey;
+      setActiveChoiceOwnerKey(next.ownerKey);
+      setSelectedChoiceBlankId(next.blankId);
       setChoiceTrayState(null);
       return;
     }
+    haptic.success();
     finishClozePractice();
   };
   const completeKeyboardBlank = (ownerKey: string, blankId: string) => {
@@ -2667,7 +2674,7 @@ function Review({ practiceCommand, onLanguageControlChange, hidePhraseRecommenda
     }
     finishClozePractice();
   };
-  const registerChoiceAnswerHandler = useCallback((ownerKey: string, handler: ((selectedIds: string[]) => void) | null) => {
+  const registerChoiceAnswerHandler = useCallback((ownerKey: string, handler: ((action: ChoiceTrayAction) => void) | null) => {
     if (handler) choiceAnswerHandlersRef.current.set(ownerKey, handler);
     else choiceAnswerHandlersRef.current.delete(ownerKey);
   }, []);
@@ -3765,15 +3772,16 @@ function Review({ practiceCommand, onLanguageControlChange, hidePhraseRecommenda
       </View>
     </View>
     {showReadingBody && onRecallFinish ? <Pressable style={styles.recallFinishButton} onPress={onRecallFinish}><Text style={styles.recallFinishButtonText}>{t("recall.end_node")}</Text><Icon name="checkmark" size={18} color={theme.colors.surface} /></Pressable> : null}
-    {showReadingBody && clozeMode === "choice" && choiceTrayState ? <View style={styles.detailChoiceTray}>
+    {showReadingBody && clozeMode === "choice" && choiceTrayState ? <View style={[styles.detailChoiceTray, { paddingBottom: Math.max(reviewInsets.bottom, 10) + 4 }]}>
       <ClozeAnswerPuzzleTray
         puzzle={choiceTrayState.puzzle}
         selectedIds={choiceTrayState.selectedIds}
         incorrect={choiceTrayState.incorrect}
+        feedback={choiceTrayState.feedback}
         disabled={savingCloze}
-        onChange={(selectedIds) => {
-          if (activeChoiceOwnerKey) choiceAnswerHandlersRef.current.get(activeChoiceOwnerKey)?.(selectedIds);
-        }}
+        onChange={(ids) => { if (activeChoiceOwnerKey) choiceAnswerHandlersRef.current.get(activeChoiceOwnerKey)?.({ type: "change", ids }); }}
+        onCheck={() => { if (activeChoiceOwnerKey) choiceAnswerHandlersRef.current.get(activeChoiceOwnerKey)?.({ type: "check" }); }}
+        onProceed={() => { if (activeChoiceOwnerKey) choiceAnswerHandlersRef.current.get(activeChoiceOwnerKey)?.({ type: "proceed" }); }}
       />
     </View> : null}
     <RelatedFeedModal visible={relatedFeedVisible} recordId={detail.id} topic={detail.topic ?? ""} onClose={() => setRelatedFeedVisible(false)} onOpen={(recordId, reasons) => { setRelatedFeedVisible(false); onOpenRelated?.(recordId, reasons); }} />
@@ -4346,7 +4354,7 @@ function Cloze({ detail, contentBinding, clozeState, clozeVersion, onClozeChange
   onChoiceAnswered?: (blankId: string) => void;
   onChoiceOwnerChange?: (ownerKey: string) => void;
   onChoiceTrayChange?: (state: ClozeChoiceTrayState | null) => void;
-  onChoiceAnswerHandlerChange?: (handler: ((selectedIds: string[]) => void) | null) => void;
+  onChoiceAnswerHandlerChange?: (handler: ((action: ChoiceTrayAction) => void) | null) => void;
   onChoiceSentenceFocus?: (target: { y: number; height: number }) => void;
   relationFocusSentence?: string | null;
   onRelationSentenceFocus?: (target: { y: number; height: number }) => void;
@@ -4381,6 +4389,7 @@ function Cloze({ detail, contentBinding, clozeState, clozeVersion, onClozeChange
   const [keyboardCheckedAnswers, setKeyboardCheckedAnswers] = useState<Record<string, "correct" | "incorrect">>({});
   const [choiceCheckedAnswers, setChoiceCheckedAnswers] = useState<Record<string, "correct" | "incorrect">>({});
   const [choiceSelectedTokenIds, setChoiceSelectedTokenIds] = useState<Record<string, string[]>>({});
+  const [choiceFeedback, setChoiceFeedback] = useState<({ blankId: string } & ClozeChoiceFeedback) | null>(null);
   const [sessionAnswers, setSessionAnswers] = useState<Record<string, string>>({});
   const [sessionCheckedAnswers, setSessionCheckedAnswers] = useState<Record<string, "correct" | "incorrect">>({});
   const activeAnswers = inputMode === "keyboard" ? keyboardAnswers : choiceAnswers;
@@ -4682,12 +4691,30 @@ function Cloze({ detail, contentBinding, clozeState, clozeVersion, onClozeChange
     setCheckedAnswers((current) => { const next = { ...current }; delete next[activeBlank.id]; return next; });
     const draft = clozeAnswerPuzzleText(choicePuzzle, selectedIds);
     setAnswers((current) => ({ ...current, [activeBlank.id]: draft }));
+  }
+
+  // 检查: judge the placed tokens and show the result; nothing advances yet.
+  function checkChoiceSelection(): void {
+    const blankIndex = effectiveActiveChoiceBlankIndex;
+    if (blankIndex === null || saving || !choicePuzzle) return;
+    const activeBlank = clozeState.blanks[blankIndex];
+    if (!activeBlank || choiceFeedback?.blankId === activeBlank.id) return;
+    const selectedIds = choiceSelectedTokenIds[activeBlank.id] ?? [];
     if (!isClozeAnswerPuzzleComplete(choicePuzzle, selectedIds)) return;
     const answerCorrect = isClozeAnswerPuzzleCorrect(choicePuzzle, selectedIds);
-    void check(blankIndex, answerCorrect ? activeBlank.answer : draft);
-    if (!answerCorrect) return;
-    if (onChoiceAnswered) onChoiceAnswered(activeBlank.id);
+    void check(blankIndex, answerCorrect ? activeBlank.answer : clozeAnswerPuzzleText(choicePuzzle, selectedIds));
+    setChoiceFeedback({ blankId: activeBlank.id, correct: answerCorrect, answer: activeBlank.answer });
+  }
+
+  // 继续 / 知道了: a missed blank shows its right answer, then move on.
+  function proceedChoice(): void {
+    const feedback = choiceFeedback;
+    if (!feedback) return;
+    setChoiceFeedback(null);
+    if (!feedback.correct) setAnswers((current) => ({ ...current, [feedback.blankId]: feedback.answer }));
+    if (onChoiceAnswered) onChoiceAnswered(feedback.blankId);
     else {
+      const blankIndex = clozeState.blanks.findIndex((blank) => blank.id === feedback.blankId);
       const ordered = sentenceRows.flatMap((row) => row.blanks.map((item) => item.blankIndex));
       const position = ordered.indexOf(blankIndex);
       setActiveChoiceBlankIndex(position >= 0 ? ordered[position + 1] ?? null : null);
@@ -4706,6 +4733,10 @@ function Cloze({ detail, contentBinding, clozeState, clozeVersion, onClozeChange
 
   const changeChoiceSelectionRef = useRef(changeChoiceSelection);
   changeChoiceSelectionRef.current = changeChoiceSelection;
+  const checkChoiceRef = useRef(checkChoiceSelection);
+  checkChoiceRef.current = checkChoiceSelection;
+  const proceedChoiceRef = useRef(proceedChoice);
+  proceedChoiceRef.current = proceedChoice;
   const keyboardHandlerRef = useRef<ClozeKeyboardHandler>({ change: () => undefined, check: () => null });
   keyboardHandlerRef.current = {
     change: (blankId, value) => {
@@ -4726,13 +4757,22 @@ function Cloze({ detail, contentBinding, clozeState, clozeVersion, onClozeChange
     if (!fillMode || inputMode !== "choice" || !choicePuzzle) return null;
     const activeBlankId = effectiveActiveChoiceBlankIndex === null ? null : clozeState.blanks[effectiveActiveChoiceBlankIndex]?.id;
     if (!activeBlankId) return null;
-    return { puzzle: choicePuzzle, selectedIds: choiceSelectedTokenIds[activeBlankId] ?? [], incorrect: checkedAnswers[activeBlankId] === "incorrect" };
-  }, [checkedAnswers, choicePuzzle, choiceSelectedTokenIds, clozeState.blanks, effectiveActiveChoiceBlankIndex, fillMode, inputMode]);
+    return {
+      puzzle: choicePuzzle,
+      selectedIds: choiceSelectedTokenIds[activeBlankId] ?? [],
+      incorrect: checkedAnswers[activeBlankId] === "incorrect",
+      feedback: choiceFeedback?.blankId === activeBlankId ? { correct: choiceFeedback.correct, answer: choiceFeedback.answer } : null,
+    };
+  }, [checkedAnswers, choiceFeedback, choicePuzzle, choiceSelectedTokenIds, clozeState.blanks, effectiveActiveChoiceBlankIndex, fillMode, inputMode]);
   useEffect(() => {
     onChoiceTrayChangeRef.current?.(externalChoiceTray);
   }, [externalChoiceTray]);
   useEffect(() => {
-    onChoiceAnswerHandlerChangeRef.current?.((selectedIds) => changeChoiceSelectionRef.current(selectedIds));
+    onChoiceAnswerHandlerChangeRef.current?.((action) => {
+      if (action.type === "change") changeChoiceSelectionRef.current(action.ids);
+      else if (action.type === "check") checkChoiceRef.current();
+      else proceedChoiceRef.current();
+    });
     return () => onChoiceAnswerHandlerChangeRef.current?.(null);
   }, []);
   useEffect(() => {
@@ -4873,7 +4913,7 @@ function Cloze({ detail, contentBinding, clozeState, clozeVersion, onClozeChange
             </View>;
           })}
           {!onChoiceTrayChange && fillMode && inputMode === "choice" && externalChoiceTray ? <View style={styles.clozeChoiceTray}>
-            <ClozeAnswerPuzzleTray puzzle={externalChoiceTray.puzzle} selectedIds={externalChoiceTray.selectedIds} incorrect={externalChoiceTray.incorrect} disabled={saving} onChange={changeChoiceSelection} />
+            <ClozeAnswerPuzzleTray puzzle={externalChoiceTray.puzzle} selectedIds={externalChoiceTray.selectedIds} incorrect={externalChoiceTray.incorrect} feedback={externalChoiceTray.feedback} disabled={saving} onChange={changeChoiceSelection} onCheck={checkChoiceSelection} onProceed={proceedChoice} />
           </View> : null}
           </View>
       );
@@ -5644,7 +5684,7 @@ const styles = createStyles(() => ({
   inlineClozeSentenceList: { paddingVertical: 0 },
   inlineClozeSentenceRow: { minHeight: 0, marginHorizontal: 0, paddingHorizontal: 0, paddingVertical: 5 },
   clozeChoiceTray: { marginTop: 10, paddingTop: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.border },
-  detailChoiceTray: { minHeight: 60, paddingHorizontal: 10, paddingVertical: 8, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.border, backgroundColor: theme.colors.surface },
+  detailChoiceTray: { minHeight: 60, paddingHorizontal: 14, paddingTop: 12, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.border, backgroundColor: theme.colors.surface },
   clozeChoiceOptionEmpty: { opacity: 0 },
   clozeChoiceOption: { flex: 1, minHeight: 44, paddingHorizontal: 10, paddingVertical: 8, borderWidth: 1, borderColor: theme.colors.border, borderRadius: 11, backgroundColor: theme.colors.surfaceMuted, alignItems: "center", justifyContent: "center" },
   clozeChoiceOptionIncorrect: { borderColor: theme.colors.accentSoft, backgroundColor: theme.colors.accentFaint },
