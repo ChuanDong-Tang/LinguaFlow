@@ -24,10 +24,10 @@ export function homeDateKey(tab: MemoryHomeTab, trash: boolean, now: Date): stri
 }
 
 const copy = {
-  "zh-CN": { memory: "记忆", today: "今日", blind: "盲盒", grid: "照片网格", list: "列表", subtitle: "和已经留下的生活，再见一面", open: "打开回忆盲盒", todayEmpty: "今天，还没有留下记录", todayHint: "说一句话，留下今天的小事。" },
-  "zh-TW": { memory: "記憶", today: "今日", blind: "盲盒", grid: "照片網格", list: "列表", subtitle: "和已經留下的生活，再見一面", open: "打開回憶盲盒", todayEmpty: "今天，還沒有留下記錄", todayHint: "說一句話，留下今天的小事。" },
-  "en-US": { memory: "Memories", today: "Today", blind: "Rediscover", grid: "Photo grid", list: "List", subtitle: "Meet your past moments again", open: "Rediscover a memory", todayEmpty: "A new day, a new memory", todayHint: "Leave a few words about today." },
-  "ja-JP": { memory: "思い出", today: "今日", blind: "再発見", grid: "写真一覧", list: "リスト", subtitle: "残してきた日々に、もう一度会おう", open: "思い出を開く", todayEmpty: "今日の記録はまだありません", todayHint: "今日の小さな出来事を一言残しましょう。" },
+  "zh-CN": { memory: "回忆", today: "今日", blind: "盲盒", grid: "照片网格", list: "列表", subtitle: "和已经留下的生活，再见一面", open: "打开回忆盲盒", todayEmpty: "今天，还没有留下记录", todayHint: "记录此刻，把它变成你的专属回忆。" },
+  "zh-TW": { memory: "回憶", today: "今日", blind: "盲盒", grid: "照片網格", list: "列表", subtitle: "和已經留下的生活，再見一面", open: "打開回憶盲盒", todayEmpty: "今天，還沒有留下記錄", todayHint: "記錄此刻，把它變成你的專屬回憶。" },
+  "en-US": { memory: "Memories", today: "Today", blind: "Rediscover", grid: "Photo grid", list: "List", subtitle: "Meet your past moments again", open: "Rediscover a memory", todayEmpty: "A new day, a new memory", todayHint: "Capture this moment and make it your own English memory." },
+  "ja-JP": { memory: "思い出", today: "今日", blind: "再発見", grid: "写真一覧", list: "リスト", subtitle: "残してきた日々に、もう一度会おう", open: "思い出を開く", todayEmpty: "今日の記録はまだありません", todayHint: "この瞬間を記録して、あなただけの英語の思い出に。" },
 };
 export function memoryHomeCopy(locale: string) {
   const empty = {

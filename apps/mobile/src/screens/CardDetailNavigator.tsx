@@ -1,4 +1,5 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { countCardEncounter } from "../services/card/cardEncounters";
 import { Alert, Platform } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import {
@@ -150,6 +151,11 @@ export function CardDetailNavigator({
     }
     return () => { active = false; };
   }, [request?.key, request?.recordId]);
+
+  // Opening a card (directly or by swiping through a set) is one encounter.
+  useEffect(() => {
+    if (request?.recordId && !request.recordId.includes("tutorial")) countCardEncounter(request.recordId);
+  }, [request?.recordId]);
 
   useEffect(() => {
     let active = true;

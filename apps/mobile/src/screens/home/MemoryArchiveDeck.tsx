@@ -7,6 +7,7 @@ import { memoryArchiveSet } from "./memoryArchiveSet";
 import { memoryDeckPages, memoryDeckReturnPage } from "./memoryDeckPages";
 import { MemoryDeckSettings } from "./MemoryDeckSettings";
 import { memoryFanLayout } from "./memoryFanLayout";
+import { memoryCollageLayout } from "./memoryCollageLayout";
 import { theme } from "../../theme";
 import { createStyles } from "../../styles";
 import { SketchBox, SketchPressable, pencilFillFor } from "../../components/sketch/Sketch";
@@ -26,7 +27,7 @@ export function MemoryArchiveDeck({ records, loading, hasMore, onLoadMore, onOpe
 }) {
   const copy = labels[getLanguage() as keyof typeof labels] ?? labels["en-US"];
   const [count, setCount] = useState(15);
-  const [visible, setVisible] = useState(3);
+  const [visible, setVisible] = useState(6);
   const [ids, setIds] = useState<string[]>([]);
   const [page, setPage] = useState(0);
   const [round, setRound] = useState(0);
@@ -71,16 +72,26 @@ export function MemoryArchiveDeck({ records, loading, hasMore, onLoadMore, onOpe
     setPage(0); setRound(current => current + 1);
   }
   return <View style={styles.container}>
-    <MemoryDeckSettings count={count} visible={visible} onApply={restart} />
-    <View style={styles.viewport} onLayout={event => {
+    <MemoryDeckSettings count={count} visible={visible} visibleOptions={[3, 6]} onApply={restart} />
+    <View style={[styles.viewport, visible === 6 && { height: COLLAGE_HEIGHT }]} onLayout={event => {
       const nextWidth = event.nativeEvent.layout.width;
       if (nextWidth !== width) { setWidth(nextWidth); scroller.current?.scrollTo({ x: page * nextWidth, animated: false }); }
     }}>
       {width > 0 && ids.length > 0 ? <ScrollView key={round} ref={scroller} horizontal pagingEnabled directionalLockEnabled showsHorizontalScrollIndicator={false}
         onMomentumScrollEnd={event => setPage(Math.max(0, Math.min(pages.length, Math.round(event.nativeEvent.contentOffset.x / width))))}>
-        {pages.map((batch, index) => <View key={index} accessibilityElementsHidden={page !== index} importantForAccessibility={page === index ? "auto" : "no-hide-descendants"} style={[styles.spread, { width }]}>
+        {pages.map((batch, index) => <View key={index} accessibilityElementsHidden={page !== index} importantForAccessibility={page === index ? "auto" : "no-hide-descendants"} style={[styles.spread, { width }, visible === 6 && { height: COLLAGE_HEIGHT }]}>
           {batch.map((id, slot) => {
             const card = byId.get(id);
+            if (visible === 6) {
+              const cell = memoryCollageLayout(width, COLLAGE_HEIGHT, slot);
+              return <Pressable key={id} disabled={!card} accessibilityRole="button" accessibilityLabel={card?.displayTitle || copy[8]}
+                onPress={() => { if (card) { haptic.light(); openSet(id); } }}
+                style={({ pressed }) => [styles.collageCard, { left: cell.left, top: cell.top, width: cell.width, height: cell.height, transform: [{ rotate: `${cell.rotate}deg` }, { scale: pressed ? 0.97 : 1 }] }]}>
+                <SketchBox seed={id} fill={theme.colors.surface} shadow style={styles.cardSketch}>
+                  {card ? <><ArchiveCover card={card} onError={onThumbnailError} compact />{card.thumbnail ? <Text numberOfLines={1} style={styles.collageTitle}>{card.displayTitle || card.originalPreview}</Text> : null}</> : null}
+                </SketchBox>
+              </Pressable>;
+            }
             const fan = visible === 3;
             const layout = memoryFanLayout(width, 285);
             const offset = fan ? slot === 0 ? 0 : slot === 1 ? -1 : 1 : 0;
@@ -95,7 +106,10 @@ export function MemoryArchiveDeck({ records, loading, hasMore, onLoadMore, onOpe
           })}
           {visible === 2 && batch.length === 1 ? <View pointerEvents="none" accessible={false} style={{ width: "46%" }} /> : null}
         </View>)}
-        <View accessibilityElementsHidden={page !== pages.length} importantForAccessibility={page === pages.length ? "auto" : "no-hide-descendants"} style={[styles.ending, { width }]}><SketchPressable seed="deck-next-set" radius={25} fill={theme.colors.accent} feedback="medium" accessibilityRole="button" contentStyle={styles.nextSet} onPress={() => restart(count, visible, ids)}><Text style={styles.nextSetText}>{copy[5]}</Text></SketchPressable></View>
+        <View accessibilityElementsHidden={page !== pages.length} importantForAccessibility={page === pages.length ? "auto" : "no-hide-descendants"} style={[styles.ending, { width }]}>
+          <Text style={styles.endingTitle}>{copy[4]}</Text>
+          <View style={styles.endingGrid}>{ids.slice(0, 15).map(id => { const card = byId.get(id); return card ? <Pressable key={id} accessibilityRole="button" accessibilityLabel={card.displayTitle || card.originalPreview} style={styles.endingThumb} onPress={() => { haptic.light(); openSet(id); }}><ArchiveCover card={card} onError={onThumbnailError} compact /></Pressable> : null; })}</View>
+          <SketchPressable seed="deck-next-set" radius={25} fill={theme.colors.accent} feedback="medium" accessibilityRole="button" contentStyle={styles.nextSet} onPress={() => restart(count, visible, ids)}><Text style={styles.nextSetText}>{copy[5]}</Text></SketchPressable></View>
       </ScrollView> : <View style={styles.ending}>{!loading ? <Text style={styles.muted}>{copy[8]}</Text> : null}</View>}
     </View>
     <View style={styles.navigationSlot}>{ids.length > 0 && page < pages.length ? <View style={styles.navigation}>
@@ -106,12 +120,14 @@ export function MemoryArchiveDeck({ records, loading, hasMore, onLoadMore, onOpe
     <View style={styles.statusSlot}>{loading ? <ActivityIndicator color={theme.colors.textStrong} /> : null}</View>
   </View>;
 }
-function ArchiveCover({ card, onError }: { card: CardRecordSummary; onError: () => void }) {
+const COLLAGE_HEIGHT = 540;
+
+function ArchiveCover({ card, onError, compact = false }: { card: CardRecordSummary; onError: () => void; compact?: boolean }) {
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
   const url = card.thumbnail?.url;
   return url && failedUrl !== url
     ? <Image source={{ uri: url }} style={styles.image} resizeMode="cover" onError={() => { setFailedUrl(url); onError(); }} />
-    : <View style={[styles.image, styles.textCover, { backgroundColor: pencilFillFor(card.id) }]}><Text numberOfLines={5} style={styles.title}>{card.originalPreview || card.displayTitle}</Text></View>;
+    : <View style={[styles.image, styles.textCover, { backgroundColor: pencilFillFor(card.id) }]}><Text numberOfLines={compact ? 3 : 5} style={[styles.title, compact && styles.compactCoverTitle]}>{card.displayTitle || card.originalPreview}</Text></View>;
 }
 const styles = createStyles(() => ({
   container: { width: "100%", alignItems: "center" }, header: { width: "100%", alignItems: "flex-start" },
@@ -126,6 +142,12 @@ const styles = createStyles(() => ({
   spread: { height: 390, flexDirection: "row", gap: 10, alignItems: "center", justifyContent: "center" },
   card: {},
   cardSketch: { flex: 1, padding: 6, gap: 5 },
+  collageCard: { position: "absolute" },
+  collageTitle: { color: theme.colors.text, fontSize: 12, fontWeight: "600", paddingHorizontal: 2, paddingBottom: 1 },
+  compactCoverTitle: { fontSize: 13, lineHeight: 18, fontWeight: "700", textAlign: "center" },
+  endingTitle: { color: theme.colors.textSecondary, fontSize: 14 },
+  endingGrid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 8, paddingHorizontal: 18 },
+  endingThumb: { width: 54, height: 54, borderRadius: 8, overflow: "hidden", borderWidth: 1, borderColor: theme.colors.border },
   single: { width: "86%", height: 340 }, pair: { width: "46%", height: 265 }, fan: { position: "absolute", width: "65%", height: 285 },
   image: { width: "100%", flex: 1, minHeight: 0, borderRadius: 7 }, textCover: { justifyContent: "center", padding: 12 },
   title: { color: theme.colors.text, fontSize: 14, lineHeight: 21 }, date: { color: theme.colors.textMuted, fontSize: 11, paddingBottom: 3 },

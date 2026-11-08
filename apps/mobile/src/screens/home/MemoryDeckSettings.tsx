@@ -13,8 +13,8 @@ const labels = {
   "en-US": ["View settings", "Per page", "Per set", "Reshuffle"],
   "ja-JP": ["表示設定", "ページの枚数", "セットの枚数", "並べ直す"],
 };
-export function MemoryDeckSettings({ count, visible, disabled, onApply }: {
-  count: number; visible: number; disabled?: boolean;
+export function MemoryDeckSettings({ count, visible, disabled, onApply, visibleOptions = [1, 2, 3] }: {
+  count: number; visible: number; disabled?: boolean; visibleOptions?: number[];
   onApply: (count: number, visible: number) => void;
 }) {
   const copy = labels[getLanguage() as keyof typeof labels] ?? labels["en-US"];
@@ -29,7 +29,7 @@ export function MemoryDeckSettings({ count, visible, disabled, onApply }: {
       <View style={styles.overlay}>
         <Pressable style={StyleSheet.absoluteFill} accessibilityLabel={t("common.cancel")} onPress={() => setOpen(false)} />
         <View style={styles.sheet} accessibilityViewIsModal onAccessibilityEscape={() => setOpen(false)}>
-          {[{ key: "visible" as const, label: copy[1], values: [1, 2, 3] }, { key: "count" as const, label: copy[2], values: [5, 15, 30] }].map(row => <View key={row.key} style={styles.row}>
+          {[{ key: "visible" as const, label: copy[1], values: visibleOptions }, { key: "count" as const, label: copy[2], values: [5, 15, 30] }].map(row => <View key={row.key} style={styles.row}>
             <Text style={styles.caption}>{row.label}</Text>
             <View style={styles.options}>{row.values.map(value => <Pressable key={value} accessibilityRole="radio" accessibilityLabel={`${row.label}: ${value}`} accessibilityState={{ checked: draft[row.key] === value }} style={[styles.option, draft[row.key] === value && styles.selected]} onPress={() => setDraft(current => ({ ...current, [row.key]: value }))}><Text style={styles.value}>{value}</Text></Pressable>)}</View>
           </View>)}

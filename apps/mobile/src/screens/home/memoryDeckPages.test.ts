@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { memoryDeckPages } from "./memoryDeckPages";
+import { memoryDeckPages, memoryDeckReturnPage } from "./memoryDeckPages";
 test("pages cover each frozen card exactly once including short final pages", () => {
   const ids = ["a", "b", "c", "d", "e"];
   for (const size of [1, 2, 3]) {
@@ -27,4 +27,11 @@ test("photo groups retain exact assets for selection, never sliding one item at 
   const next = memoryDeckPages(photos.slice(3, 8), 3);
   assert.deepEqual(next[0].map(photo => photo.id), ["photo-3", "photo-4", "photo-5"]);
   assert.equal(next[1].length, 2);
+});
+
+test("collage pages hold six cards and return to the right page", () => {
+  const ids = Array.from({ length: 15 }, (_, index) => `c${index}`);
+  assert.deepEqual(memoryDeckPages(ids, 6).map((page) => page.length), [6, 6, 3]);
+  assert.equal(memoryDeckReturnPage(ids, 6, "c7", false), 1);
+  assert.equal(memoryDeckReturnPage(ids, 6, "c14", true), 3);
 });

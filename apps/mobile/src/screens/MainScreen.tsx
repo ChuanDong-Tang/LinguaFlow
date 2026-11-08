@@ -10,6 +10,7 @@ import * as ImagePicker from "expo-image-picker";
 import * as MediaLibrary from "expo-media-library/legacy";
 import { readMemoryPhotoSource } from "../services/device/memoryPhotoLibrary";
 import { useAndroidBack } from "../hooks/useAndroidBack";
+import { subscribeCardEncounters } from "../services/card/cardEncounters";
 import { MemoryPhotoBrowser } from "./home/MemoryPhotoBrowser";
 import { MemoryArchiveDeck } from "./home/MemoryArchiveDeck";
 import { MemoryCollectionFilters } from "./home/MemoryCollectionFilters";
@@ -21,8 +22,9 @@ import { OioMascot, type OioMascotHandle } from "../components/sketch/OioMascot"
 import { haptic } from "../feedback/haptics";
 import { motion } from "../motion";
 import OioCharacter from "../../assets/app/oio-character.svg";
-import { ClockCounterClockwise, Gift, SunHorizon, TrayArrowDown } from "phosphor-react-native";
+import { ClockCounterClockwise, Eye, Gift, ImageSquare, PencilSimpleLine, SealCheck, SunHorizon, TextUnderline, TrayArrowDown } from "phosphor-react-native";
 import Sortable from "react-native-sortables";
+import { FlashList } from "@shopify/flash-list";
 import {
   createCardEntry,
   bootstrapCard,
@@ -107,6 +109,11 @@ type MainScreenProps = {
 };
 
 type LibraryView = "all" | string;
+
+/** Views that are not a real collection id. */
+function isPseudoLibraryView(view: LibraryView): boolean {
+  return view === "all" || view === "unclassified" || view === "trash" || view === "favorites";
+}
 type RecordActionAnchor = { x: number; y: number; width: number; height: number };
 type StandaloneDictionarySearchState = {
   term: string;
@@ -118,6 +125,7 @@ type StandaloneDictionarySearchState = {
 
 const UNCLASSIFIED_VIEW = "unclassified";
 const TRASH_VIEW = "trash";
+const FAVORITES_VIEW = "favorites";
 const EMPTY_DRAFT: CardDraft = { mode: "rewrite", collectionId: null, title: "", text: "", rewrittenText: "", translationText: "", replyText: "", derivedFromText: "", clientId: null, recordId: null, submitted: false, clozeRanges: [], enabledLayers: { expression: true, translation: false, reply: false }, generateImageDescription: false, images: [] };
 const EMPTY_CORPUS_DRAFT: CardDraft = { ...EMPTY_DRAFT, mode: "corpus", enabledLayers: { expression: false, translation: false, reply: false } };
 const LIBRARY_PAGE_SIZE = 40;
@@ -151,11 +159,10 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
   const queryScope = JSON.stringify([libraryView, dateScope]);
   const [recordsScope, setRecordsScope] = useState(queryScope);
   const previousDateScopeRef = useRef(dateScope);
-  const [sortMode, setSortMode] = useState<"newest" | "oldest">("newest");
+  const [sortMode, setSortMode] = useState<"shuffle" | "newest" | "oldest">("shuffle");
   const shuffleSeed = useRef(Crypto.randomUUID());
   const [libraryMenuVisible, setLibraryMenuVisible] = useState(false);
-  const [libraryMenuPage, setLibraryMenuPage] = useState<"main" | "sort">("main");
-  const [selectingRecords, setSelectingRecords] = useState(false);
+    const [selectingRecords, setSelectingRecords] = useState(false);
   const gridLayout = homeLayout === "grid" && libraryView !== TRASH_VIEW;
   const [selectedRecordIds, setSelectedRecordIds] = useState<Set<string>>(new Set());
   const [batchMoveVisible, setBatchMoveVisible] = useState(false);
@@ -367,15 +374,16 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
     setLoadMoreError(false);
     setLoading(true);
     try {
-      const collectionId = libraryView === "all" || libraryView === UNCLASSIFIED_VIEW || libraryView === TRASH_VIEW ? undefined : libraryView;
+      const collectionId = isPseudoLibraryView(libraryView) ? undefined : libraryView;
       const [rows, collectionResult] = await Promise.all([
         libraryView === TRASH_VIEW ? getCardTrash().then((items) => ({ items, nextCursor: null })) : getCardRecordPage({
           dateKey: dateScope,
           collectionId,
           unclassified: libraryView === UNCLASSIFIED_VIEW,
+          favorites: libraryView === FAVORITES_VIEW,
           limit: LIBRARY_PAGE_SIZE,
-          sort: sortMode,
-          shuffleSeed: dateScope ? undefined : requestedShuffleSeed,
+          sort: sortMode === "oldest" ? "oldest" : "newest",
+          shuffleSeed: dateScope || sortMode !== "shuffle" ? undefined : requestedShuffleSeed,
         }),
         getCardCollections(),
       ]);
@@ -392,7 +400,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
       setNextCursor(rows.nextCursor);
       hasLoadedRef.current = true;
       lastRefreshAtRef.current = Date.now();
-      if (libraryView !== "all" && libraryView !== UNCLASSIFIED_VIEW && libraryView !== TRASH_VIEW && !collectionResult.collections.some((collection) => collection.id === libraryView)) {
+      if (!isPseudoLibraryView(libraryView) && !collectionResult.collections.some((collection) => collection.id === libraryView)) {
         setLibraryView("all");
       }
     } catch {
@@ -415,6 +423,12 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
   }, [dateScope]);
 
   useEffect(() => subscribeTutorialRestored(() => { void refresh(); }), [refresh]);
+
+  useEffect(() => subscribeCardEncounters((recordId, encounterCount) => {
+    setRecords((current) => current.map((record) => record.id === recordId && record.practiceSummary
+      ? { ...record, practiceSummary: { ...record.practiceSummary, encounterCount } }
+      : record));
+  }), []);
 
   const refreshGeneratedTopic = useCallback((recordId: string) => {
     if (topicRefreshTimersRef.current.has(recordId)) return;
@@ -462,15 +476,16 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
     setLoadingMore(true);
     setLoadMoreError(false);
     try {
-      const collectionId = libraryView === "all" || libraryView === UNCLASSIFIED_VIEW ? undefined : libraryView;
+      const collectionId = isPseudoLibraryView(libraryView) ? undefined : libraryView;
       const page = await getCardRecordPage({
         dateKey: dateScope,
         collectionId,
         unclassified: libraryView === UNCLASSIFIED_VIEW,
+        favorites: libraryView === FAVORITES_VIEW,
         limit: LIBRARY_PAGE_SIZE,
         cursor: nextCursor,
-        sort: sortMode,
-        shuffleSeed: dateScope ? undefined : shuffleSeed.current,
+        sort: sortMode === "oldest" ? "oldest" : "newest",
+        shuffleSeed: dateScope || sortMode !== "shuffle" ? undefined : shuffleSeed.current,
       });
       if (
         loadSequence !== loadMoreSequenceRef.current
@@ -1397,7 +1412,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
   async function moveRecord(record: CardRecordSummary, collectionId: string | null): Promise<void> {
     await moveCardToCollection(record.id, collectionId);
     setRecords((current) => {
-      if (libraryView === UNCLASSIFIED_VIEW ? collectionId !== null : libraryView !== "all" && libraryView !== collectionId) {
+      if (libraryView === UNCLASSIFIED_VIEW ? collectionId !== null : libraryView !== "all" && libraryView !== FAVORITES_VIEW && libraryView !== collectionId) {
         return current.filter((candidate) => candidate.id !== record.id);
       }
       return current.map((candidate) => candidate.id === record.id ? { ...candidate, collectionId } : candidate);
@@ -1482,7 +1497,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
         : activeCollection?.name ?? t("sidebar.collections");
 
   function chooseLibraryAction(): void {
-    setLibraryMenuPage("main");
+    haptic.light();
     setLibraryMenuVisible(true);
   }
 
@@ -1492,9 +1507,9 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
     setSelectedRecordIds(new Set());
   }
 
-  function selectLibrarySort(mode: "newest" | "oldest"): void {
+  function selectLibrarySort(mode: "shuffle" | "newest" | "oldest"): void {
+    if (mode === "shuffle" && sortMode === "shuffle") shuffleSeed.current = Crypto.randomUUID();
     setSortMode(mode);
-    setLibraryMenuVisible(false);
   }
 
   function leaveRecordSelection(): void {
@@ -1577,23 +1592,6 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
     },
   }), [isActive, sidebarVisible, searchVisible, composerVisible, quickNoteExpanded, photoBrowser, selectingRecords, libraryView, homeTab]);
 
-  const edgeSidebarResponder = useMemo(() => PanResponder.create({
-    onMoveShouldSetPanResponderCapture: (_event, gesture) => Boolean(
-      !sidebarVisible
-      && !searchVisible
-      && !composerVisible
-      && !selectingRecords
-      && gesture.x0 <= 28
-      && gesture.dx > 14
-      && Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.4
-    ),
-    onPanResponderRelease: (_event, gesture) => {
-      if (gesture.dx > 64 || gesture.vx > 0.55) {
-        Keyboard.dismiss();
-        setSidebarVisible(true);
-      }
-    },
-  }), [composerVisible, searchVisible, selectingRecords, sidebarVisible]);
 
   const quickNoteExplicitLineCount = draft.text.split("\n").length;
   const quickNoteActualLineCount = Math.max(1, quickNoteLineCount, quickNoteExplicitLineCount);
@@ -1617,7 +1615,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
   const headerMascot = useRef<OioMascotHandle>(null);
 
   return (
-    <SafeAreaView style={[styles.container, libraryView !== TRASH_VIEW && styles.editorialCanvas]} {...edgeSidebarResponder.panHandlers}>
+    <SafeAreaView style={[styles.container, libraryView !== TRASH_VIEW && styles.editorialCanvas]}>
       <View style={styles.brandRow}>
         <Pressable accessibilityLabel={selectingRecords ? t("common.cancel") : t("quick_note.a11y.open_nav")} style={styles.headerIconButton} onPress={() => {
           if (selectingRecords) {
@@ -1631,7 +1629,11 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
         </Pressable>
         {selectingRecords
           ? <Text style={styles.selectionHeaderTitle}>{selectedRecordIds.size}</Text>
-          : <Pressable style={styles.homeSectionTabs} onPress={chooseLibraryAction}><Text numberOfLines={1} style={styles.homeHeaderTitle}>{headerTitle}</Text><Icon name="chevron-down" size={16} color={theme.colors.textMuted} /></Pressable>}
+          : libraryView === TRASH_VIEW
+            ? <View style={styles.homeSectionTabs}><Text numberOfLines={1} style={styles.homeHeaderTitle}>{headerTitle}</Text></View>
+            : <View style={styles.homeSectionTabs} accessibilityRole="tablist">
+              {(["memory", "today", "blind"] as const).map((tab) => <Pressable key={tab} accessibilityRole="tab" accessibilityState={{ selected: homeTab === tab }} hitSlop={6} style={styles.memoryTab} onPress={() => { if (homeTab !== tab) haptic.select(); setHomeTab(tab); }}><Text style={[styles.memoryTabText, homeTab === tab && styles.memoryTabSelected]}>{homeCopy[tab]}</Text>{homeTab === tab ? <SketchUnderline key={tab} seed={`home-tab-${tab}`} width={28} style={styles.memoryTabUnderline} /> : <View style={styles.memoryTabUnderlineSpace} />}</Pressable>)}
+            </View>}
         <View style={styles.headerActions}>
           {!selectingRecords ? <Pressable accessibilityRole="button" accessibilityLabel={t("contact.curious_companion.name")} hitSlop={8} style={styles.headerCharacter} onPressIn={() => headerMascot.current?.hop()} onPress={() => { haptic.light(); void openAssistant(); }}><OioMascot ref={headerMascot} size={29} /></Pressable> : null}
           {selectingRecords ? <Pressable accessibilityRole="button" accessibilityLabel={gridLayout ? homeCopy.list : homeCopy.grid} style={styles.headerIconButton} onPress={() => setHomeLayout(gridLayout ? "list" : "grid")}><Icon name={gridLayout ? "list-outline" : "grid-outline"} size={22} color={theme.colors.text} /></Pressable> : <Pressable
@@ -1649,19 +1651,16 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
       </View>
 
       <View style={{ flex: 1 }} {...homeTabsResponder.panHandlers}>
-      {!selectingRecords && libraryView !== TRASH_VIEW ? <View style={styles.memoryTabs}>
-        {(["memory", "today", "blind"] as const).map((tab) => <Pressable key={tab} accessibilityRole="tab" accessibilityState={{ selected: homeTab === tab }} style={[styles.memoryTab, homeTab === tab && styles.memoryTabActive]} onPress={() => { if (homeTab !== tab) haptic.select(); setHomeTab(tab); }}><Text style={[styles.memoryTabText, homeTab === tab && styles.memoryTabSelected]}>{homeCopy[tab]}</Text>{homeTab === tab ? <SketchUnderline key={tab} seed={`home-tab-${tab}`} width={30} style={styles.memoryTabUnderline} /> : <View style={styles.memoryTabUnderlineSpace} />}</Pressable>)}
-      </View> : null}
-      {!selectingRecords && editorialHome ? <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 16 }}><View style={{ flex: 1, minWidth: 0 }}><MemoryCollectionFilters editorial={editorialHome} collections={collections} selected={libraryView} onSelect={selectLibraryView} onTouching={value => { touchingCollectionFilters.current = value; }} /></View>{editorialHome ? <Pressable accessibilityRole="button" accessibilityLabel={gridLayout ? homeCopy.list : homeCopy.grid} style={[styles.headerIconButton, { marginRight: 14, marginBottom: 8 }]} onPress={() => setHomeLayout(gridLayout ? "list" : "grid")}><Icon name={gridLayout ? "list-outline" : "grid-outline"} size={19} color={theme.colors.textSecondary} /></Pressable> : null}</View> : null}
+      {!selectingRecords && editorialHome ? <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 16 }}><View style={{ flex: 1, minWidth: 0 }}><MemoryCollectionFilters editorial={editorialHome} collections={collections} selected={libraryView} onSelect={selectLibraryView} onTouching={value => { touchingCollectionFilters.current = value; }} /></View><Pressable accessibilityRole="button" accessibilityLabel={t("library.display_options")} hitSlop={6} style={[styles.headerIconButton, { marginRight: 10 }]} onPress={chooseLibraryAction}><Icon name="ellipsis-horizontal" size={21} color={theme.colors.textSecondary} /></Pressable></View> : null}
       {homeTab === "blind" && libraryView !== TRASH_VIEW && !selectingRecords ? <ScrollView style={{ flex: 1, minHeight: 0 }} contentContainerStyle={styles.memoryLanding}>
         <MemoryArchiveDeck key={`${libraryView}:${sortMode}`} records={recordsScope === queryScope ? records : []} loading={loading || loadingMore} hasMore={recordsScope === queryScope && Boolean(nextCursor)} onThumbnailError={recoverFailedThumbnail} onLoadMore={() => void loadMore()} onOpen={(ids, first, handlers) => onOpenCard(first, "review", undefined, { browseRecordIds: ids, onBrowseSetFinished: handlers.onFinished, onBrowseClosed: handlers.onClosed, closeOnBrowseFinish: true })} />
       </ScrollView> : <>
-      {!selectingRecords && libraryView !== TRASH_VIEW && !editorialHome ? <View style={styles.memoryToolbar}>{homeTab === "today" ? <Text style={{ color: theme.colors.textSecondary, fontSize: 14 }}>{localDay}</Text> : <View />}<Pressable accessibilityRole="button" accessibilityLabel={gridLayout ? homeCopy.list : homeCopy.grid} style={styles.headerIconButton} onPress={() => setHomeLayout(gridLayout ? "list" : "grid")}><Icon name={gridLayout ? "list-outline" : "grid-outline"} size={22} color={theme.colors.text} /></Pressable></View> : null}
+      {!selectingRecords && libraryView !== TRASH_VIEW && homeTab === "today" ? <View style={styles.memoryToolbar}><Text style={styles.memoryTodayDate}>{localDay}</Text></View> : null}
 
-      <FlatList
+      <FlashList
         key={`${gridLayout ? "grid" : "list"}:${dateScope ?? "all"}`}
         numColumns={gridLayout ? 2 : 1}
-        columnWrapperStyle={gridLayout ? styles.memoryGridRow : undefined}
+        masonry={gridLayout}
         refreshing={loading && records.length > 0}
         onRefresh={() => { void refresh(Crypto.randomUUID()); }}
         style={styles.libraryList}
@@ -1670,15 +1669,11 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
         renderItem={({ item: record, index }) => (
           <CardCard enterIndex={index} grid={gridLayout} record={record} collectionName={record.collectionId ? collections.find((collection) => collection.id === record.collectionId)?.name : undefined} selecting={selectingRecords} selected={selectedRecordIds.has(record.id)} onPress={(origin) => selectingRecords ? toggleRecordSelection(record.id) : libraryView === TRASH_VIEW ? undefined : void openDetail(record, origin)} onOpenActions={(anchor) => openRecordActions(record, anchor)} onHideTutorial={() => hideTutorial(record.id)} onThumbnailError={recoverFailedThumbnail} />
         )}
-        ListHeaderComponent={homeTab === "memory" && !selectingRecords && libraryView !== TRASH_VIEW ? <MemoryRoundShortcut active={isActive} resume={memoryRoundResumeAvailable} onPress={onOpenMemoryRound} /> : null}
-        contentContainerStyle={styles.list}
+        ListHeaderComponent={homeTab === "memory" && !selectingRecords && libraryView !== TRASH_VIEW ? <View style={gridLayout ? styles.gridHeader : undefined}><MemoryRoundShortcut active={isActive} resume={memoryRoundResumeAvailable} onPress={onOpenMemoryRound} /></View> : null}
+        contentContainerStyle={gridLayout ? styles.gridList : styles.list}
         alwaysBounceVertical
         bounces
         showsVerticalScrollIndicator
-        initialNumToRender={8}
-        maxToRenderPerBatch={8}
-        updateCellsBatchingPeriod={40}
-        windowSize={7}
         onEndReachedThreshold={0.45}
         onEndReached={() => void loadMore()}
         ListEmptyComponent={loading ? <ActivityIndicator color={theme.colors.accentStrong} style={styles.loader} /> : (
@@ -1688,52 +1683,24 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
               <Text style={styles.emptyTitle}>{homeTab === "today" ? homeCopy.todayEmpty : t("quick_note.empty_cards")}</Text>
               <Text style={styles.emptyText}>{homeTab === "today" ? homeCopy.todayHint : t("quick_note.empty_cards_hint")}</Text>
             </> : null}
-            {libraryView !== TRASH_VIEW ? <SketchPressable seed="home-empty-create" radius={22} fill={theme.colors.accent} feedback="medium" accessibilityRole="button" style={styles.emptyAction} contentStyle={styles.emptyActionInner} onPress={openCardComposer}>
+            {libraryView === TRASH_VIEW ? <Text style={styles.emptyText}>{t("library.trash_empty")}</Text> : homeTab !== "today" ? <SketchPressable seed="home-empty-create" radius={22} fill={theme.colors.accent} feedback="medium" accessibilityRole="button" style={styles.emptyAction} contentStyle={styles.emptyActionInner} onPress={openCardComposer}>
               <Text style={styles.emptyActionText}>{homeCopy.create}</Text>
-            </SketchPressable> : <Text style={styles.emptyText}>{t("library.trash_empty")}</Text>}
+            </SketchPressable> : null}
           </View>
         )}
         ListFooterComponent={loadingMore ? <ActivityIndicator color={theme.colors.accentStrong} style={styles.loadMoreIndicator} /> : loadMoreError ? <Pressable accessibilityRole="button" onPress={() => void loadMore()} style={{ minHeight: 44, padding: 16, alignItems: "center" }}><Text style={{ color: theme.colors.textMuted }}>{t("main.error.network_retry")}</Text><Text style={{ color: theme.colors.accentStrong }}>{t("common.retry")}</Text></Pressable> : null}
       />
       </>}
       </View>
-      {recordActionMenu ? <View style={styles.recordActionLayer}>
-        <Pressable style={StyleSheet.absoluteFill} onPress={() => setRecordActionMenu(null)} />
-        <View style={[
-          styles.recordActionMenu,
-          {
-            top: (() => {
-              const menuHeight = recordActionMenu.record.source === "card" ? 85 : 43;
-              const below = recordActionMenu.anchor.y + recordActionMenu.anchor.height + 7;
-              const availableBottom = windowSize.height - screenInsets.bottom - 8;
-              return below + menuHeight <= availableBottom
-                ? below
-                : Math.max(screenInsets.top + 8, recordActionMenu.anchor.y - menuHeight - 7);
-            })(),
-            left: Math.min(windowSize.width - 140, Math.max(12, recordActionMenu.anchor.x + recordActionMenu.anchor.width - 128)),
-          },
-        ]}>
-          {libraryView === TRASH_VIEW ? <><Pressable style={styles.recordActionItem} onPress={() => { const id = recordActionMenu.record.id; setRecordActionMenu(null); restoreFromTrash(id); }}><Icon name="arrow-undo-outline" size={16} color={theme.colors.textSecondary} /><Text style={styles.recordActionText}>{t("library.restore")}</Text></Pressable><View style={styles.recordActionDivider} /></> : recordActionMenu.record.source === "card" && !recordActionMenu.record.isSample ? <>
-            <Pressable style={styles.recordActionItem} onPress={() => {
-              const record = recordActionMenu.record;
-              setRecordActionMenu(null);
-              openMoveActions(record);
-            }}>
-              <Icon name="folder-outline" size={16} color={theme.colors.textSecondary} />
-              <Text style={styles.recordActionText}>{t("library.move_to")}</Text>
-            </Pressable>
-            <View style={styles.recordActionDivider} />
-          </> : null}
-          <Pressable style={styles.recordActionItem} onPress={() => {
-            const recordId = recordActionMenu.record.id;
-            setRecordActionMenu(null);
-            confirmDelete(recordId);
-          }}>
-            <Icon name="trash-outline" size={16} color={theme.colors.danger} />
-            <Text style={[styles.recordActionText, styles.recordActionDanger]}>{t(recordActionMenu.record.isSample ? "tutorial.hide" : "common.delete")}</Text>
-          </Pressable>
-        </View>
-      </View> : null}
+      <RecordActionSheet
+        record={recordActionMenu?.record ?? null}
+        trash={libraryView === TRASH_VIEW}
+        bottomInset={screenInsets.bottom}
+        onClose={() => setRecordActionMenu(null)}
+        onRestore={(record) => { setRecordActionMenu(null); restoreFromTrash(record.id); }}
+        onMove={(record) => { setRecordActionMenu(null); openMoveActions(record); }}
+        onDelete={(record) => { setRecordActionMenu(null); confirmDelete(record.id); }}
+      />
       {!selectingRecords && libraryView !== TRASH_VIEW && !quickNoteExpanded ? <SketchBox seed="home-dock" radius={31} fill={theme.colors.canvas} shadow style={[styles.memoryEntryDock, { bottom: Math.max(screenInsets.bottom + 10, 14) }]}>
         <Pressable accessibilityRole="button" accessibilityLabel={homeCopy.todayPhotos} style={({ pressed }) => [styles.memoryPhotoShortcut, pressed && styles.memoryPhotoShortcutPressed]} onPress={() => { haptic.light(); Keyboard.dismiss(); setPhotoBrowser("today"); }}>
           <SunHorizon size={25} color={theme.colors.text} />
@@ -1860,33 +1827,28 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
       {selectingRecords && selectedRecordIds.size ? <View style={[styles.batchActionBar, libraryView === TRASH_VIEW && styles.batchActionBarCentered, { paddingBottom: Math.max(screenInsets.bottom, 10) }]}>{libraryView !== TRASH_VIEW ? <Pressable style={styles.batchAction} onPress={() => setBatchMoveVisible(true)}><Icon name="folder-open-outline" size={22} color={theme.colors.text} /><Text style={styles.batchActionText}>{t("library.move")}</Text></Pressable> : null}<Pressable style={styles.batchAction} onPress={confirmBatchDelete}><Icon name="trash-outline" size={22} color={theme.colors.danger} /><Text style={[styles.batchActionText, { color: theme.colors.danger }]}>{libraryView === TRASH_VIEW ? "彻底删除" : t("common.delete")}</Text></Pressable></View> : null}
       <Modal visible={libraryMenuVisible} transparent animationType="fade" onRequestClose={() => setLibraryMenuVisible(false)}>
         <Pressable style={styles.libraryMenuBackdrop} onPress={() => setLibraryMenuVisible(false)}>
-          <Pressable style={[styles.libraryMenuPanel, { top: screenInsets.top + 55 }]} onPress={() => undefined}>
-            {libraryMenuPage === "main" ? <>
+          <SketchBox seed="home-display-menu" radius={16} fill={theme.colors.surface} shadow style={[styles.displayMenuPanel, { top: screenInsets.top + 104 }]}>
+            <Pressable onPress={() => undefined} style={styles.displayMenuInner}>
+              <Text style={styles.displayMenuLabel}>{t("library.layout")}</Text>
+              <View style={styles.displayMenuSegment}>
+                {(["grid", "list"] as const).map((layout) => <Pressable key={layout} accessibilityRole="radio" accessibilityState={{ checked: homeLayout === layout }} style={[styles.displayMenuOption, homeLayout === layout && styles.displayMenuOptionOn]} onPress={() => { haptic.select(); setHomeLayout(layout); }}>
+                  <Icon name={layout === "grid" ? "grid-outline" : "list-outline"} size={17} color={homeLayout === layout ? theme.colors.onInk : theme.colors.text} />
+                  <Text style={[styles.displayMenuOptionText, homeLayout === layout && styles.displayMenuOptionTextOn]}>{t(layout === "grid" ? "library.layout_grid" : "library.layout_list")}</Text>
+                </Pressable>)}
+              </View>
+              <Text style={styles.displayMenuLabel}>{t("library.order")}</Text>
+              <View style={styles.displayMenuSegment}>
+                {(["shuffle", "newest", "oldest"] as const).map((mode) => <Pressable key={mode} accessibilityRole="radio" accessibilityState={{ checked: sortMode === mode }} style={[styles.displayMenuOption, sortMode === mode && styles.displayMenuOptionOn]} onPress={() => { haptic.select(); selectLibrarySort(mode); }}>
+                  <Text style={[styles.displayMenuOptionText, sortMode === mode && styles.displayMenuOptionTextOn]}>{t(mode === "shuffle" ? "library.order_shuffle" : mode === "newest" ? "library.order_newest" : "library.order_oldest")}</Text>
+                </Pressable>)}
+              </View>
+              <View style={styles.libraryMenuDivider} />
               <Pressable style={styles.libraryMenuRow} onPress={enterRecordSelection}>
-                <View style={styles.libraryMenuLeadingIcon}><Icon name="checkmark-circle-outline" size={24} color={theme.colors.text} /></View>
+                <View style={styles.libraryMenuLeadingIcon}><Icon name="checkmark-circle-outline" size={22} color={theme.colors.text} /></View>
                 <View style={styles.libraryMenuTextBlock}><Text style={styles.libraryMenuTitle}>{t("library.multi_select")}</Text></View>
-                <Icon name="chevron-forward" size={18} color={theme.colors.textMuted} />
               </Pressable>
-            </> : <>
-              <Pressable style={styles.libraryMenuRow} onPress={() => setLibraryMenuPage("main")}>
-                <View style={styles.libraryMenuLeadingIcon}><Icon name="chevron-back" size={22} color={theme.colors.text} /></View>
-                <View style={styles.libraryMenuTextBlock}><Text style={styles.libraryMenuTitle}>{t("library.sort_title")}</Text></View>
-                <View style={styles.libraryMenuTrailingIcon} />
-              </Pressable>
-              <View style={styles.libraryMenuDivider} />
-              <Pressable style={styles.libraryMenuRow} onPress={() => selectLibrarySort("newest")}>
-                <View style={styles.libraryMenuLeadingIcon}><Icon name="arrow-down-outline" size={22} color={theme.colors.text} /></View>
-                <View style={styles.libraryMenuTextBlock}><Text style={styles.libraryMenuOptionText}>{t("library.sort_newest")}</Text></View>
-                <View style={styles.libraryMenuTrailingIcon}>{sortMode === "newest" ? <Icon name="checkmark" size={21} color={theme.colors.text} /> : null}</View>
-              </Pressable>
-              <View style={styles.libraryMenuDivider} />
-              <Pressable style={styles.libraryMenuRow} onPress={() => selectLibrarySort("oldest")}>
-                <View style={styles.libraryMenuLeadingIcon}><Icon name="arrow-up-outline" size={22} color={theme.colors.text} /></View>
-                <View style={styles.libraryMenuTextBlock}><Text style={styles.libraryMenuOptionText}>{t("library.sort_oldest")}</Text></View>
-                <View style={styles.libraryMenuTrailingIcon}>{sortMode === "oldest" ? <Icon name="checkmark" size={21} color={theme.colors.text} /> : null}</View>
-              </Pressable>
-            </>}
-          </Pressable>
+            </Pressable>
+          </SketchBox>
         </Pressable>
       </Modal>
       <AnimatedSearchOverlay visible={searchVisible}>
@@ -3186,7 +3148,6 @@ function CardCard({ record, grid = false, enterIndex, collectionName, selecting 
   const previewText = record.rewrittenPreview?.trim() || record.originalPreview;
   const thumbnailRef = useRef<View>(null);
   const cardRef = useRef<View>(null);
-  const moreButtonRef = useRef<View>(null);
   const firstAppearance = useFirstAppearance(`home-card-${record.id}`);
   function measureOrigin(onMeasured: (origin: NonNullable<CardDetailRequest["origin"]>) => void): void {
     const target = record.thumbnail ? thumbnailRef.current : cardRef.current;
@@ -3203,10 +3164,16 @@ function CardCard({ record, grid = false, enterIndex, collectionName, selecting 
     }
     measureOrigin(onPress);
   }
+  // Long press opens the move/delete sheet (replaces the old ⋯ button).
+  const longPress = selecting || processing ? undefined : () => {
+    haptic.medium();
+    onOpenActions({ x: 0, y: 0, width: 0, height: 0 });
+  };
   const content = (
       <View style={[styles.cardContent, grid && styles.memoryGridContent]}>
         {selecting ? <View style={[styles.cardSelectionIcon, grid && { position: "absolute", top: 8, right: 8, zIndex: 2, borderRadius: 18, backgroundColor: theme.colors.surface, padding: 3 }]}><Icon name={selected ? "checkmark-circle" : "ellipse-outline"} size={23} color={selected ? theme.colors.text : theme.colors.textMuted} /></View> : null}
-        {record.thumbnail ? <View ref={thumbnailRef} collapsable={false} style={grid ? [styles.memoryGridCover, { aspectRatio: Math.max(0.75, Math.min(1.25, record.thumbnail.width / Math.max(1, record.thumbnail.height))) }] : styles.thumbnailFrame}>{grid ? <Image source={{ uri: record.thumbnail.url }} style={StyleSheet.absoluteFill} resizeMode="cover" onError={onThumbnailError} /> : <FocusedCardThumbnail thumbnail={record.thumbnail} onError={onThumbnailError} />}</View> : grid ? <View style={[styles.memoryGridCover, styles.memoryTextCover, { backgroundColor: pencilFillFor(record.id) }]}><Text style={styles.memoryTextCoverTitle} numberOfLines={6}>{record.originalPreview || record.displayTitle}</Text></View> : null}
+        {record.thumbnail ? <View ref={thumbnailRef} collapsable={false} style={grid ? [styles.memoryGridCover, { aspectRatio: Math.max(0.75, Math.min(1.25, record.thumbnail.width / Math.max(1, record.thumbnail.height))) }] : styles.thumbnailFrame}>{grid ? <Image source={{ uri: record.thumbnail.url }} style={StyleSheet.absoluteFill} resizeMode="cover" onError={onThumbnailError} /> : <FocusedCardThumbnail thumbnail={record.thumbnail} onError={onThumbnailError} />}</View> : grid ? <View style={[styles.memoryGridCover, styles.memoryTextCover, { backgroundColor: pencilFillFor(record.id) }]}><Text style={styles.memoryTextCoverTitle} numberOfLines={5}>{record.displayTitle.trim() || record.originalPreview}</Text></View> : null}
+        {grid && !selecting && !record.isSample && record.practiceSummary?.status ? <CardStatusBadge status={record.practiceSummary.status} /> : null}
         <View style={styles.cardTextColumn}>
           {processing ? (
             <>
@@ -3216,7 +3183,7 @@ function CardCard({ record, grid = false, enterIndex, collectionName, selecting 
             </>
           ) : (
             <>
-              {record.displayTitle.trim() ? <Text numberOfLines={grid ? 2 : 1} ellipsizeMode="tail" style={[styles.cardTitle, grid && styles.memoryGridTitle]}>{record.displayTitle}</Text> : null}
+              {record.displayTitle.trim() && (!grid || record.thumbnail) ? <Text numberOfLines={grid ? 2 : 1} ellipsizeMode="tail" style={[styles.cardTitle, grid && styles.memoryGridTitle]}>{record.displayTitle}</Text> : null}
               {!grid ? <Text numberOfLines={record.thumbnail ? 2 : 3} ellipsizeMode="tail" style={styles.originalText}>{previewText}</Text> : null}
             </>
           )}
@@ -3229,13 +3196,11 @@ function CardCard({ record, grid = false, enterIndex, collectionName, selecting 
                 <Text style={styles.sampleBadge}>{t("tutorial.hide")}</Text>
               </Pressable>
             </> : null}
-            {processing ? <ActivityIndicator size="small" color={theme.colors.accentStrong} /> : !selecting ? (
-              <Pressable ref={moreButtonRef} accessibilityLabel={t("quick_note.actions")} style={styles.cardMoreButton} hitSlop={8} onPress={(event) => {
-                event.stopPropagation();
-                moreButtonRef.current?.measureInWindow((x, y, width, height) => onOpenActions({ x, y, width, height }));
-              }}>
-                <Icon name="ellipsis-horizontal" size={17} color={theme.colors.textFaint} />
-              </Pressable>
+            {processing ? <ActivityIndicator size="small" color={theme.colors.accentStrong} /> : record.practiceSummary?.encounterCount !== undefined && !record.isSample ? (
+              <View style={styles.cardEncounter} accessibilityLabel={tf("library.encounter_count", { count: record.practiceSummary.encounterCount })}>
+                <Eye size={13} color={theme.colors.textMuted} />
+                <Text style={styles.cardEncounterText}>{record.practiceSummary.encounterCount}</Text>
+              </View>
             ) : null}
           </View>
         </View>
@@ -3246,16 +3211,57 @@ function CardCard({ record, grid = false, enterIndex, collectionName, selecting 
       ? FadeInDown.duration(motion.duration.enter).delay(enterIndex * motion.stagger)
       : undefined;
     return <Reanimated.View entering={enter} style={styles.memoryGridCell}>
-      <SketchPressable ref={cardRef} seed={record.id} draw={firstAppearance} drawDelay={(enterIndex ?? 0) * motion.stagger} fill={selected ? theme.colors.accentFaint : theme.colors.surface} disabled={processing} dimWhenDisabled={false} accessibilityState={{ disabled: processing, selected }} style={styles.memoryGridCard} contentStyle={styles.memoryGridSketch} onPress={open}>
+      <SketchPressable ref={cardRef} seed={record.id} draw={firstAppearance} drawDelay={(enterIndex ?? 0) * motion.stagger} fill={selected ? theme.colors.accentFaint : theme.colors.surface} disabled={processing} dimWhenDisabled={false} accessibilityState={{ disabled: processing, selected }} accessibilityHint={t("library.long_press_hint")} style={styles.memoryGridCard} contentStyle={styles.memoryGridSketch} onPress={open} onLongPress={longPress} delayLongPress={350}>
         {content}
       </SketchPressable>
     </Reanimated.View>;
   }
   return (
-    <Pressable ref={cardRef} style={[styles.card, selected && styles.cardSelected]} disabled={processing} accessibilityState={{ disabled: processing, selected }} onPress={open}>
+    <Pressable ref={cardRef} style={({ pressed }) => [styles.card, selected && styles.cardSelected, pressed && styles.cardPressed]} disabled={processing} accessibilityState={{ disabled: processing, selected }} accessibilityHint={t("library.long_press_hint")} onPress={open} onLongPress={longPress} delayLongPress={350}>
       {content}
     </Pressable>
   );
+}
+
+/** iMessage-style bottom actions for a long-pressed card: move / delete (or restore in trash). */
+function RecordActionSheet({ record, trash, bottomInset, onClose, onRestore, onMove, onDelete }: {
+  record: CardRecordSummary | null;
+  trash: boolean;
+  bottomInset: number;
+  onClose: () => void;
+  onRestore: (record: CardRecordSummary) => void;
+  onMove: (record: CardRecordSummary) => void;
+  onDelete: (record: CardRecordSummary) => void;
+}) {
+  return <Modal visible={Boolean(record)} transparent animationType="slide" onRequestClose={onClose}>
+    <Pressable style={styles.actionSheetBackdrop} onPress={onClose} accessibilityLabel={t("common.cancel")} />
+    {record ? <View style={[styles.actionSheetWrap, { paddingBottom: Math.max(bottomInset, 12) + 8 }]}>
+      <SketchBox seed="record-action-sheet" radius={20} fill={theme.colors.surface} shadow>
+        <Text numberOfLines={1} style={styles.actionSheetTitle}>{record.displayTitle.trim() || record.originalPreview}</Text>
+        {trash ? <Pressable style={({ pressed }) => [styles.actionSheetRow, pressed && styles.actionSheetRowPressed]} onPress={() => { haptic.light(); onRestore(record); }}>
+          <Icon name="arrow-undo-outline" size={20} /><Text style={styles.actionSheetText}>{t("library.restore")}</Text>
+        </Pressable> : !record.isSample ? <Pressable style={({ pressed }) => [styles.actionSheetRow, pressed && styles.actionSheetRowPressed]} onPress={() => { haptic.light(); onMove(record); }}>
+          <Icon name="folder-outline" size={20} /><Text style={styles.actionSheetText}>{t("library.move_to")}</Text>
+        </Pressable> : null}
+        <Pressable style={({ pressed }) => [styles.actionSheetRow, pressed && styles.actionSheetRowPressed]} onPress={() => { haptic.warning(); onDelete(record); }}>
+          <Icon name="trash-outline" size={20} color={theme.colors.danger} /><Text style={[styles.actionSheetText, { color: theme.colors.danger }]}>{t(record.isSample ? "tutorial.hide" : "common.delete")}</Text>
+        </Pressable>
+      </SketchBox>
+      <SketchPressable seed="record-action-cancel" radius={20} fill={theme.colors.surface} feedback="select" style={styles.actionSheetCancel} contentStyle={styles.actionSheetCancelInner} onPress={onClose}>
+        <Text style={styles.actionSheetCancelText}>{t("common.cancel")}</Text>
+      </SketchPressable>
+    </View> : null}
+  </Modal>;
+}
+
+const STATUS_ICONS = { image_only: ImageSquare, recorded: PencilSimpleLine, clozed: TextUnderline, completed: SealCheck } as const;
+
+/** Where the card is in the learning loop: photo only / recorded / has blanks / done. */
+function CardStatusBadge({ status }: { status: keyof typeof STATUS_ICONS }) {
+  const Glyph = STATUS_ICONS[status];
+  return <View style={styles.cardStatusBadge} accessibilityLabel={t(`library.status.${status}`)}>
+    <Glyph size={14} color={theme.colors.text} weight={status === "completed" ? "fill" : "regular"} />
+  </View>;
 }
 
 function FocusedCardThumbnail({ thumbnail, onError }: {
@@ -3359,23 +3365,36 @@ const editorialFont = Platform.select({ ios: "STSongti-SC-Regular", android: "se
 
 const styles = createStyles(() => ({
   editorialCanvas: { backgroundColor: theme.colors.canvas },
-  memoryTabs: { flexDirection: "row", marginHorizontal: theme.gutter, gap: 24, marginTop: 2, marginBottom: 6 },
-  memoryTab: { minHeight: 46, justifyContent: "center", alignItems: "center" },
+  memoryTab: { minHeight: 44, justifyContent: "center", alignItems: "center", paddingTop: 6 },
   memoryTabActive: {},
   memoryTabText: { fontSize: 17, lineHeight: 24, color: theme.colors.textFaint, fontWeight: "600" },
   memoryTabUnderline: { marginTop: 1 },
   memoryTabUnderlineSpace: { height: 10 },
   memoryTabSelected: { color: theme.colors.text },
-  memoryToolbar: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 22 },
+  memoryToolbar: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 22, paddingVertical: 8 },
+  memoryTodayDate: { color: theme.colors.textSecondary, fontSize: 14 },
   memoryGridRow: { gap: 14, alignItems: "flex-start" },
-  memoryGridCell: { flex: 1, maxWidth: "50%" },
+  actionSheetBackdrop: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, backgroundColor: theme.colors.scrimLight },
+  actionSheetWrap: { position: "absolute", left: 14, right: 14, bottom: 0, gap: 10 },
+  actionSheetTitle: { paddingHorizontal: 18, paddingTop: 14, paddingBottom: 6, color: theme.colors.textMuted, fontSize: 13 },
+  actionSheetRow: { minHeight: 52, paddingHorizontal: 18, flexDirection: "row", alignItems: "center", gap: 12 },
+  actionSheetRowPressed: { backgroundColor: theme.colors.surfacePressed },
+  actionSheetText: { color: theme.colors.text, fontSize: 16 },
+  actionSheetCancel: {},
+  actionSheetCancelInner: { minHeight: 52, alignItems: "center", justifyContent: "center" },
+  actionSheetCancelText: { color: theme.colors.text, fontSize: 16, fontWeight: "600" },
+  cardStatusBadge: { position: "absolute", top: 7, left: 7, width: 24, height: 24, borderRadius: 12, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border, alignItems: "center", justifyContent: "center" },
+  cardEncounter: { marginLeft: "auto", flexDirection: "row", alignItems: "center", gap: 3 },
+  cardEncounterText: { color: theme.colors.textMuted, fontSize: 11, fontVariant: ["tabular-nums"] },
+  cardPressed: { backgroundColor: theme.colors.surfacePressed },
+  memoryGridCell: { paddingHorizontal: 7 },
   memoryGridCard: { marginBottom: 20 },
   memoryGridSketch: { padding: 6, paddingBottom: 4 },
   memoryGridContent: { flexDirection: "column", alignItems: "stretch", gap: 9 },
   memoryGridCover: { width: "100%", aspectRatio: 0.85, borderRadius: 9, overflow: "hidden", backgroundColor: theme.colors.surfaceMuted },
   memoryGridTitle: { fontSize: 15, lineHeight: 21, fontWeight: "600", marginTop: 0, paddingHorizontal: 2, color: theme.colors.text },
-  memoryTextCover: { justifyContent: "flex-start", paddingHorizontal: 14, paddingVertical: 16 },
-  memoryTextCoverTitle: { fontSize: 15, lineHeight: 24, color: theme.colors.textStrong, fontWeight: "400" },
+  memoryTextCover: { justifyContent: "center", alignItems: "center", paddingHorizontal: 14, paddingVertical: 18 },
+  memoryTextCoverTitle: { fontSize: 18, lineHeight: 26, color: theme.colors.text, fontWeight: "700", textAlign: "center" },
   memoryGridFooter: { flexWrap: "nowrap", gap: 4, marginTop: 0, minHeight: 20, paddingHorizontal: 2 },
   memoryGridDate: { color: theme.colors.textFaint, fontSize: 11 },
   memoryLanding: { flexGrow: 1, alignItems: "center", justifyContent: "flex-start", gap: 20, padding: 24, paddingBottom: 140 },
@@ -3383,7 +3402,7 @@ const styles = createStyles(() => ({
   container: { flex: 1, backgroundColor: theme.colors.canvas },
   brandRow: { minHeight: 56, paddingHorizontal: 12, paddingTop: 4, flexDirection: "row", alignItems: "center" },
   brand: { flex: 1, marginLeft: 10, color: theme.colors.text, fontSize: 20, lineHeight: 27, fontWeight: "500", letterSpacing: -0.2 },
-  homeSectionTabs: { flex: 1, height: 48, paddingHorizontal: 6, flexDirection: "row", alignItems: "center", justifyContent: "flex-start", gap: 4 },
+  homeSectionTabs: { flex: 1, height: 48, paddingHorizontal: 8, flexDirection: "row", alignItems: "center", justifyContent: "flex-start", gap: 22 },
   homeHeaderTitle: { maxWidth: "86%", ...theme.type.title },
   selectionHeaderTitle: { flex: 1, textAlign: "center", color: theme.colors.text, fontSize: 17, fontWeight: "600" },
   headerDate: { color: theme.colors.textMuted, fontSize: 13 },
@@ -3398,6 +3417,14 @@ const styles = createStyles(() => ({
   headerAssistantUnavailable: { opacity: 0.42 },
   libraryMenuBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.12)" },
   libraryMenuPanel: { position: "absolute", alignSelf: "center", width: 300, borderRadius: 18, backgroundColor: theme.colors.surface, overflow: "hidden", shadowColor: "#000", shadowOpacity: 0.16, shadowRadius: 20, shadowOffset: { width: 0, height: 8 }, elevation: 12 },
+  displayMenuPanel: { position: "absolute", right: 16, width: 264 },
+  displayMenuInner: { padding: 14, gap: 8 },
+  displayMenuLabel: { color: theme.colors.textMuted, fontSize: 12, fontWeight: "600", letterSpacing: 0.4, marginTop: 2 },
+  displayMenuSegment: { flexDirection: "row", gap: 6 },
+  displayMenuOption: { flex: 1, minHeight: 38, borderRadius: 10, borderWidth: 1, borderColor: theme.colors.border, flexDirection: "row", gap: 5, alignItems: "center", justifyContent: "center" },
+  displayMenuOptionOn: { backgroundColor: theme.colors.ink, borderColor: theme.colors.ink },
+  displayMenuOptionText: { color: theme.colors.text, fontSize: 14 },
+  displayMenuOptionTextOn: { color: theme.colors.onInk, fontWeight: "600" },
   libraryMenuRow: { minHeight: 76, paddingHorizontal: 20, flexDirection: "row", alignItems: "center", gap: 10 },
   libraryMenuLeadingIcon: { width: 28, alignItems: "center" },
   libraryMenuTextBlock: { flex: 1 },
@@ -3421,6 +3448,8 @@ const styles = createStyles(() => ({
   searchSubmitText: { color: theme.colors.surface, fontSize: 13, fontWeight: "600" },
   libraryList: { flex: 1 },
   list: { paddingHorizontal: theme.gutter, paddingTop: 6, paddingBottom: 120 },
+  gridHeader: { paddingHorizontal: 7 },
+  gridList: { paddingHorizontal: theme.gutter - 7, paddingTop: 6, paddingBottom: 120 },
   recallShortcuts: { marginHorizontal: 22, marginBottom: 8, paddingVertical: 6, flexDirection: "row", gap: 7 },
   recallShortcut: { flex: 1, minHeight: 44, paddingHorizontal: 8, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.border, borderRadius: 11, backgroundColor: theme.colors.surface, alignItems: "center", justifyContent: "center" },
   memoryRoundBanner: { marginTop: 4, marginBottom: 22 },

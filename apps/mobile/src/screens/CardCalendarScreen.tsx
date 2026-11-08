@@ -237,19 +237,10 @@ function startOfWeekMonday(date: Date): Date { const result = new Date(date.getF
 function calendarDayDistance(from: Date, to: Date): number { return Math.round((Date.UTC(to.getFullYear(), to.getMonth(), to.getDate()) - Date.UTC(from.getFullYear(), from.getMonth(), from.getDate())) / 86_400_000); }
 function weekLabels(): string[] { const base = new Date(2026, 7, 2); return Array.from({ length: 7 }, (_, index) => new Intl.DateTimeFormat(getLanguage(), { weekday: "narrow" }).format(new Date(base.getFullYear(), base.getMonth(), base.getDate() + index))); }
 
+// A recorded day is simply filled in (no shades): the heatmap shows *that*
+// you wrote, not how well you practiced.
 function calendarHeatColor(day: CardCalendarSummary["days"][number]): string {
-  const blankCount = Number(day.clozeBlankCount ?? 0);
-  const attemptedCount = Number(day.clozeAttemptedBlankCount ?? 0);
-  const correctCount = Number(day.clozeCorrectBlankCount ?? 0);
-  // A recorded day must remain distinguishable even before the user creates a cloze.
-  // The nullish fallbacks also keep clients readable while an older API is being deployed.
-  if (!Number.isFinite(blankCount) || blankCount <= 0) return inkAlpha(0.14);
-  const quantityWeight = Math.sqrt(Math.min(1, blankCount / 10));
-  const accuracy = attemptedCount > 0
-    ? Math.max(0, Math.min(1, correctCount / attemptedCount))
-    : 0;
-  const opacity = 0.16 + 0.72 * quantityWeight * (0.3 + 0.7 * accuracy);
-  return inkAlpha(Math.min(0.88, opacity));
+  return day.cardCount > 0 ? inkAlpha(0.82) : inkAlpha(0.1);
 }
 
 const calendarSidebarStyles = createStyles(() => ({

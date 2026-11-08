@@ -13,7 +13,7 @@ export function MemoryCollectionFilters({ collections, selected, onSelect, onTou
   onTouching: (touching: boolean) => void;
 }) {
   const all = ({ "zh-CN": "全部", "zh-TW": "全部", "en-US": "All", "ja-JP": "すべて" } as Record<string, string>)[getLanguage()] ?? "All";
-  const options = [{ id: "all", name: all }, ...collections, { id: "unclassified", name: t("sidebar.unclassified") }];
+  const options = [{ id: "all", name: all }, { id: "favorites", name: `★ ${t("library.favorites")}` }, ...collections, { id: "unclassified", name: t("sidebar.unclassified") }];
   return <View onTouchStart={() => onTouching(true)} onTouchEnd={() => onTouching(false)} onTouchCancel={() => onTouching(false)}>
     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.row}>
       {options.map(option => <Pressable key={option.id} accessibilityRole="button" accessibilityState={{ selected: selected === option.id }} style={[styles.chip, selected === option.id && styles.selectedChip]} onPress={() => onSelect(option.id)}>
