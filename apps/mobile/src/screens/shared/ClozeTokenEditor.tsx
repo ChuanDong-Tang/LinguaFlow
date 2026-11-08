@@ -4,6 +4,7 @@ import { Text } from "../../components/Typography";
 import type { ClozeToken } from "../../domain/cloze/clozeUtils";
 import { t } from "../../i18n";
 import { theme } from "../../theme";
+import { createStyles } from "../../styles";
 
 export type ClozeTokenEditorValue = {
   tokens: ClozeToken[];
@@ -59,7 +60,7 @@ export function ClozeTokenEditor({
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   scrim: { flex: 1, backgroundColor: "rgba(0, 0, 0, 0.25)", alignItems: "center", justifyContent: "center", paddingHorizontal: 24 },
   card: { width: "100%", maxHeight: "72%", borderRadius: 16, backgroundColor: theme.colors.surface, paddingHorizontal: 18, paddingTop: 20, paddingBottom: 16 },
   title: { color: theme.colors.text, fontSize: 18, fontWeight: "800", textAlign: "center", marginBottom: 16 },
@@ -74,4 +75,4 @@ const styles = StyleSheet.create({
   cancelText: { color: theme.colors.textSecondary, fontSize: 15, fontWeight: "700" },
   confirm: { flex: 1, height: 42, borderRadius: 21, backgroundColor: theme.colors.accent, alignItems: "center", justifyContent: "center" },
   confirmText: { color: theme.colors.onAccent, fontSize: 15, fontWeight: "800" },
-});
+}));

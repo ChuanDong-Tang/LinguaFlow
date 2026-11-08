@@ -1,6 +1,6 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Alert, Animated, AppState, DevSettings, Image, Linking, Modal, Pressable, StatusBar, StyleSheet, View } from "react-native";
-import { reloadForAppearance, systemAppearanceChanged } from "./appearance/preference";
+import { subscribeAppearance, watchSystemAppearance } from "./appearance/switch";
 import { Text, TextInput } from "./components/Typography";
 import { Icon } from "./components/Icon";
 import * as AuthSession from "expo-auth-session";
@@ -77,6 +77,7 @@ import {
 } from "./domain/chat/contacts";
 import { fetchChatContacts, loadCachedChatContacts } from "./services/api/chatContactsApi";
 import { isDarkAppearance, theme } from "./theme";
+import { createStyles } from "./styles";
 import type { CardDraft } from "./services/card/cardDraftStorage";
 import { getAvailableAppUpdate } from "./services/api/appVersionApi";
 import { reconcileMembershipSilently } from "./services/subscription/autoRenewSync";
@@ -280,13 +281,19 @@ export default function App() {
     return () => subscription.remove();
   }, [appAuthenticated, sessionRevision]);
 
+  // Appearance switches live: theme and style sheets are rewritten in place,
+  // then the view tree below this component remounts (App state is kept, so
+  // the user stays on the same screen).
+  const [appearanceVersion, setAppearanceVersion] = useState(0);
   useEffect(() => {
-    // "Follow system" is resolved at startup; if the system switched while the
-    // app was in the background, reload once on return so styles match.
-    const subscription = AppState.addEventListener("change", (state) => {
-      if (state === "active" && systemAppearanceChanged()) void reloadForAppearance();
+    const unsubscribe = subscribeAppearance((resolved) => {
+      // Set the bar style before remounting so modal windows created during
+      // the remount (Android dialogs) copy the new status bar appearance.
+      StatusBar.setBarStyle(resolved === "dark" ? "light-content" : "dark-content", false);
+      setAppearanceVersion((version) => version + 1);
     });
-    return () => subscription.remove();
+    const unwatch = watchSystemAppearance();
+    return () => { unsubscribe(); unwatch(); };
   }, []);
 
   useEffect(() => {
@@ -1065,8 +1072,8 @@ export default function App() {
   }
 
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
-    <StatusBar barStyle={isDarkAppearance ? "light-content" : "dark-content"} backgroundColor={theme.colors.canvas} />
+    <GestureHandlerRootView key={appearanceVersion} style={{ flex: 1 }}>
+    <StatusBar barStyle={isDarkAppearance() ? "light-content" : "dark-content"} backgroundColor={theme.colors.canvas} />
     <SafeAreaProvider initialMetrics={initialWindowMetrics}>
       <KeyboardProvider>
         <FloatingNoticeProvider>
@@ -1461,7 +1468,7 @@ function formatQuotaRefreshTime(value: string | null): string {
   }).format(date);
 }
 
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   quotaDialogBackdrop: { flex: 1, paddingHorizontal: 28, backgroundColor: "rgba(26,31,29,0.28)", alignItems: "center", justifyContent: "center" },
   quotaDialogPanel: { width: "100%", maxWidth: 360, paddingHorizontal: 22, paddingTop: 42, paddingBottom: 20, borderRadius: 24, backgroundColor: theme.colors.surface, shadowColor: "#1B2822", shadowOpacity: 0.16, shadowRadius: 24, shadowOffset: { width: 0, height: 10 }, elevation: 10 },
   quotaDialogClose: { position: "absolute", top: 14, right: 14, width: 32, height: 32, borderRadius: 16, backgroundColor: theme.colors.surfaceMuted, alignItems: "center", justifyContent: "center" },
@@ -1569,4 +1576,4 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "600",
   },
-});
+}));

@@ -4,6 +4,7 @@ import { Text } from "../../components/Typography";
 import { Icon } from "../../components/Icon";
 import { t } from "../../i18n";
 import { theme } from "../../theme";
+import { createStyles } from "../../styles";
 
 type TabBarProps = {
   activeTab: "main" | "practice" | "me";
@@ -51,7 +52,7 @@ export function TabBar({ activeTab, onPressMain, onPressPractice, onPressMe }: T
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   bar: {
     height: 86,
     borderTopWidth: 1,
@@ -83,4 +84,4 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-});
+}));

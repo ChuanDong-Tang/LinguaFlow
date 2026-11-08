@@ -8,6 +8,7 @@ import { memoryDeckPages, memoryDeckReturnPage } from "./memoryDeckPages";
 import { MemoryDeckSettings } from "./MemoryDeckSettings";
 import { memoryFanLayout } from "./memoryFanLayout";
 import { theme } from "../../theme";
+import { createStyles } from "../../styles";
 import { SketchBox, SketchPressable, pencilFillFor } from "../../components/sketch/Sketch";
 import { haptic } from "../../feedback/haptics";
 
@@ -112,7 +113,7 @@ function ArchiveCover({ card, onError }: { card: CardRecordSummary; onError: () 
     ? <Image source={{ uri: url }} style={styles.image} resizeMode="cover" onError={() => { setFailedUrl(url); onError(); }} />
     : <View style={[styles.image, styles.textCover, { backgroundColor: pencilFillFor(card.id) }]}><Text numberOfLines={5} style={styles.title}>{card.originalPreview || card.displayTitle}</Text></View>;
 }
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   container: { width: "100%", alignItems: "center" }, header: { width: "100%", alignItems: "flex-start" },
   button: { minHeight: 44, minWidth: 44, padding: 10, justifyContent: "center", alignItems: "center" },
   nextSet: { minHeight: 50, minWidth: 148, paddingHorizontal: 28, paddingVertical: 12, alignItems: "center", justifyContent: "center" },
@@ -134,4 +135,4 @@ const styles = StyleSheet.create({
   settings: { width: 310, maxWidth: "100%", backgroundColor: theme.colors.surface, borderRadius: 12, padding: 18, gap: 18 },
   settingRow: { gap: 8 }, options: { flexDirection: "row", gap: 8 }, option: { flex: 1, minHeight: 44, alignItems: "center", justifyContent: "center", borderRadius: 6 },
   selected: { backgroundColor: theme.colors.surfaceMuted }, apply: { minHeight: 44, alignItems: "center", justifyContent: "center", borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.border },
-});
+}));

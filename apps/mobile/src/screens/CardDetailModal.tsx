@@ -41,6 +41,7 @@ import {
 } from "../services/api/cardApi";
 import type { CardDraft } from "../services/card/cardDraftStorage";
 import { theme } from "../theme";
+import { createStyles } from "../styles";
 import { RealtimeSttButton } from "../components/RealtimeSttButton";
 import { beginTtsPlaybackSession, cycleTtsPlaybackRate, getTtsPlaybackState, isTtsPlaybackSessionCurrent, navigateTtsNext, navigateTtsPrevious, playTtsAudio, preloadTtsAudio, seekTtsPlayback, setTtsLoopMode, setTtsNavigationControls, setTtsPlaybackLoopRange, stopTtsAudio, subscribeTtsPlayback, toggleTtsPlayback } from "../services/tts/ttsPlayback";
 import {
@@ -1841,7 +1842,7 @@ function ImageDescriptionToggleAction({ active, loading, onPress }: { active: bo
       void Haptics.selectionAsync().catch(() => undefined);
       onPress();
     }}
-  ><Text style={[styles.imageDescriptionToggleText, active && styles.imageDescriptionToggleTextActive]}>{t("quick_note.image_description_on")}</Text><Icon name={active ? "checkmark-circle" : "ellipse-outline"} size={17} color={active ? "#52796C" : theme.colors.textMuted} /></Pressable>;
+  ><Text style={[styles.imageDescriptionToggleText, active && styles.imageDescriptionToggleTextActive]}>{t("quick_note.image_description_on")}</Text><Icon name={active ? "checkmark-circle" : "ellipse-outline"} size={17} color={active ? theme.colors.text : theme.colors.textMuted} /></Pressable>;
 }
 
 function CardImagePreview({ images, initialIndex, visible, origin, dateLabel, onClose, onRemove, onCoverPositionChange }: {
@@ -5219,7 +5220,7 @@ function normalizeAnswer(value: string): string {
 function formatDate(value: string): string { const [year, month, day] = value.split("-").map(Number); return new Intl.DateTimeFormat(getLanguage(), { year: "numeric", month: "long", day: "numeric" }).format(new Date(year, month - 1, day)); }
 function formatTime(value: string): string { const date = new Date(value); return Number.isNaN(date.getTime()) ? "" : date.toLocaleTimeString(getLanguage(), { hour: "2-digit", minute: "2-digit" }); }
 
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   moduleComposer: { marginTop: 8, padding: 12, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.border, borderRadius: 14, backgroundColor: theme.colors.surfaceMuted },
   moduleComposerInput: { minHeight: 72, maxHeight: 180, padding: 0, color: theme.colors.text, fontSize: 16, lineHeight: 24, textAlignVertical: "top" },
   standaloneOriginalInput: { height: 132, minHeight: 132, maxHeight: 132 },
@@ -5336,7 +5337,7 @@ const styles = StyleSheet.create({
   cardPlaybackLyricRow: { marginVertical: 2, paddingVertical: 9, paddingHorizontal: 6, borderRadius: 12 },
   cardPlaybackLyric: { color: theme.colors.text, fontSize: 16, lineHeight: 25, textAlign: "left" },
   cardPlaybackLyricActive: { color: theme.colors.success },
-  cardPlaybackBlank: { color: theme.colors.danger, textDecorationLine: "underline", textDecorationColor: theme.colors.danger, textDecorationStyle: "solid" },
+  cardPlaybackBlank: { color: theme.colors.text, fontWeight: "600", textDecorationLine: "underline", textDecorationColor: theme.colors.text, textDecorationStyle: "solid" },
   cardPlaybackAuxiliary: { marginTop: 3, color: theme.colors.textSecondary, fontSize: 13, lineHeight: 20, textAlign: "left" },
   cardPlaybackBar: { paddingHorizontal: 20, paddingTop: 13, paddingBottom: 8, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.border, backgroundColor: theme.colors.surface },
   cardPlaybackSeekArea: { height: 25, justifyContent: "center" },
@@ -5627,7 +5628,7 @@ const styles = StyleSheet.create({
   draftProcessingLines: { paddingTop: 22, gap: 10 },
   draftProcessingLineLong: { width: "78%", height: 2, borderRadius: 1, backgroundColor: theme.colors.border },
   draftProcessingLineShort: { width: "52%", height: 2, borderRadius: 1, backgroundColor: theme.colors.border },
-});
+}));
 
 async function saveCardPractice(detail: CardRecordDetail, input: Parameters<typeof saveCardClozeUpdate>[1]): ReturnType<typeof saveCardClozeUpdate> {
   return detail.isSample ? saveTutorialPractice(detail, input) : saveCardClozeUpdate(detail.id, input);

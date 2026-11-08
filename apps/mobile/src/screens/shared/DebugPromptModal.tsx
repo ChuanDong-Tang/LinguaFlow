@@ -5,6 +5,7 @@ import { loadDebugSettings, saveDebugSettings } from "../../services/preferences
 import { getAiOptions, type AiProviderOption } from "../../services/api/aiOptionsApi";
 import { useMountedGuard } from "../../hooks/useMountedGuard";
 import { theme } from "../../theme";
+import { createStyles } from "../../styles";
 
 export function DebugPromptModal({
   visible,
@@ -136,7 +137,7 @@ export function DebugPromptModal({
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   modalBackdrop: {
     flex: 1,
     paddingHorizontal: 20,
@@ -237,4 +238,4 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "700",
   },
-});
+}));

@@ -4,6 +4,7 @@ import { Modal, Pressable, StyleSheet, View } from "react-native";
 import { Text } from "../../components/Typography";
 import { getLanguage, t } from "../../i18n";
 import { theme } from "../../theme";
+import { createStyles } from "../../styles";
 import { Ionicons } from "@expo/vector-icons";
 
 export function MemorySetMenu({ title, count, disabled, onChange }: { title: string; count: number; disabled?: boolean; onChange: (count: number) => void }) {
@@ -20,7 +21,7 @@ export function MemorySetMenu({ title, count, disabled, onChange }: { title: str
     </Modal>
   </>;
 }
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   pill: { alignSelf: "flex-start", paddingHorizontal: 8, minHeight: 44, flexDirection: "row", alignItems: "center", gap: 6, justifyContent: "center" },
   label: { color: theme.colors.text, fontSize: 15, fontWeight: "400" },
   overlay: { flex: 1, justifyContent: "center", alignItems: "center", padding: 24, backgroundColor: "rgba(0,0,0,0.12)" },
@@ -28,4 +29,4 @@ const styles = StyleSheet.create({
   option: { minHeight: 48, flex: 1, borderRadius: 6, justifyContent: "center", alignItems: "center" },
   selectedOption: { backgroundColor: theme.colors.surfaceMuted },
   selectedLabel: { fontWeight: "600" },
-});
+}));

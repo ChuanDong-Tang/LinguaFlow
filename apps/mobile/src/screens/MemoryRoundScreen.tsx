@@ -21,6 +21,7 @@ import {
 import { getTtsPlaybackState, playTtsAudio, preloadTtsAudio, stopTtsAudio, subscribeTtsPlayback } from "../services/tts/ttsPlayback";
 import { getSession } from "../services/auth/authStorage";
 import { theme } from "../theme";
+import { createStyles } from "../styles";
 import { splitCardClozeAnswerUnits } from "../domain/cloze/clozeUtils";
 import { buildClozeAnswerPuzzle, isClozeAnswerPuzzleCorrect } from "../domain/cloze/clozeAnswerPuzzle";
 import { ClozeAnswerPuzzleTray } from "../components/ClozeAnswerPuzzleTray";
@@ -1514,7 +1515,7 @@ function isPendingMemoryResult(value: unknown, ownerId: string): value is Pendin
     && result.blankIds.every((id) => typeof id === "string") && typeof result.firstAttemptCorrect === "boolean";
 }
 
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   page: { flex: 1, backgroundColor: theme.colors.canvas },
   summaryPage: { flex: 1, backgroundColor: theme.colors.surfaceSunken },
   header: { height: 54, paddingHorizontal: 18, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
@@ -1693,4 +1694,4 @@ const styles = StyleSheet.create({
   cardCompleteActions: { marginTop: 24, gap: 13 },
   nextCardEyebrow: { color: theme.colors.accentStrong, fontSize: 12, fontWeight: "700" },
   nextCardTitle: { marginTop: 6, color: theme.colors.text, fontSize: 17, lineHeight: 24, fontWeight: "600" },
-});
+}));

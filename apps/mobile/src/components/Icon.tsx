@@ -1,6 +1,7 @@
 import React, { type ComponentProps } from "react";
 import type { StyleProp, TextStyle } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
+import { theme } from "../theme";
 import {
   ArrowClockwise, ArrowDown, ArrowLeft, ArrowRight, ArrowsClockwise, ArrowsIn, ArrowsOut, ArrowsOutCardinal, ArrowUp, ArrowUUpLeft,
   BookOpen, BookOpenText, CalendarBlank, CalendarDot, Camera, Cards, CaretDown, CaretLeft, CaretRight, CaretUp, ChatCircleDots,
@@ -52,6 +53,7 @@ export function Icon({ name, size = 22, color, style, weight }: {
   weight?: IconWeight;
 }) {
   const mapped = MAP[name];
+  color ??= theme.colors.text;
   if (!mapped) return <Ionicons name={name} size={size} color={color} style={style} />;
   const [Glyph, defaultWeight = "regular"] = mapped;
   return <Glyph size={size} color={color} weight={weight ?? defaultWeight} style={style as never} />;

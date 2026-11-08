@@ -14,13 +14,13 @@ import Svg, { Path } from "react-native-svg";
 import { haptic, type HapticKind } from "../../feedback/haptics";
 import { motion } from "../../motion";
 import { theme } from "../../theme";
+import { createStyles } from "../../styles";
 import { checkMark, sketchSeed, wave, wobbleEllipse, wobbleRect, type SketchPath } from "./sketchPath";
 
 // Hand-drawn primitives for the "彩铅填色" style (skills/linguaflow-sketch-style).
 
 const AnimatedPath = Reanimated.createAnimatedComponent(Path);
 const PAD = 8;
-const INK = theme.colors.ink;
 
 type Size = { w: number; h: number };
 
@@ -68,7 +68,7 @@ export type SketchBoxProps = {
 };
 
 /** Wraps children in a hand-drawn rounded outline with optional pencil fill and shadow. */
-export function SketchBox({ seed, radius = theme.radius.card, fill, stroke = INK, shadow = false, draw = false, drawDelay = 0, pressed, style, children, pointerEvents }: SketchBoxProps) {
+export function SketchBox({ seed, radius = theme.radius.card, fill, stroke = theme.colors.ink, shadow = false, draw = false, drawDelay = 0, pressed, style, children, pointerEvents }: SketchBoxProps) {
   const [size, onLayout] = useMeasuredSize();
   const paths = useMemo(() => {
     if (!size || size.w < 2 || size.h < 2) return null;
@@ -150,7 +150,7 @@ export function SketchBlob({ seed, color, style }: { seed: string; color: string
 }
 
 /** Wavy pen underline, drawn on when it appears. */
-export function SketchUnderline({ seed, width, color = INK, draw = true, style }: { seed: string; width: number; color?: string; draw?: boolean; style?: StyleProp<ViewStyle> }) {
+export function SketchUnderline({ seed, width, color = theme.colors.ink, draw = true, style }: { seed: string; width: number; color?: string; draw?: boolean; style?: StyleProp<ViewStyle> }) {
   const path = useMemo(() => wave(width, 4, sketchSeed(seed)), [seed, width]);
   return <Svg pointerEvents="none" width={width + 6} height={9} viewBox={`-3 0 ${width + 6} 9`} style={style}>
     <PenPath path={path} draw={draw} fill="none" stroke={color} strokeWidth={1.8} strokeLinecap="round" />
@@ -158,7 +158,7 @@ export function SketchUnderline({ seed, width, color = INK, draw = true, style }
 }
 
 /** Pen check mark, drawn on when it appears. */
-export function SketchCheck({ seed, size = 22, color = INK, draw = true }: { seed: string; size?: number; color?: string; draw?: boolean }) {
+export function SketchCheck({ seed, size = 22, color = theme.colors.ink, draw = true }: { seed: string; size?: number; color?: string; draw?: boolean }) {
   const path = useMemo(() => checkMark(size, sketchSeed(seed)), [seed, size]);
   return <Svg pointerEvents="none" width={size} height={size}>
     <PenPath path={path} draw={draw} fill="none" stroke={color} strokeWidth={2.4} strokeLinecap="round" strokeLinejoin="round" />
@@ -170,8 +170,8 @@ export function pencilFillFor(id: string) {
   return theme.pencilFills[sketchSeed(id) % theme.pencilFills.length];
 }
 
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   svg: { position: "absolute", left: -PAD, top: -PAD },
   grow: { flexGrow: 1 },
   disabled: { opacity: 0.45 },
-});
+}));

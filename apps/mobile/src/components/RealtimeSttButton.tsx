@@ -3,6 +3,7 @@ import { ActivityIndicator, Pressable, StyleSheet, View, type StyleProp, type Vi
 import { Icon } from "./Icon";
 import type { RealtimeSttInputStatus } from "../hooks/useRealtimeSttInput";
 import { theme } from "../theme";
+import { createStyles } from "../styles";
 import { t } from "../i18n";
 
 export function RealtimeSttButton({ status, audioLevel = 0, disabled = false, onPress, style, iconSize = 21 }: {
@@ -31,11 +32,11 @@ export function RealtimeSttButton({ status, audioLevel = 0, disabled = false, on
   </Pressable>;
 }
 
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   button: { width: 38, height: 38, borderRadius: 11, alignItems: "center", justifyContent: "center" },
   active: { backgroundColor: theme.colors.surfaceMuted },
   disabled: { opacity: 0.42 },
   recordingDot: { position: "absolute", top: 4, right: 5, width: 6, height: 6, borderRadius: 3, backgroundColor: theme.colors.danger },
   waveform: { height: 22, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 2 },
   waveformBar: { width: 3, borderRadius: 2, backgroundColor: theme.colors.danger },
-});
+}));

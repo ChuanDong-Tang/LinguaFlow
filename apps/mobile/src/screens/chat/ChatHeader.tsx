@@ -6,6 +6,7 @@ import { getChatContactDescription, getChatContactName, type ChatContact } from 
 import { t } from "../../i18n";
 import OioCharacter from "../../../assets/app/oio-character.svg";
 import { theme } from "../../theme";
+import { createStyles } from "../../styles";
 
 type ChatHeaderProps = {
   contact: ChatContact;
@@ -45,7 +46,7 @@ export function ChatHeader({ contact, onBack, onOpenCalendar, onOpenMenu }: Chat
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   header: {
     minHeight: 68,
     paddingHorizontal: 16,
@@ -103,4 +104,4 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-});
+}));

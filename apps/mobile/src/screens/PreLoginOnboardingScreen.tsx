@@ -12,6 +12,7 @@ import type {
   PreLoginOnboardingStep,
 } from "../services/preferences/preLoginOnboarding";
 import { theme } from "../theme";
+import { createStyles } from "../styles";
 import { selectOnboardingSource } from "../services/preferences/preLoginOnboardingState";
 
 type Props = {
@@ -205,7 +206,7 @@ function updateDraft(
   return selectOnboardingSource(draft, value as AcquisitionSource);
 }
 
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   codeInput: { minHeight: 54, padding: 16, borderRadius: 14, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surface, color: theme.colors.text, fontSize: 18 },
   safeArea: { flex: 1, backgroundColor: theme.colors.canvas },
   header: {
@@ -266,4 +267,4 @@ const styles = StyleSheet.create({
   },
   continueButtonDisabled: { opacity: 0.28 },
   continueText: { color: theme.colors.onAccent, fontSize: 16, lineHeight: 22, fontWeight: "700" },
-});
+}));

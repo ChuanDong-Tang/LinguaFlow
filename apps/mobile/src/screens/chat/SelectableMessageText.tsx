@@ -17,6 +17,7 @@ import {
 import { useFloatingNotice } from "../shared/FloatingNotice";
 import { useFontSize } from "../../services/preferences/fontSizePreference";
 import { theme } from "../../theme";
+import { createStyles } from "../../styles";
 
 export type NativeTextSelectionPayload = {
   start: number;
@@ -413,7 +414,7 @@ export const SelectableMessageText = React.forwardRef<SelectableMessageTextRef, 
                 }
                 style={[
                   segment.highlighted
-                    ? { backgroundColor: segment.correct ? "#DDEFE2" : theme.colors.highlight, color: theme.colors.warning }
+                    ? { backgroundColor: segment.correct ? theme.colors.successSoft : theme.colors.highlight, color: theme.colors.warning }
                     : null,
                   segment.blank ? styles.fallbackBlank : null,
                   segment.hidden ? styles.fallbackBlankHidden : null,
@@ -482,7 +483,7 @@ function selectionMatchesText(
   return text.slice(range.start, range.end).normalize("NFC") === selectedText.normalize("NFC");
 }
 
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   nativeTextContainer: {
     alignSelf: "stretch",
     position: "relative",
@@ -505,4 +506,4 @@ const styles = StyleSheet.create({
   fallbackVisualsHidden: {
     color: "transparent",
   },
-});
+}));

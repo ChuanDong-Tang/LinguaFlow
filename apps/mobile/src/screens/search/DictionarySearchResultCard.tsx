@@ -6,6 +6,7 @@ import { getDictionaryTermAudio, type DictionaryLookupResult } from "../../servi
 import { playTtsAudio } from "../../services/tts/ttsPlayback";
 import { t } from "../../i18n";
 import { theme } from "../../theme";
+import { createStyles } from "../../styles";
 import { DictionaryTranslation } from "../../components/DictionaryTranslation";
 
 type DictionarySearchResultCardProps = {
@@ -122,7 +123,7 @@ function resolveTargetExpression(result: DictionaryLookupResult, sourceTerm: str
   return sourceTerm;
 }
 
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   section: { marginBottom: 24 },
   sectionTitleRow: { marginBottom: 9, flexDirection: "row", alignItems: "baseline", gap: 8 },
   sectionTitle: { color: theme.colors.text, fontSize: 15, fontWeight: "600" },
@@ -147,4 +148,4 @@ const styles = StyleSheet.create({
   visualCard: { flex: 1, aspectRatio: 1.55, borderRadius: 11, overflow: "hidden", backgroundColor: theme.colors.surfaceMuted },
   visualCardPressed: { opacity: 0.72 },
   visualImage: { width: "100%", height: "100%" },
-});
+}));

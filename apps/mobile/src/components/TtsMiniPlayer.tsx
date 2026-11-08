@@ -13,6 +13,7 @@ import {
   toggleTtsPlayback,
 } from "../services/tts/ttsPlayback";
 import { theme } from "../theme";
+import { createStyles } from "../styles";
 
 type TtsMiniPlayerProps = {
   storageKey: string;
@@ -190,7 +191,7 @@ export function TtsMiniPlayer({ storageKey }: TtsMiniPlayerProps) {
           disabled={!canNavigatePrevious}
           onPress={navigateTtsPrevious}
         >
-          <Icon name="play-skip-back" size={16} color={canNavigatePrevious ? "#111111" : theme.colors.textFaint} />
+          <Icon name="play-skip-back" size={16} color={canNavigatePrevious ? theme.colors.text : theme.colors.textFaint} />
         </Pressable>
       );
     }
@@ -218,7 +219,7 @@ export function TtsMiniPlayer({ storageKey }: TtsMiniPlayerProps) {
           disabled={!canNavigateNext}
           onPress={navigateTtsNext}
         >
-          <Icon name="play-skip-forward" size={16} color={canNavigateNext ? "#111111" : theme.colors.textFaint} />
+          <Icon name="play-skip-forward" size={16} color={canNavigateNext ? theme.colors.text : theme.colors.textFaint} />
         </Pressable>
       );
     }
@@ -240,7 +241,7 @@ export function TtsMiniPlayer({ storageKey }: TtsMiniPlayerProps) {
             <Icon
               name="sync-outline"
               size={28}
-              color={canLoop && playback.loopMode !== "off" ? "#FFFFFF" : canLoop ? "#4D5361" : theme.colors.textFaint}
+              color={canLoop && playback.loopMode !== "off" ? theme.colors.onInk : canLoop ? theme.colors.textSecondary : theme.colors.textFaint}
             />
           </Animated.View>
           {canLoop && playback.loopMode === "one" ? <Text style={styles.loopOne}>1</Text> : null}
@@ -311,7 +312,7 @@ const EXPANDED_WIDTH = 286;
 const PLAYER_MARGIN = 14;
 const DEFAULT_Y_RATIO = 0.28;
 
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   shell: {
     position: "absolute",
     zIndex: 30,
@@ -429,7 +430,7 @@ const styles = StyleSheet.create({
   disabled: {
     opacity: 0.58,
   },
-});
+}));
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));

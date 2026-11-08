@@ -4,6 +4,7 @@ import { Text } from "./Typography";
 import type { ClozeAnswerPuzzle, ClozeAnswerPuzzleToken } from "../domain/cloze/clozeAnswerPuzzle";
 import { playSelectionFeedbackSound } from "../services/audio/gameFeedbackAudio";
 import { theme } from "../theme";
+import { createStyles } from "../styles";
 
 export function ClozeAnswerPuzzleTray({
   puzzle,
@@ -46,7 +47,7 @@ export function ClozeAnswerPuzzleTray({
   </View>;
 }
 
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   root: { gap: 12 },
   answer: { minHeight: 54, borderRadius: 16, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surface, padding: 9, justifyContent: "center" },
   answerIncorrect: { borderColor: theme.colors.accentSoft, backgroundColor: theme.colors.canvas },
@@ -64,4 +65,4 @@ const styles = StyleSheet.create({
   selectedText: { color: theme.colors.accentStrong, fontSize: 17, fontWeight: "700" },
   selectedCharacterText: { color: theme.colors.text, fontSize: 18, lineHeight: 28, fontWeight: "600", letterSpacing: .3 },
   pressed: { opacity: 0.68, transform: [{ scale: 0.97 }] },
-});
+}));

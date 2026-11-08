@@ -5,6 +5,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { Text } from "../../components/Typography";
 import { getLanguage, t } from "../../i18n";
 import { theme } from "../../theme";
+import { createStyles } from "../../styles";
 
 const labels = {
   "zh-CN": ["浏览设置", "每页显示", "每组数量", "重新排列"],
@@ -38,7 +39,7 @@ export function MemoryDeckSettings({ count, visible, disabled, onApply }: {
     </Modal>
   </>;
 }
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   trigger: { alignSelf: "flex-start", minHeight: 44, paddingHorizontal: 10, flexDirection: "row", alignItems: "center", gap: 6 },
   caption: { color: theme.colors.textSecondary, fontSize: 13 }, value: { color: theme.colors.text, fontSize: 15 },
   overlay: { flex: 1, justifyContent: "center", alignItems: "center", padding: 24, backgroundColor: "rgba(0,0,0,0.12)" },
@@ -47,4 +48,4 @@ const styles = StyleSheet.create({
   option: { flex: 1, minHeight: 44, alignItems: "center", justifyContent: "center", borderRadius: 6 },
   selected: { backgroundColor: theme.colors.surfaceMuted },
   apply: { minHeight: 44, justifyContent: "center", alignItems: "center", borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.colors.border },
-});
+}));

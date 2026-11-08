@@ -67,6 +67,7 @@ import {
   type CardDraftImage,
 } from "../services/card/cardDraftStorage";
 import { theme } from "../theme";
+import { createStyles } from "../styles";
 import { CardDetailModal } from "./CardDetailModal";
 import type { CardBrowseOptions, CardDetailRequest } from "./CardDetailNavigator";
 import {
@@ -1774,7 +1775,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
               void Haptics.selectionAsync().catch(() => undefined);
               void updateDraftImageDescription(!draft.generateImageDescription);
             }}
-          ><Text style={[styles.imageDescriptionChoiceText, draft.generateImageDescription && styles.imageDescriptionChoiceTextActive]}>{t("quick_note.image_description_on")}</Text><Icon name={draft.generateImageDescription ? "checkmark-circle" : "ellipse-outline"} size={17} color={draft.generateImageDescription ? "#52796C" : theme.colors.textMuted} /></Pressable> : null}
+          ><Text style={[styles.imageDescriptionChoiceText, draft.generateImageDescription && styles.imageDescriptionChoiceTextActive]}>{t("quick_note.image_description_on")}</Text><Icon name={draft.generateImageDescription ? "checkmark-circle" : "ellipse-outline"} size={17} color={draft.generateImageDescription ? theme.colors.text : theme.colors.textMuted} /></Pressable> : null}
           {quickNoteAddMenuVisible ? <View style={styles.quickNoteAddMenu}>
             {(["camera", "library"] as const).map((source) => <Pressable
               key={source}
@@ -2933,7 +2934,7 @@ function SidebarRow({ icon, leading, label, count, selected = false, muted = fal
       <Pressable accessibilityLabel={expanded ? t("sidebar.a11y.collapse_collection") : t("sidebar.a11y.expand_collection")} disabled={!expandable} style={styles.sidebarDisclosure} onPress={(event) => { event.stopPropagation(); onToggle?.(); }}>
         {expandable ? <Icon name={expanded ? "chevron-down" : "chevron-forward"} size={14} color={theme.colors.textMuted} /> : null}
       </Pressable>
-      {icon ? <Icon name={icon} size={19} color={muted ? theme.colors.textMuted : selected ? "#111111" : theme.colors.textSecondary} /> : null}
+      {icon ? <Icon name={icon} size={19} color={muted ? theme.colors.textMuted : selected ? theme.colors.text : theme.colors.textSecondary} /> : null}
       {leading ? <View style={muted && styles.sidebarLeadingMuted}>{leading}</View> : null}
       <Text numberOfLines={1} style={[styles.sidebarRowLabel, muted && styles.sidebarRowLabelMuted, selected && styles.sidebarRowLabelSelected]}>{label}</Text>
       {count !== undefined ? <Text style={styles.sidebarRowCount}>{count}</Text> : null}
@@ -2950,7 +2951,7 @@ function SidebarRow({ icon, leading, label, count, selected = false, muted = fal
         >
           {favoriteSaving
             ? <ActivityIndicator size="small" color={theme.colors.textMuted} />
-            : <Icon name={favorite ? "star" : "star-outline"} size={18} color={favorite ? "#C89B2B" : theme.colors.textMuted} />}
+            : <Icon name={favorite ? "star" : "star-outline"} size={18} color={favorite ? theme.colors.text : theme.colors.textMuted} />}
         </Pressable>
       ) : null}
       {onMore ? (
@@ -3356,7 +3357,7 @@ function formatTime(value: string): string {
 
 const editorialFont = Platform.select({ ios: "STSongti-SC-Regular", android: "serif", default: "serif" });
 
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   editorialCanvas: { backgroundColor: theme.colors.canvas },
   memoryTabs: { flexDirection: "row", marginHorizontal: theme.gutter, gap: 24, marginTop: 2, marginBottom: 6 },
   memoryTab: { minHeight: 46, justifyContent: "center", alignItems: "center" },
@@ -3502,7 +3503,7 @@ const styles = StyleSheet.create({
   memoryEntryButton: { width: 54, height: 54, alignItems: "center", justifyContent: "center" },
   memoryDraftDot: { position: "absolute", top: 10, right: 11, width: 8, height: 8, borderRadius: 4, borderWidth: 1.5, borderColor: theme.colors.ink, backgroundColor: theme.colors.accent },
   memoryCollapseInput: { alignSelf: "center", width: 44, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center", backgroundColor: theme.colors.surface, marginBottom: 6 },
-  inspirationCard: { position: "absolute", left: 0, right: 0, bottom: 62, zIndex: 4, minHeight: 64, paddingLeft: 12, paddingRight: 10, paddingVertical: 9, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.borderStrong, borderRadius: 18, backgroundColor: "rgba(255,255,255,0.98)", flexDirection: "row", alignItems: "center", gap: 9, shadowColor: "#000000", shadowOpacity: 0.07, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 6 },
+  inspirationCard: { position: "absolute", left: 0, right: 0, bottom: 62, zIndex: 4, minHeight: 64, paddingLeft: 12, paddingRight: 10, paddingVertical: 9, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.borderStrong, borderRadius: 18, backgroundColor: theme.colors.surface, flexDirection: "row", alignItems: "center", gap: 9, shadowColor: "#000000", shadowOpacity: 0.07, shadowRadius: 10, shadowOffset: { width: 0, height: 3 }, elevation: 6 },
   inspirationOrb: { position: "absolute", right: 8, bottom: 62, zIndex: 3, width: 40, height: 40, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.borderStrong, borderRadius: 20, backgroundColor: "rgba(234,246,241,0.98)", alignItems: "center", justifyContent: "center", shadowColor: "#000000", shadowOpacity: 0.07, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 5 },
   inspirationPrompt: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 9 },
   inspirationCopy: { flex: 1, minWidth: 0 },
@@ -3512,7 +3513,7 @@ const styles = StyleSheet.create({
   inspirationAction: { minHeight: 32, paddingHorizontal: 6, flexDirection: "row", alignItems: "center", gap: 3 },
   inspirationActionText: { color: theme.colors.textSecondary, fontSize: 12, lineHeight: 18 },
   inspirationAssistant: { width: 34, height: 34, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.borderStrong, borderRadius: 17, backgroundColor: theme.colors.surfaceMuted, alignItems: "center", justifyContent: "center" },
-  unifiedComposerBar: { minHeight: 60, padding: 8, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.borderStrong, borderRadius: 26, backgroundColor: "rgba(255,255,255,0.97)", gap: 6, shadowColor: "#000000", shadowOpacity: 0.13, shadowRadius: 14, shadowOffset: { width: 0, height: 5 }, elevation: 9 },
+  unifiedComposerBar: { minHeight: 60, padding: 8, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.borderStrong, borderRadius: 26, backgroundColor: theme.colors.surface, gap: 6, shadowColor: "#000000", shadowOpacity: 0.13, shadowRadius: 14, shadowOffset: { width: 0, height: 5 }, elevation: 9 },
   quickNoteAddMenu: { flexDirection: "row", gap: 10, paddingHorizontal: 6, paddingVertical: 6 },
   quickNoteAddMenuItem: { flex: 1, minHeight: 44, flexDirection: "row", gap: 8, alignItems: "center", justifyContent: "center", borderRadius: 12, backgroundColor: theme.colors.surfaceMuted },
   quickNoteAddMenuText: { fontSize: 13, color: theme.colors.textSecondary, flexShrink: 1 },
@@ -3639,4 +3640,4 @@ const styles = StyleSheet.create({
   sidebarCreateRow: { minHeight: 46, marginHorizontal: 6, marginBottom: 4, paddingHorizontal: 8, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.borderStrong, flexDirection: "row", alignItems: "center", gap: 10 },
   sidebarCreateInput: { flex: 1, minHeight: 42, paddingVertical: 0, color: theme.colors.text, fontSize: 15 },
   sidebarEmpty: { paddingHorizontal: 14, paddingVertical: 12, color: theme.colors.textMuted, fontSize: 13, lineHeight: 20 },
-});
+}));

@@ -5,6 +5,7 @@ import { Icon } from "../../components/Icon";
 import * as Clipboard from "expo-clipboard";
 import { t } from "../../i18n";
 import { theme } from "../../theme";
+import { createStyles } from "../../styles";
 import { RealtimeSttButton } from "../../components/RealtimeSttButton";
 
 type ChatComposerProps = {
@@ -194,7 +195,7 @@ export function ChatComposer({
             disabled={isSending ? true : false}
             hitSlop={6}
           >
-            <Icon name={"arrow-up"} size={18} color={disabled || isSending ? "#A0A4AF" : theme.colors.accentStrong} />
+            <Icon name={"arrow-up"} size={18} color={disabled || isSending ? theme.colors.textFaint : theme.colors.accentStrong} />
           </Pressable>
         )}
       </Pressable>
@@ -205,14 +206,14 @@ export function ChatComposer({
           disabled={isSending ? true : false}
           hitSlop={6}
         >
-          <Icon name={"arrow-up"} size={19} color={disabled || isSending ? "#A0A4AF" : theme.colors.accentStrong} />
+          <Icon name={"arrow-up"} size={19} color={disabled || isSending ? theme.colors.textFaint : theme.colors.accentStrong} />
         </Pressable>
       ) : null}
     </View>
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   inputWrap: {
     backgroundColor: theme.colors.canvas,
     paddingHorizontal: 16,
@@ -329,4 +330,4 @@ const styles = StyleSheet.create({
   micButtonDisabled: {
     opacity: 0.5,
   },
-});
+}));

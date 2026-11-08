@@ -4,6 +4,7 @@ import { Text } from "../../components/Typography";
 import { Icon } from "../../components/Icon";
 import { t, tf } from "../../i18n";
 import { theme } from "../../theme";
+import { createStyles } from "../../styles";
 
 type DatePickerSheetProps = {
   visible: boolean;
@@ -147,7 +148,7 @@ function toDateKey(date: Date): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   overlay: {
     flex: 1,
     justifyContent: "flex-end",
@@ -263,4 +264,4 @@ const styles = StyleSheet.create({
     color: theme.colors.text,
     fontWeight: "700",
   },
-});
+}));

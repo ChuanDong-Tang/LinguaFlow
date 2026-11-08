@@ -5,6 +5,7 @@ import { getMessageTtsAsset, type TtsSourceKey } from "../services/api/ttsApi";
 import { beginTtsPlaybackSession, getTtsPlaybackState, isTtsPlaybackSessionCurrent, playTtsAudio, subscribeTtsPlayback, toggleTtsPlayback } from "../services/tts/ttsPlayback";
 import { t } from "../i18n";
 import { theme } from "../theme";
+import { createStyles } from "../styles";
 
 type TtsPlayButtonProps = {
   messageId: string | null | undefined;
@@ -122,7 +123,7 @@ export function TtsPlayButton({
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   button: {
     minWidth: 32,
     minHeight: 32,
@@ -132,7 +133,7 @@ const styles = StyleSheet.create({
   disabled: {
     opacity: 0.72,
   },
-});
+}));
 
 function toFriendlyErrorMessage(error: Error & { code?: string; status?: number }): string {
   if (error.code === "PRO_REQUIRED" || error.status === 403) return t("tts.error.pro_required");

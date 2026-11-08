@@ -5,6 +5,7 @@ import { Icon } from "../../components/Icon";
 import { SafeAreaView } from "react-native-safe-area-context";
 import type { CardCollection } from "../../services/api/cardApi";
 import { theme } from "../../theme";
+import { createStyles } from "../../styles";
 import { t } from "../../i18n";
 
 export function CollectionPickerModal({ visible, title, collections, value, includeAll = false, onClose, onSelect, onCreateCollection, onRenameCollection, onDeleteCollection }: {
@@ -202,7 +203,7 @@ export function collectionPathName(collection: CardCollection, collections: Card
   return names.join(" / ");
 }
 
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   page: { flex: 1, backgroundColor: theme.colors.canvas },
   header: { minHeight: 58, paddingHorizontal: 16, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.border, flexDirection: "row", alignItems: "center" },
   headerSide: { width: 62, minHeight: 44, alignItems: "center", justifyContent: "center" },
@@ -227,4 +228,4 @@ const styles = StyleSheet.create({
   createButtonDisabled: { opacity: 0.4 },
   createButtonText: { color: theme.colors.onInk, fontSize: 13, fontWeight: "600" },
   moreButton: { width: 42, alignItems: "center", justifyContent: "center" },
-});
+}));

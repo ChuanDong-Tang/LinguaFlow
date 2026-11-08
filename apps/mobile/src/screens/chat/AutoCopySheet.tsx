@@ -4,6 +4,7 @@ import { Text } from "../../components/Typography";
 import { Icon } from "../../components/Icon";
 import { t } from "../../i18n";
 import { theme } from "../../theme";
+import { createStyles } from "../../styles";
 
 type AutoCopySheetProps = {
   visible: boolean;
@@ -49,7 +50,7 @@ export function AutoCopySheet({
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   scrim: {
     flex: 1,
     backgroundColor: "rgba(0, 0, 0, 0.24)",
@@ -94,4 +95,4 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "700",
   },
-});
+}));

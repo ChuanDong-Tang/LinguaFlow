@@ -34,8 +34,9 @@ import { listTtsVoices, type TtsVoiceOption } from "../services/api/ttsApi";
 import { stopTtsAudio } from "../services/tts/ttsPlayback";
 import { getLogs, type AppLog } from "../services/logger";
 import { theme } from "../theme";
+import { createStyles } from "../styles";
 import { appearance, type AppearancePreference } from "../appearance/state";
-import { setAppearancePreference } from "../appearance/preference";
+import { setAppearancePreference } from "../appearance/switch";
 import { haptic } from "../feedback/haptics";
 
 const APPEARANCES: AppearancePreference[] = ["light", "dark", "system"];
@@ -898,7 +899,7 @@ function SelectField({
         <Text style={[styles.selectButtonText, !valueLabel && styles.selectButtonTextMuted]} numberOfLines={1}>
           {valueLabel || "-"}
         </Text>
-        <Icon name={open ? "chevron-up" : "chevron-down"} size={18} color={disabled ? "#B4BBC7" : theme.colors.textStrong} />
+        <Icon name={open ? "chevron-up" : "chevron-down"} size={18} color={disabled ? theme.colors.textFaint : theme.colors.textStrong} />
       </Pressable>
       <Modal visible={open && !disabled && Boolean(anchor)} transparent animationType="none" onRequestClose={onClose}>
         <View style={styles.selectMenuOverlay}>
@@ -1340,14 +1341,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
-const fontStyles = StyleSheet.create({
+const fontStyles = createStyles(() => ({
   row: { paddingHorizontal: 16, paddingVertical: 10, flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 12 },
   label: { flexDirection: "row", alignItems: "center", gap: 12, flexGrow: 1 },
   options: { flexDirection: "row", gap: 4 },
   option: { minWidth: 44, minHeight: 44, paddingHorizontal: 12, paddingVertical: 8, alignItems: "center", justifyContent: "center", borderRadius: 8 },
   selected: { backgroundColor: theme.colors.ink },
-});
-const styles = StyleSheet.create({
+}));
+const styles = createStyles(() => ({
   container: {
     flex: 1,
     backgroundColor: theme.colors.surface,
@@ -1982,4 +1983,4 @@ const styles = StyleSheet.create({
   bindingButtonText: { color: theme.colors.accentStrong, fontSize: 13, fontWeight: "600" },
   bindingsLoading: { marginVertical: 24 },
   bindingPrivacy: { marginTop: 12, color: theme.colors.textMuted, fontSize: 11, lineHeight: 16 },
-});
+}));

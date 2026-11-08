@@ -4,6 +4,7 @@ import { Text } from "../../components/Typography";
 import { Icon } from "../../components/Icon";
 import { t } from "../../i18n";
 import { theme } from "../../theme";
+import { createStyles } from "../../styles";
 
 export type BlockingLoadingOptions = {
   text?: string;
@@ -111,7 +112,7 @@ export async function runWithDeferredBlockingLoading<T>(
   }
 }
 
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   backdrop: {
     ...StyleSheet.absoluteFill,
     zIndex: 999,
@@ -154,4 +155,4 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "600",
   },
-});
+}));

@@ -3,6 +3,7 @@ import { StyleSheet } from "react-native";
 import { Text, TextInput } from "../../components/Typography";
 import type { ClozeToken } from "../../domain/cloze/clozeUtils";
 import { theme } from "../../theme";
+import { createStyles } from "../../styles";
 
 export type ClozeFlowSegment =
   | { type: "text"; key: string; tokenIndex: number; text: string; highlighted: boolean; correct: boolean; spacer: boolean; spacerHighlighted: boolean; textStart: number; textEnd: number }
@@ -59,10 +60,10 @@ function BlankInput({ segment, answer, onChangeAnswer, onFocus }: {
   return <TextInput ref={inputRef} style={[styles.blankInput, { width: segment.width }]} value={answer} onFocus={() => onFocus(inputRef.current)} onPressIn={(event) => event.stopPropagation()} onChangeText={(value) => onChangeAnswer(segment.tokenIndex, value)} autoCapitalize="none" autoCorrect={false} />;
 }
 
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   text: { color: theme.colors.text, fontSize: 16, lineHeight: 24, fontWeight: "400", includeFontPadding: false },
   phraseText: { backgroundColor: theme.colors.warning, color: theme.colors.text },
   correctText: { color: theme.colors.success },
   incorrectText: { color: theme.colors.danger, fontWeight: "500" },
   blankInput: { height: 24, marginHorizontal: 0, paddingHorizontal: 1, paddingVertical: 0, backgroundColor: theme.colors.warning, borderBottomWidth: 1, borderBottomColor: theme.colors.text, color: theme.colors.text, fontSize: 16, lineHeight: 22, fontWeight: "400", textAlign: "center", textAlignVertical: "center", includeFontPadding: false },
-});
+}));

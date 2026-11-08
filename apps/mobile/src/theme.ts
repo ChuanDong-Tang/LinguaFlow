@@ -27,7 +27,7 @@ const lightPalette = {
   greenSoft: "#EAF3EC",
   amber600: "#B7791F",
   amber50: "#FBF3E4",
-  highlight: "#FFE98A",
+  highlight: "#E9E8E2",
   pencilShadow: "rgba(98, 97, 92, 0.35)",
   scrim: "rgba(28, 28, 26, 0.32)",
   scrimLight: "rgba(28, 28, 26, 0.12)",
@@ -55,19 +55,25 @@ const darkPalette: typeof lightPalette = {
   greenSoft: "#22302A",
   amber600: "#E3AA55",
   amber50: "#352C1E",
-  highlight: "#6B5A1E",
+  highlight: "#3A3A36",
   pencilShadow: "rgba(236, 235, 230, 0.16)",
   scrim: "rgba(0, 0, 0, 0.55)",
   scrimLight: "rgba(0, 0, 0, 0.3)",
   shadowColor: "#000000",
 };
 
-export const isDarkAppearance = appearance.resolved === "dark";
-const palette = isDarkAppearance ? darkPalette : lightPalette;
+export function isDarkAppearance() {
+  return appearance.resolved === "dark";
+}
+// Mutable copy of the active palette. Switching appearance rewrites theme
+// values in place (applyAppearancePalette) and regenerates createStyles()
+// sheets, so module-level imports of `theme` stay valid.
+const palette = { ...(isDarkAppearance() ? darkPalette : lightPalette) };
+const PENCIL_FILLS = { light: ["#F4F4F1", "#EFEFEB", "#F7F7F4", "#ECECE7"], dark: ["#262624", "#2B2B28", "#232321", "#2F2F2C"] };
 
-export const theme = {
-  palette,
-  colors: {
+function paletteColors() {
+  return {
+
     canvas: palette.paper,
     surface: palette.white,
     surfaceMuted: palette.sand100,
@@ -93,8 +99,10 @@ export const theme = {
     onInk: palette.onDark,
     danger: palette.red700,
     dangerSoft: palette.redSoft,
-    success: palette.green600,
-    successSoft: palette.greenSoft,
+    // Black-and-white rule: "done / correct" is shown with ink and drawn marks,
+    // not green. Only real errors keep a (muted) red.
+    success: palette.ink900,
+    successSoft: palette.sand100,
     warning: palette.amber600,
     warningSoft: palette.amber50,
     highlight: palette.highlight,
@@ -102,9 +110,28 @@ export const theme = {
     pencilShadow: palette.pencilShadow,
     scrim: palette.scrim,
     scrimLight: palette.scrimLight,
-  },
+  };
+}
+
+function shadows() {
+  return {
+    // Barely-there lift for floating controls; flat surfaces use no shadow.
+    float: Platform.select({
+      ios: { shadowColor: palette.shadowColor, shadowOpacity: 0.08, shadowRadius: 14, shadowOffset: { width: 0, height: 4 } },
+      default: { elevation: 4 },
+    }),
+    menu: Platform.select({
+      ios: { shadowColor: palette.shadowColor, shadowOpacity: 0.12, shadowRadius: 20, shadowOffset: { width: 0, height: 8 } },
+      default: { elevation: 10 },
+    }),
+  };
+}
+
+export const theme = {
+  palette,
+  colors: paletteColors(),
   // Pencil-gray fills for text-only covers; pick by stable hash of an id.
-  pencilFills: (isDarkAppearance ? ["#262624", "#2B2B28", "#232321", "#2F2F2C"] : ["#F4F4F1", "#EFEFEB", "#F7F7F4", "#ECECE7"]) as readonly string[],
+  pencilFills: [...PENCIL_FILLS[appearance.resolved]] as readonly string[],
   radius: {
     tiny: 4,
     control: 10,
@@ -127,15 +154,15 @@ export const theme = {
   // Memory game route: graphite steps (black-and-white style).
   gameRoute: [palette.ink900, palette.ink700, palette.ink600, palette.ink500] as readonly string[],
   hairline: StyleSheet.hairlineWidth,
-  shadow: {
-    // Barely-there lift for floating controls; flat surfaces use no shadow.
-    float: Platform.select({
-      ios: { shadowColor: palette.shadowColor, shadowOpacity: 0.08, shadowRadius: 14, shadowOffset: { width: 0, height: 4 } },
-      default: { elevation: 4 },
-    }),
-    menu: Platform.select({
-      ios: { shadowColor: palette.shadowColor, shadowOpacity: 0.12, shadowRadius: 20, shadowOffset: { width: 0, height: 8 } },
-      default: { elevation: 10 },
-    }),
-  },
+  shadow: shadows(),
 } as const;
+
+/** Rewrite every theme value in place for the given appearance. */
+export function applyAppearancePalette(resolved: "light" | "dark") {
+  appearance.resolved = resolved;
+  Object.assign(palette, resolved === "dark" ? darkPalette : lightPalette);
+  Object.assign(theme.colors, paletteColors());
+  (theme.pencilFills as string[]).splice(0, theme.pencilFills.length, ...PENCIL_FILLS[resolved]);
+  (theme.gameRoute as string[]).splice(0, theme.gameRoute.length, palette.ink900, palette.ink700, palette.ink600, palette.ink500);
+  Object.assign(theme.shadow, shadows());
+}

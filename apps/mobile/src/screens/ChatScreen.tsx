@@ -86,6 +86,7 @@ import { calculatePcmAudioLevel } from "../services/stt/pcmAudioLevel";
 import type { PcmAudioFrame, RealtimeAudioSource } from "../services/stt/realtimeAudioSource";
 import { notifyQuotaExhaustion } from "../services/usage/quotaExhaustion";
 import { theme } from "../theme";
+import { createStyles } from "../styles";
 
 const STT_PREBUFFER_MAX_FRAMES = 180;
 
@@ -1754,7 +1755,7 @@ function isSttInactive(status: "idle" | "connecting" | "recording" | "stopping")
   return status === "idle" || status === "stopping";
 }
 
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   transitionScreen: {
     flex: 1,
     backgroundColor: theme.colors.canvas,
@@ -1784,4 +1785,4 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 3 },
     elevation: 3,
   },
-});
+}));

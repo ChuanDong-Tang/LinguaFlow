@@ -83,6 +83,7 @@ import {
 } from "../domain/subscription/subscriptionPlans";
 import { payWithAlipay } from "../../modules/oio-alipay-pay";
 import { theme } from "../theme";
+import { createStyles } from "../styles";
 
 type ProScreenProps = {
   onBack?: () => void;
@@ -2465,7 +2466,7 @@ const PAYMENT_RULE_KEYS = [
   "pro.rules.6",
 ] as const;
 
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   container: {
     flex: 1,
     backgroundColor: theme.colors.canvas,
@@ -2851,4 +2852,4 @@ const styles = StyleSheet.create({
     fontSize: 10,
     lineHeight: 14,
   },
-});
+}));

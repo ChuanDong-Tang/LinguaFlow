@@ -5,6 +5,7 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { Icon } from "../../components/Icon";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { theme } from "../../theme";
+import { createStyles } from "../../styles";
 
 export type FloatingNoticeType = "info" | "success" | "warning" | "error";
 export type FloatingNoticePosition = "top-right" | "top-left" | "top-center" | "bottom-center";
@@ -264,7 +265,7 @@ const NOTICE_PALETTE: Record<
   },
 };
 
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   overlay: {
     zIndex: 1000,
     elevation: 1000,
@@ -292,4 +293,4 @@ const styles = StyleSheet.create({
     lineHeight: 16,
     fontWeight: "600",
   },
-});
+}));

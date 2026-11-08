@@ -1,5 +1,5 @@
 import React, { createContext, forwardRef, useContext } from "react";
-import { isDarkAppearance } from "../theme";
+import { isDarkAppearance, theme } from "../theme";
 import { Text as NativeText, TextInput as NativeTextInput, StyleSheet, type TextProps, type TextInputProps } from "react-native";
 import { useFontSize } from "../services/preferences/fontSizePreference";
 import { scaledFontMetrics } from "../services/preferences/fontSizeState";
@@ -11,7 +11,7 @@ export const Text = forwardRef<NativeText, TextProps>(function Text({ style, chi
   const { scale } = useFontSize();
   const nested = useContext(NestedText);
   const metrics = scaledFontMetrics(StyleSheet.flatten(style) ?? {}, scale, nested);
-  return <NestedText.Provider value={true}><NativeText {...props} ref={ref} style={[style, metrics]}>{children}</NativeText></NestedText.Provider>;
+  return <NestedText.Provider value={true}><NativeText {...props} ref={ref} style={[nested ? null : { color: theme.colors.text }, style, metrics]}>{children}</NativeText></NestedText.Provider>;
 });
 export const TextInput = forwardRef<NativeTextInput, TextInputProps>(function TextInput({ style, ...props }, ref) {
   const { scale } = useFontSize();
@@ -22,5 +22,5 @@ export const TextInput = forwardRef<NativeTextInput, TextInputProps>(function Te
     const value = flat[key as keyof typeof flat];
     return typeof value === "number" ? [[key, value * Math.max(1, scale)]] : [];
   }));
-  return <NativeTextInput keyboardAppearance={isDarkAppearance ? "dark" : "light"} {...props} ref={ref} style={[style, scaledFontMetrics(flat, scale), bounds]} />;
+  return <NativeTextInput keyboardAppearance={isDarkAppearance() ? "dark" : "light"} placeholderTextColor={theme.colors.textFaint} {...props} ref={ref} style={[{ color: theme.colors.text }, style, scaledFontMetrics(flat, scale), bounds]} />;
 });

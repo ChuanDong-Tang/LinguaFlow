@@ -6,6 +6,7 @@ import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import * as MediaLibrary from "expo-media-library/legacy";
 import { getLanguage, t } from "../../i18n";
 import { theme } from "../../theme";
+import { createStyles } from "../../styles";
 import { canReadMemoryPhoto, readMemoryPhotoPage, requestMemoryPhotoPermission } from "../../services/device/memoryPhotoLibrary";
 import { confirmAccessiblePhoto } from "../../services/device/memoryPhotoConfirmation";
 import { createMemoryPhotoPager, type PhotoPagerState } from "../../services/device/memoryPhotoPager";
@@ -225,7 +226,7 @@ function PhotoNoteInput({ value, onChange, disabled, maxLength, onBusyChange }: 
   </View>;
 }
 
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   page: { flex: 1, backgroundColor: theme.colors.surface, paddingHorizontal: 22, paddingBottom: 12 },
   header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", minHeight: 54 },
   headerSide: { width: "26%", flexShrink: 0 },
@@ -246,4 +247,4 @@ const styles = StyleSheet.create({
   spread: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10 },
   photo: { borderRadius: 12, padding: 4, backgroundColor: theme.colors.surface, shadowColor: "#000000", shadowOpacity: .08, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 3 },
   image: { width: "100%", height: "100%", borderRadius: 8 },
-});
+}));

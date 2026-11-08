@@ -3,6 +3,7 @@ import React from "react";
 import { ActivityIndicator, Pressable, StyleSheet, View } from "react-native";
 import { Text } from "../../components/Typography";
 import { theme } from "../../theme";
+import { createStyles } from "../../styles";
 import { t } from "../../i18n";
 
 type MembershipSummaryCardProps = {
@@ -44,7 +45,7 @@ export function MembershipSummaryCard({
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   card: {
     minHeight: 96,
     flexDirection: "row",
@@ -61,4 +62,4 @@ const styles = StyleSheet.create({
   meta: { marginTop: 3, color: theme.colors.textSecondary, fontSize: 12 },
   action: { marginLeft: 12, flexDirection: "row", alignItems: "center" },
   actionText: { color: theme.colors.textSecondary, fontSize: 13 },
-});
+}));

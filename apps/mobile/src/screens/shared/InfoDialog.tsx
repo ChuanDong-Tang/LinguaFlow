@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, View } from "react-native";
 import { Text } from "../../components/Typography";
 import { t } from "../../i18n";
 import { theme } from "../../theme";
+import { createStyles } from "../../styles";
 
 export type InfoDialogConfig = {
   message: string;
@@ -40,7 +41,7 @@ export function InfoDialog({ config, onClose }: { config: InfoDialogConfig | nul
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   backdrop: {
     ...StyleSheet.absoluteFill,
     zIndex: 1000,
@@ -93,4 +94,4 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "700",
   },
-});
+}));

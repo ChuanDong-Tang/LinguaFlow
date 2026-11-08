@@ -17,6 +17,7 @@ import { t } from "../../i18n";
 import { TtsPlayButton } from "../../components/TtsPlayButton";
 import OioCharacter from "../../../assets/app/oio-character.svg";
 import { theme } from "../../theme";
+import { createStyles } from "../../styles";
 
 const TypingDots = React.memo(function TypingDots() {
   const dot1 = React.useRef(new Animated.Value(0.35)).current;
@@ -516,7 +517,7 @@ const AssistantMessageRow = React.memo(function AssistantMessageRow({
                   }}
                   disabled={!message.text.trim()}
                 >
-                  <Icon name="copy-outline" size={22} color={!message.text.trim() ? "#C1C5CE" : theme.colors.text} />
+                  <Icon name="copy-outline" size={22} color={!message.text.trim() ? theme.colors.textFaint : theme.colors.text} />
                 </Pressable>
                 </View>
               </View>
@@ -745,7 +746,7 @@ export function MessageList({
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   messageList: {
     flex: 1,
   },
@@ -954,4 +955,4 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.disabled,
     marginRight: 6,
   },
-});
+}));

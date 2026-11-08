@@ -39,8 +39,8 @@ body and green pocket in both modes; nothing else in the UI uses hue.
 | Soft emphasis fill | `colors.accentSoft` | pencil gray | dark pencil gray |
 | Text-only covers | `theme.pencilFills` | 4 light grays | 4 dark grays |
 
-Semantic colors (`danger`, `success`) are reserved for real errors/success and
-stay muted. Pick a cover gray by stable hash of the record id (`pencilFillFor`),
+`success` is ink (done/correct is shown with drawn marks, not green); `danger`
+is a muted red reserved for real errors and destructive actions. Pick a cover gray by stable hash of the record id (`pencilFillFor`),
 never by list index.
 
 ### Color discipline
@@ -49,11 +49,15 @@ never by list index.
 - Photos are the only full-color content and stay untouched.
 
 ### Appearance (inverted mode)
-Users choose 浅色 / 深色 / 跟随系统 in 我的 → 外观. The palette is selected once at
-JS startup (`src/appearance/`), and changing it reloads the app. Therefore:
-- Always read colors from `theme` at module level as today; never cache a hex string from elsewhere.
-- Any new color must be added to both palettes.
-- Check every new screen in both modes before handing off.
+Users choose 浅色 / 深色 / 系统 in 我的 → 外观, and the switch is live (no reload):
+`src/appearance/switch.ts` rewrites `theme` values in place, regenerates every
+style sheet, and the app root remounts its views (App state is kept, so the user
+stays on the same screen). For this to work:
+- Create style sheets with `createStyles(() => ({ ... }))` from `src/styles.ts`, never `StyleSheet.create`.
+- Read `theme.colors.*` at render time or inside `createStyles`; never copy a color into a module-level constant.
+- No hex or `rgba(255,255,255,…)` literals for surfaces or text; scrims and shadows over photos are the only exception.
+- `Text`, `TextInput` and `Icon` default to `theme.colors.text`; don't rely on platform defaults (black).
+- Any new color must exist in both palettes. Check every new screen in both modes before handing off.
 
 ## Line
 

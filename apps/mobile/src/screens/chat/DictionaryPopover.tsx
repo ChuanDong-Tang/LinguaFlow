@@ -9,6 +9,7 @@ import { t } from "../../i18n";
 import { playTtsAudio } from "../../services/tts/ttsPlayback";
 import { calculateDictionaryPopoverLayout, DICTIONARY_POPOVER_WIDTH } from "./dictionaryPopoverLayout";
 import { theme } from "../../theme";
+import { createStyles } from "../../styles";
 
 export type DictionaryPopoverAnchor = {
   pageX: number;
@@ -154,7 +155,7 @@ function isShortDictionaryExpression(text: string): boolean {
   return text.trim().length <= 60 && text.trim().split(/\s+/u).filter(Boolean).length <= 5;
 }
 
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   overlay: {
     ...StyleSheet.absoluteFill,
     zIndex: 20,
@@ -292,4 +293,4 @@ const styles = StyleSheet.create({
   uiContent: {
     paddingTop: 12,
   },
-});
+}));

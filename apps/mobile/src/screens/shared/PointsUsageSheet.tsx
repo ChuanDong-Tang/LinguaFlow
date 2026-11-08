@@ -5,6 +5,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Icon } from "../../components/Icon";
 import { t } from "../../i18n";
 import { theme } from "../../theme";
+import { createStyles } from "../../styles";
 
 const features = [
   { key: "pro.points.dictionary", charged: false },
@@ -52,7 +53,7 @@ export function PointsUsageSheet({ visible, onClose }: { visible: boolean; onClo
     </View>
   </Modal>;
 }
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   overlay: { flex: 1, justifyContent: "flex-end", backgroundColor: "transparent" },
   sheet: { backgroundColor: theme.colors.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, paddingHorizontal: 22, shadowColor: "#000", shadowOpacity: 0.08, shadowRadius: 18, shadowOffset: { width: 0, height: -4 }, elevation: 8 },
   handle: { width: 34, height: 4, borderRadius: 2, backgroundColor: theme.colors.disabled, alignSelf: "center", marginTop: 10, marginBottom: 18 },
@@ -66,4 +67,4 @@ const styles = StyleSheet.create({
   value: { fontSize: 14, fontWeight: "600", color: theme.colors.text, textAlign: "right", flexShrink: 1 },
   free: { color: theme.colors.success },
   divider: { height: StyleSheet.hairlineWidth, backgroundColor: theme.colors.border },
-});
+}));

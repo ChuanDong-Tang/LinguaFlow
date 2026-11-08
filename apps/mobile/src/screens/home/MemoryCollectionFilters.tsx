@@ -3,6 +3,7 @@ import { Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { Text } from "../../components/Typography";
 import { getLanguage, t } from "../../i18n";
 import { theme } from "../../theme";
+import { createStyles } from "../../styles";
 
 export function MemoryCollectionFilters({ collections, selected, onSelect, onTouching }: {
   editorial?: boolean;
@@ -22,10 +23,10 @@ export function MemoryCollectionFilters({ collections, selected, onSelect, onTou
   </View>;
 }
 
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   row: { gap: 6, paddingHorizontal: theme.gutter - 4, paddingVertical: 6 },
   chip: { minHeight: 32, maxWidth: 180, paddingHorizontal: 12, borderRadius: theme.radius.pill, justifyContent: "center" },
   selectedChip: { backgroundColor: theme.colors.surfaceMuted },
   label: { fontSize: 14, color: theme.colors.textMuted },
   selectedLabel: { color: theme.colors.text, fontWeight: "600" },
-});
+}));

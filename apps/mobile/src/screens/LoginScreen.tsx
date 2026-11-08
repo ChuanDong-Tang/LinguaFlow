@@ -18,6 +18,7 @@ import type { User } from "@lf/core/types";
 import { Icon } from "../components/Icon";
 import { useMountedGuard } from "../hooks/useMountedGuard";
 import { theme } from "../theme";
+import { createStyles } from "../styles";
 
 type LoginScreenProps = { onLoginSuccess: () => void };
 type LoginMode = "phone" | "email";
@@ -423,7 +424,7 @@ function resolveDisplayName(user: {
   return user.nickname?.trim() || user.username?.trim() || user.email?.trim() || user.phone?.trim() || null;
 }
 
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   container: {
     flex: 1,
     backgroundColor: theme.colors.canvas,
@@ -658,4 +659,4 @@ const styles = StyleSheet.create({
     fontSize: 12,
     textAlign: "center",
   },
-});
+}));

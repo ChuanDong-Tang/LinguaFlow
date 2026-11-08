@@ -8,6 +8,7 @@ import { getAssistantClozeText } from "../../domain/cloze/clozeText";
 import { t } from "../../i18n";
 import type { NativeTextSelectionPayload } from "./SelectableMessageText";
 import { theme } from "../../theme";
+import { createStyles } from "../../styles";
 import { ClozeTokenEditor } from "../shared/ClozeTokenEditor";
 
 export type ClozeEditorState = {
@@ -126,7 +127,7 @@ export function ClozeControls({
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   selectionOverlay: {
     flex: 1,
   },
@@ -264,4 +265,4 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "800",
   },
-});
+}));

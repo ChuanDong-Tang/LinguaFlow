@@ -7,6 +7,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { getLanguage, t } from "../i18n";
 import { submitFeedback, type FeedbackCategory } from "../services/api/meApi";
 import { theme } from "../theme";
+import { createStyles } from "../styles";
 
 type FeedbackScreenProps = {
   onBack: () => void;
@@ -124,7 +125,7 @@ export function FeedbackScreen({ onBack }: FeedbackScreenProps) {
   );
 }
 
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   container: { flex: 1, backgroundColor: theme.colors.canvas },
   header: {
     height: 60,
@@ -171,4 +172,4 @@ const styles = StyleSheet.create({
   submitButtonDisabled: { backgroundColor: theme.colors.disabled },
   submitButtonPressed: { opacity: 0.78 },
   submitText: { color: theme.colors.onInk, fontSize: 15, fontWeight: "600" },
-});
+}));

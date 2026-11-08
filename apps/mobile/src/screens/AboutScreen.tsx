@@ -10,6 +10,7 @@ import * as Application from "expo-application";
 import { t } from "../i18n";
 import { getAvailableAppUpdate, type AvailableAppUpdate } from "../services/api/appVersionApi";
 import { theme } from "../theme";
+import { createStyles } from "../styles";
 
 const CHANGELOG_URL = "https://yueyantech.com/wiki/changelog.html";
 
@@ -142,7 +143,7 @@ function openUrl(url: string): void {
   void Linking.openURL(url);
 }
 
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   container: { flex: 1, backgroundColor: theme.colors.canvas },
   header: {
     height: 60,
@@ -187,4 +188,4 @@ const styles = StyleSheet.create({
     height: 180,
     marginTop: 40,
   },
-});
+}));

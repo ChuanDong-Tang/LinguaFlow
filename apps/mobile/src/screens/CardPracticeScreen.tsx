@@ -12,6 +12,7 @@ import {
   type CardRecordDetail,
 } from "../services/api/cardApi";
 import { theme } from "../theme";
+import { createStyles } from "../styles";
 import { t, tf } from "../i18n";
 import { CardDetailModal } from "./CardDetailModal";
 
@@ -86,6 +87,6 @@ function PracticeRow({ item, onPress }: { item: CardPracticeQueueItem; onPress: 
   return <Pressable style={styles.row} onPress={onPress}><View style={styles.rowBody}><Text style={styles.reason}>{labels[item.reason]}</Text>{item.record.displayTitle.trim() ? <Text numberOfLines={1} style={styles.preview}>{item.record.displayTitle}</Text> : null}<Text numberOfLines={1} style={styles.previewBody}>{item.record.rewrittenPreview?.trim() || item.record.originalPreview}</Text></View><Icon name="chevron-forward" size={19} color={theme.colors.textMuted} /></Pressable>;
 }
 
-const styles = StyleSheet.create({
+const styles = createStyles(() => ({
   container: { flex: 1, backgroundColor: theme.colors.canvas }, header: { paddingHorizontal: 20, paddingTop: 10, paddingBottom: 14, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }, title: { color: theme.colors.text, fontSize: 22, fontWeight: "600" }, subtitle: { marginTop: 5, color: theme.colors.textSecondary, fontSize: 13 }, calendarButton: { width: 44, height: 44, borderRadius: 22, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surface, alignItems: "center", justifyContent: "center" }, content: { paddingHorizontal: 20, paddingBottom: 32 }, startCard: { marginTop: 8, minHeight: 92, paddingHorizontal: 16, borderRadius: theme.radius.card, backgroundColor: theme.colors.accent, flexDirection: "row", alignItems: "center" }, disabled: { opacity: 0.55 }, startIcon: { width: 44, height: 44, borderRadius: 22, backgroundColor: "rgba(255,255,255,0.18)", alignItems: "center", justifyContent: "center" }, startBody: { flex: 1, marginHorizontal: 13 }, startTitle: { color: theme.colors.surface, fontSize: 17, fontWeight: "600" }, startSubtitle: { marginTop: 5, color: "rgba(255,255,255,0.78)", fontSize: 12 }, loader: { marginTop: 32 }, sectionTitle: { marginTop: 26, marginBottom: 10, color: theme.colors.textSecondary, fontSize: 13, fontWeight: "600" }, row: { minHeight: 82, marginBottom: 10, paddingHorizontal: 15, borderRadius: theme.radius.card, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surface, flexDirection: "row", alignItems: "center" }, rowBody: { flex: 1, paddingVertical: 13 }, reason: { color: theme.colors.accentStrong, fontSize: 11, fontWeight: "600" }, preview: { marginTop: 5, color: theme.colors.text, fontSize: 14, lineHeight: 20 }, previewBody: { marginTop: 2, color: theme.colors.textMuted, fontSize: 12, lineHeight: 18 }, empty: { marginTop: 26, padding: 28, borderRadius: theme.radius.card, backgroundColor: theme.colors.surface, alignItems: "center" }, emptyTitle: { color: theme.colors.text, fontSize: 16, fontWeight: "600" }, emptyText: { marginTop: 7, color: theme.colors.textMuted, fontSize: 13, lineHeight: 20, textAlign: "center" },
-});
+}));
