@@ -10,7 +10,7 @@ import { memoryFanLayout } from "./memoryFanLayout";
 import { memoryCollageLayout } from "./memoryCollageLayout";
 import { theme } from "../../theme";
 import { createStyles } from "../../styles";
-import { SketchBox, SketchPressable, pencilFillFor } from "../../components/sketch/Sketch";
+import { Surface, PressableSurface, coverFillFor } from "../../components/surface/Surface";
 import { haptic } from "../../feedback/haptics";
 
 const labels = {
@@ -87,9 +87,9 @@ export function MemoryArchiveDeck({ records, loading, hasMore, onLoadMore, onOpe
               return <Pressable key={id} disabled={!card} accessibilityRole="button" accessibilityLabel={card?.displayTitle || copy[8]}
                 onPress={() => { if (card) { haptic.light(); openSet(id); } }}
                 style={({ pressed }) => [styles.collageCard, { left: cell.left, top: cell.top, width: cell.width, height: cell.height, transform: [{ rotate: `${cell.rotate}deg` }, { scale: pressed ? 0.97 : 1 }] }]}>
-                <SketchBox seed={id} fill={theme.colors.surface} shadow style={styles.cardSketch}>
+                <Surface fill={theme.colors.surface} style={styles.cardSketch}>
                   {card ? <><ArchiveCover card={card} onError={onThumbnailError} compact />{card.thumbnail ? <Text numberOfLines={1} style={styles.collageTitle}>{card.displayTitle || card.originalPreview}</Text> : null}</> : null}
-                </SketchBox>
+                </Surface>
               </Pressable>;
             }
             const fan = visible === 3;
@@ -99,9 +99,9 @@ export function MemoryArchiveDeck({ records, loading, hasMore, onLoadMore, onOpe
               onPress={() => { if (card) { haptic.light(); openSet(id); } }}
               style={[styles.card, visible === 1 ? styles.single : visible === 2 ? styles.pair : styles.fan,
                 fan && { width: layout.width, height: layout.height, zIndex: slot === 0 ? 3 : 1, transform: [{ translateX: offset * layout.offset }, { translateY: offset ? -28 : 24 }, { rotate: `${offset * layout.angle}deg` }] }]}>
-              <SketchBox seed={id} fill={theme.colors.surface} shadow style={styles.cardSketch}>
+              <Surface fill={theme.colors.surface} style={styles.cardSketch}>
                 {card ? <><ArchiveCover card={card} onError={onThumbnailError} /><Text numberOfLines={2} style={styles.title}>{card.displayTitle || card.originalPreview}</Text><Text style={styles.date}>{card.dateKey}</Text></> : <Text style={styles.muted}>{copy[8]}</Text>}
-              </SketchBox>
+              </Surface>
             </Pressable>;
           })}
           {visible === 2 && batch.length === 1 ? <View pointerEvents="none" accessible={false} style={{ width: "46%" }} /> : null}
@@ -109,7 +109,7 @@ export function MemoryArchiveDeck({ records, loading, hasMore, onLoadMore, onOpe
         <View accessibilityElementsHidden={page !== pages.length} importantForAccessibility={page === pages.length ? "auto" : "no-hide-descendants"} style={[styles.ending, { width }]}>
           <Text style={styles.endingTitle}>{copy[4]}</Text>
           <View style={styles.endingGrid}>{ids.slice(0, 15).map(id => { const card = byId.get(id); return card ? <Pressable key={id} accessibilityRole="button" accessibilityLabel={card.displayTitle || card.originalPreview} style={styles.endingThumb} onPress={() => { haptic.light(); openSet(id); }}><ArchiveCover card={card} onError={onThumbnailError} compact /></Pressable> : null; })}</View>
-          <SketchPressable seed="deck-next-set" radius={25} fill={theme.colors.accent} feedback="medium" accessibilityRole="button" contentStyle={styles.nextSet} onPress={() => restart(count, visible, ids)}><Text style={styles.nextSetText}>{copy[5]}</Text></SketchPressable></View>
+          <PressableSurface radius={25} fill={theme.colors.accent} feedback="medium" accessibilityRole="button" contentStyle={styles.nextSet} onPress={() => restart(count, visible, ids)}><Text style={styles.nextSetText}>{copy[5]}</Text></PressableSurface></View>
       </ScrollView> : <View style={styles.ending}>{!loading ? <Text style={styles.muted}>{copy[8]}</Text> : null}</View>}
     </View>
     <View style={styles.navigationSlot}>{ids.length > 0 && page < pages.length ? <View style={styles.navigation}>
@@ -127,7 +127,7 @@ function ArchiveCover({ card, onError, compact = false }: { card: CardRecordSumm
   const url = card.thumbnail?.url;
   return url && failedUrl !== url
     ? <Image source={{ uri: url }} style={styles.image} resizeMode="cover" onError={() => { setFailedUrl(url); onError(); }} />
-    : <View style={[styles.image, styles.textCover, { backgroundColor: pencilFillFor(card.id) }]}><Text numberOfLines={compact ? 3 : 5} style={[styles.title, compact && styles.compactCoverTitle]}>{card.displayTitle || card.originalPreview}</Text></View>;
+    : <View style={[styles.image, styles.textCover, { backgroundColor: coverFillFor(card.id) }]}><Text numberOfLines={compact ? 3 : 5} style={[styles.title, compact && styles.compactCoverTitle]}>{card.displayTitle || card.originalPreview}</Text></View>;
 }
 const styles = createStyles(() => ({
   container: { width: "100%", alignItems: "center" }, header: { width: "100%", alignItems: "flex-start" },
@@ -147,7 +147,7 @@ const styles = createStyles(() => ({
   compactCoverTitle: { fontSize: 13, lineHeight: 18, fontWeight: "700", textAlign: "center" },
   endingTitle: { color: theme.colors.textSecondary, fontSize: 14 },
   endingGrid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 8, paddingHorizontal: 18 },
-  endingThumb: { width: 54, height: 54, borderRadius: 8, overflow: "hidden", borderWidth: 1, borderColor: theme.colors.border },
+  endingThumb: { width: 54, height: 54, borderRadius: 8, overflow: "hidden" },
   single: { width: "86%", height: 340 }, pair: { width: "46%", height: 265 }, fan: { position: "absolute", width: "65%", height: 285 },
   image: { width: "100%", flex: 1, minHeight: 0, borderRadius: 7 }, textCover: { justifyContent: "center", padding: 12 },
   title: { color: theme.colors.text, fontSize: 14, lineHeight: 21 }, date: { color: theme.colors.textMuted, fontSize: 11, paddingBottom: 3 },

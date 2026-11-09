@@ -85,7 +85,7 @@ import { OioMascot } from "../components/sketch/OioMascot";
 import { getCurrentEntitlement } from "../services/api/meApi";
 import { useAndroidBack } from "../hooks/useAndroidBack";
 import { previewVideoLink } from "../services/card/videoLinkPreview";
-import { pencilFillFor } from "../components/sketch/Sketch";
+import { coverFillFor } from "../components/surface/Surface";
 import { haptic } from "../feedback/haptics";
 import { subscribeCardEncounters } from "../services/card/cardEncounters";
 import { setCardPracticeMode, useCardPracticeMode, type CardPracticeMode } from "../services/preferences/cardPracticeMode";
@@ -3728,7 +3728,7 @@ function Review({ practiceCommand, onLanguageControlChange, hidePhraseRecommenda
           {detail.displayTitle.trim() || primaryTextBlock ? <View style={styles.readingTitleRow}>
             <Text numberOfLines={3} style={styles.readingTitle}>{detail.displayTitle}</Text>
             {primaryTextBlock && detail.originalText.trim() && (detail.mode === "corpus" || detail.rewrittenText) ? <Pressable accessibilityRole="button" accessibilityLabel={t(displayMode === "auxiliary" ? "card_detail.flip_back" : "card_detail.flip_original")} accessibilityState={{ selected: displayMode === "auxiliary" }} hitSlop={8} disabled={auxiliaryLoading} style={({ pressed }) => [styles.flipButton, displayMode === "auxiliary" && styles.flipButtonOn, pressed && { opacity: 0.7 }]} onPress={() => { haptic.select(); cycleDisplayMode(); }}>
-              {auxiliaryLoading ? <ActivityIndicator size="small" color={theme.colors.textSecondary} /> : <Icon name="sync-outline" size={17} color={displayMode === "auxiliary" ? theme.colors.onInk : theme.colors.text} />}
+              {auxiliaryLoading ? <ActivityIndicator size="small" color={theme.colors.textSecondary} /> : <Icon name="sync-outline" size={17} color={displayMode === "auxiliary" ? theme.colors.onAccent : theme.colors.text} />}
             </Pressable> : null}
           </View> : null}
           {!detail.originalText.trim() && onSaveOriginal ? <View style={styles.moduleComposer}>
@@ -4094,7 +4094,7 @@ function RelatedFeedModal({ visible, recordId, topic, onClose, onOpen }: {
         renderItem={({ item }) => <Pressable accessibilityRole="button" style={({ pressed }) => [styles.relatedFeedCard, pressed && { opacity: 0.8 }]} onPress={() => { haptic.light(); onOpen(item.recordId, item.reasons); }}>
           {item.card.thumbnail
             ? <Image source={{ uri: item.card.thumbnail.url }} style={[styles.relatedFeedCover, { aspectRatio: Math.max(0.75, Math.min(1.25, item.card.thumbnail.width / Math.max(1, item.card.thumbnail.height))) }]} />
-            : <View style={[styles.relatedFeedCover, styles.relatedFeedTextCover, { backgroundColor: pencilFillFor(item.recordId) }]}><Text numberOfLines={5} style={styles.relatedFeedTextCoverTitle}>{item.card.displayTitle || item.card.originalText}</Text></View>}
+            : <View style={[styles.relatedFeedCover, styles.relatedFeedTextCover, { backgroundColor: coverFillFor(item.recordId) }]}><Text numberOfLines={5} style={styles.relatedFeedTextCoverTitle}>{item.card.displayTitle || item.card.originalText}</Text></View>}
           {item.card.thumbnail ? <Text numberOfLines={2} style={styles.relatedFeedCardTitle}>{item.card.displayTitle}</Text> : null}
           <Text style={styles.relatedFeedCardDate}>{item.card.dateKey}</Text>
         </Pressable>}
@@ -5471,41 +5471,41 @@ function formatDate(value: string): string { const [year, month, day] = value.sp
 function formatTime(value: string): string { const date = new Date(value); return Number.isNaN(date.getTime()) ? "" : date.toLocaleTimeString(getLanguage(), { hour: "2-digit", minute: "2-digit" }); }
 
 const styles = createStyles(() => ({
-  draftLinkChip: { marginTop: 10, minHeight: 36, paddingHorizontal: 12, borderRadius: 18, borderWidth: 1, borderColor: theme.colors.border, flexDirection: "row", alignItems: "center", gap: 8, alignSelf: "flex-start", maxWidth: "100%" },
+  draftLinkChip: { marginTop: 10, minHeight: 36, paddingHorizontal: 12, borderRadius: 18, backgroundColor: theme.colors.fill1, flexDirection: "row", alignItems: "center", gap: 8, alignSelf: "flex-start", maxWidth: "100%" },
   draftLinkText: { flexShrink: 1, color: theme.colors.text, fontSize: 13 },
   linkModalBackdrop: { flex: 1, justifyContent: "center", padding: 24, backgroundColor: theme.colors.scrim },
   linkModalCard: { padding: 18, gap: 10, borderRadius: 18, backgroundColor: theme.colors.surface },
   linkModalTitle: { color: theme.colors.text, fontSize: 17, fontWeight: "700" },
   linkModalHint: { color: theme.colors.textMuted, fontSize: 13 },
-  linkModalInput: { minHeight: 46, paddingHorizontal: 12, borderRadius: 12, borderWidth: 1, borderColor: theme.colors.border, fontSize: 15 },
+  linkModalInput: { minHeight: 46, paddingHorizontal: 12, borderRadius: 10, backgroundColor: theme.colors.fill2, fontSize: 15 },
   linkModalActions: { flexDirection: "row", justifyContent: "flex-end", gap: 10, marginTop: 4 },
   linkModalButton: { minHeight: 40, minWidth: 64, paddingHorizontal: 14, borderRadius: 20, alignItems: "center", justifyContent: "center" },
   linkModalCancel: { color: theme.colors.textSecondary, fontSize: 15 },
   linkModalPrimary: { backgroundColor: theme.colors.accent },
   linkModalPrimaryText: { color: theme.colors.onAccent, fontSize: 15, fontWeight: "700" },
-  readingLinkCard: { marginTop: 14, minHeight: 52, paddingHorizontal: 14, borderRadius: 14, borderWidth: 1, borderColor: theme.colors.border, flexDirection: "row", alignItems: "center", gap: 10 },
+  readingLinkCard: { marginTop: 14, minHeight: 52, paddingHorizontal: 14, borderRadius: 10, backgroundColor: theme.colors.fill1, flexDirection: "row", alignItems: "center", gap: 10 },
   readingLinkProvider: { color: theme.colors.textMuted, fontSize: 12, fontWeight: "600" },
   readingLinkTitle: { flex: 1, color: theme.colors.text, fontSize: 14, fontWeight: "600" },
-  draftFolderTag: { minWidth: 36, maxWidth: 120, height: 34, paddingHorizontal: 10, borderRadius: 17, borderWidth: 1, borderColor: theme.colors.border, alignItems: "center", justifyContent: "center" },
-  draftFolderTagOn: { borderColor: theme.colors.ink },
+  draftFolderTag: { minWidth: 36, maxWidth: 120, height: 34, paddingHorizontal: 10, borderRadius: 17, backgroundColor: theme.colors.fill2, alignItems: "center", justifyContent: "center" },
+  draftFolderTagOn: { backgroundColor: theme.colors.accentSoft },
   draftFolderTagText: { color: theme.colors.textSecondary, fontSize: 15, fontWeight: "700" },
-  draftFolderTagTextOn: { color: theme.colors.text, fontSize: 13 },
-  imageDescriptionChip: { minHeight: 30, paddingHorizontal: 12, borderRadius: 15, backgroundColor: "rgba(28, 28, 26, 0.55)", justifyContent: "center" },
+  draftFolderTagTextOn: { color: theme.colors.accent, fontSize: 13 },
+  imageDescriptionChip: { minHeight: 28, paddingHorizontal: 12, borderRadius: 14, backgroundColor: "rgba(0, 0, 0, 0.45)", justifyContent: "center" },
   imageDescriptionChipOn: { backgroundColor: theme.colors.surface },
   imageDescriptionChipText: { color: "#FFFFFF", fontSize: 12, fontWeight: "600" },
   imageDescriptionChipTextOn: { color: theme.colors.text },
-  imageDescriptionPopover: { marginTop: 10, padding: 12, borderRadius: 14, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surfaceSunken },
+  imageDescriptionPopover: { marginTop: 10, padding: 12, borderRadius: 12, backgroundColor: theme.colors.fill1 },
   readingTitleRow: { marginTop: 18, flexDirection: "row", alignItems: "flex-start", gap: 10 },
   readingTitle: { flex: 1, color: theme.colors.text, fontSize: 21, lineHeight: 29, fontWeight: "700" },
-  flipButton: { width: 34, height: 34, marginTop: -2, borderRadius: 17, borderWidth: 1, borderColor: theme.colors.border, alignItems: "center", justifyContent: "center" },
-  flipButtonOn: { backgroundColor: theme.colors.ink, borderColor: theme.colors.ink },
+  flipButton: { width: 34, height: 34, marginTop: -2, borderRadius: 17, backgroundColor: theme.colors.fill2, alignItems: "center", justifyContent: "center" },
+  flipButtonOn: { backgroundColor: theme.colors.accent },
   readingBody: { marginTop: 12 },
   replyBubbleRow: { marginTop: 22, flexDirection: "row", alignItems: "flex-start", gap: 10 },
-  replyBubble: { flex: 1, padding: 12, borderRadius: 16, borderTopLeftRadius: 4, backgroundColor: theme.colors.surfaceSunken, borderWidth: 1, borderColor: theme.colors.border },
+  replyBubble: { flex: 1, padding: 12, borderRadius: 14, borderTopLeftRadius: 4, backgroundColor: theme.colors.fill1 },
   readingMeta: { marginTop: 26, gap: 10 },
   readingTag: { alignSelf: "flex-start", maxWidth: "100%", paddingVertical: 4 },
-  readingTagText: { color: theme.colors.textSecondary, fontSize: 14, fontWeight: "600" },
-  relatedRow: { minHeight: 44, paddingHorizontal: 12, borderRadius: 12, borderWidth: 1, borderColor: theme.colors.border, flexDirection: "row", alignItems: "center", gap: 8 },
+  readingTagText: { color: theme.colors.link, fontSize: 14, fontWeight: "500" },
+  relatedRow: { minHeight: 44, paddingHorizontal: 12, borderRadius: 10, backgroundColor: theme.colors.fill1, flexDirection: "row", alignItems: "center", gap: 8 },
   relatedLabel: { color: theme.colors.textSecondary, fontSize: 13 },
   relatedKeyword: { flex: 1, color: theme.colors.text, fontSize: 14, fontWeight: "600" },
   readingFooter: { marginTop: 24, paddingTop: 14, borderTopWidth: theme.hairline, borderTopColor: theme.colors.border, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
@@ -5514,26 +5514,26 @@ const styles = createStyles(() => ({
   footerIcon: { width: 38, height: 38, alignItems: "center", justifyContent: "center" },
   footerEncounter: { flexDirection: "row", alignItems: "center", gap: 3, paddingHorizontal: 6 },
   footerEncounterText: { color: theme.colors.textMuted, fontSize: 12, fontVariant: ["tabular-nums"] },
-  detailMenu: { position: "absolute", top: 52, right: 12, width: 248, paddingVertical: 6, borderRadius: 16, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border, ...theme.shadow.menu },
+  detailMenu: { position: "absolute", top: 52, right: 12, width: 248, paddingVertical: 6, borderRadius: 14, backgroundColor: theme.colors.surface, ...theme.shadow.menu },
   detailMenuLabel: { paddingHorizontal: 16, paddingTop: 6, color: theme.colors.textMuted, fontSize: 12, fontWeight: "600" },
   detailMenuModes: { flexDirection: "row", flexWrap: "wrap", gap: 6, paddingHorizontal: 12, paddingVertical: 8 },
-  detailMenuMode: { minHeight: 34, paddingHorizontal: 12, borderRadius: 17, borderWidth: 1, borderColor: theme.colors.border, justifyContent: "center" },
-  detailMenuModeOn: { backgroundColor: theme.colors.ink, borderColor: theme.colors.ink },
+  detailMenuMode: { minHeight: 34, paddingHorizontal: 12, borderRadius: 17, backgroundColor: theme.colors.fill2, justifyContent: "center" },
+  detailMenuModeOn: { backgroundColor: theme.colors.accent },
   detailMenuModeText: { color: theme.colors.text, fontSize: 13 },
-  detailMenuModeTextOn: { color: theme.colors.onInk, fontWeight: "600" },
-  relatedFeedPage: { flex: 1, backgroundColor: theme.colors.canvas },
+  detailMenuModeTextOn: { color: theme.colors.onAccent, fontWeight: "600" },
+  relatedFeedPage: { flex: 1, backgroundColor: theme.colors.feed },
   relatedFeedHeader: { minHeight: 56, paddingHorizontal: 10, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   relatedFeedTitleBlock: { flex: 1, alignItems: "center" },
   relatedFeedEyebrow: { color: theme.colors.textMuted, fontSize: 12 },
   relatedFeedTitle: { color: theme.colors.text, fontSize: 17, fontWeight: "700" },
   relatedFeedEmpty: { marginTop: 48, textAlign: "center", color: theme.colors.textMuted, fontSize: 14 },
-  relatedFeedList: { paddingHorizontal: 13, paddingBottom: 40 },
-  relatedFeedCard: { margin: 6, padding: 6, borderRadius: 14, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surface, gap: 6 },
-  relatedFeedCover: { width: "100%", borderRadius: 9 },
+  relatedFeedList: { paddingHorizontal: 6, paddingTop: 6, paddingBottom: 40 },
+  relatedFeedCard: { margin: 3.5, borderRadius: 10, overflow: "hidden", backgroundColor: theme.colors.surface },
+  relatedFeedCover: { width: "100%" },
   relatedFeedTextCover: { aspectRatio: 0.85, alignItems: "center", justifyContent: "center", padding: 12 },
   relatedFeedTextCoverTitle: { color: theme.colors.text, fontSize: 16, lineHeight: 23, fontWeight: "700", textAlign: "center" },
-  relatedFeedCardTitle: { color: theme.colors.text, fontSize: 13, fontWeight: "600", paddingHorizontal: 2 },
-  relatedFeedCardDate: { color: theme.colors.textMuted, fontSize: 11, paddingHorizontal: 2 },
+  relatedFeedCardTitle: { color: theme.colors.text, fontSize: 14, fontWeight: "500", paddingHorizontal: 10, paddingTop: 8 },
+  relatedFeedCardDate: { color: theme.colors.textMuted, fontSize: 12, paddingHorizontal: 10, paddingTop: 4, paddingBottom: 10 },
   rewriteSaveButton: { minHeight: 34, paddingHorizontal: 14, borderRadius: 17, backgroundColor: theme.colors.accent, alignItems: "center", justifyContent: "center" },
   rewriteSaveText: { color: theme.colors.onAccent, fontSize: 14, fontWeight: "700" },
   rewriteEditorHint: { paddingHorizontal: 20, color: theme.colors.textMuted, fontSize: 13 },

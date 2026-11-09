@@ -49,5 +49,5 @@ production users still see an issue, read and follow
 
 For any Mobile UI, styling, animation, or interaction work (new screens,
 restyles, components, empty states, motion, haptics, memory-game feel), read
-and follow `skills/linguaflow-sketch-style/SKILL.md`, `skills/linguaflow-motion/SKILL.md`,
+and follow `skills/linguaflow-visual-style/SKILL.md`, `skills/linguaflow-motion/SKILL.md`,
 and `skills/linguaflow-interaction-feel/SKILL.md` before acting.

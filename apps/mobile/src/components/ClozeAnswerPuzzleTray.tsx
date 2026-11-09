@@ -12,7 +12,7 @@ import {
 import { playSelectionFeedbackSound } from "../services/audio/gameFeedbackAudio";
 import { haptic } from "../feedback/haptics";
 import { motion } from "../motion";
-import { SketchCheck, SketchPressable } from "./sketch/Sketch";
+import { CheckMark, PressableSurface } from "./surface/Surface";
 import { OioMascot, type OioMascotHandle } from "./sketch/OioMascot";
 import { t } from "../i18n";
 import { theme } from "../theme";
@@ -96,7 +96,7 @@ export function ClozeAnswerPuzzleTray({
       <OioMascot ref={mascot} size={34} idle={false} />
       <View style={styles.feedbackText}>
         {feedback.correct
-          ? <View style={styles.feedbackTitleRow}><SketchCheck seed={`check-${feedback.answer}`} size={22} /><Text style={styles.feedbackTitle}>{t("cloze.feedback.correct")}</Text></View>
+          ? <View style={styles.feedbackTitleRow}><CheckMark size={22} /><Text style={styles.feedbackTitle}>{t("cloze.feedback.correct")}</Text></View>
           : <>
             <Text style={styles.feedbackLabel}>{t("cloze.feedback.correct_answer")}</Text>
             <Text style={styles.feedbackAnswer}>{feedback.answer}</Text>
@@ -109,10 +109,9 @@ export function ClozeAnswerPuzzleTray({
           <Text style={styles.resetText}>{t("cloze.reset")}</Text>
         </Pressable>
       </Reanimated.View> : <View />}
-      {onCheck && onProceed ? <SketchPressable
-        seed={answered ? (feedback?.correct ? "cloze-continue" : "cloze-got-it") : "cloze-check"}
+      {onCheck && onProceed ? <PressableSurface
         radius={22}
-        fill={answered || complete ? theme.colors.accent : theme.colors.surface}
+        fill={answered || complete ? theme.colors.accent : theme.colors.fill2}
         feedback={null}
         disabled={disabled || (!answered && !complete)}
         accessibilityRole="button"
@@ -123,33 +122,33 @@ export function ClozeAnswerPuzzleTray({
         <Text style={[styles.primaryText, (answered || complete) && styles.primaryTextOn]}>
           {t(answered ? (feedback?.correct ? "cloze.continue" : "cloze.got_it") : "cloze.check")}
         </Text>
-      </SketchPressable> : null}
+      </PressableSurface> : null}
     </View>
   </View>;
 }
 
 const styles = createStyles(() => ({
   root: { gap: 12 },
-  answer: { minHeight: 60, borderRadius: 16, borderWidth: 1, borderColor: theme.colors.border, backgroundColor: theme.colors.surface, padding: 10, justifyContent: "center" },
-  answerIncorrect: { borderColor: theme.colors.borderStrong, backgroundColor: theme.colors.surfaceSunken },
+  answer: { minHeight: 60, borderRadius: 12, backgroundColor: theme.colors.fill1, padding: 10, justifyContent: "center" },
+  answerIncorrect: { backgroundColor: theme.colors.fill2 },
   wrap: { flexDirection: "row", flexWrap: "wrap", gap: 8, justifyContent: "center" },
   answerWrap: { minHeight: 40, alignItems: "flex-end" },
   characterAnswerWrap: { gap: 4 },
   fixedPrefix: { color: theme.colors.textSecondary, fontSize: 20, lineHeight: 34, fontWeight: "600", letterSpacing: 0.3 },
-  slotTile: { minWidth: 44, minHeight: 40, paddingHorizontal: 12, borderRadius: 12, borderWidth: 1.5, borderColor: theme.colors.ink, backgroundColor: theme.colors.surface, alignItems: "center", justifyContent: "center" },
+  slotTile: { minWidth: 44, minHeight: 40, paddingHorizontal: 12, borderRadius: 10, backgroundColor: theme.colors.surface, alignItems: "center", justifyContent: "center" },
   slotCharacterTile: { minWidth: 30, paddingHorizontal: 6 },
   slotText: { color: theme.colors.text, fontSize: 18, fontWeight: "700" },
   slotCharacterText: { fontSize: 20, letterSpacing: 0.3 },
   slotEmpty: { height: 40, borderBottomWidth: 2, borderColor: theme.colors.borderStrong, borderStyle: "dashed" },
   slotEmptyWord: { width: 56 },
   slotEmptyCharacter: { width: 26 },
-  tile: { minWidth: 52, minHeight: 46, paddingHorizontal: 14, borderRadius: 13, borderWidth: 1.5, borderColor: theme.colors.borderStrong, backgroundColor: theme.colors.surface, alignItems: "center", justifyContent: "center" },
+  tile: { minWidth: 52, minHeight: 46, paddingHorizontal: 14, borderRadius: 10, backgroundColor: theme.colors.fill2, alignItems: "center", justifyContent: "center" },
   characterTile: { minWidth: 46, paddingHorizontal: 10 },
   tileText: { color: theme.colors.text, fontSize: 18, fontWeight: "600" },
   pressed: { opacity: 0.7, transform: [{ scale: 0.96 }] },
-  feedback: { flexDirection: "row", alignItems: "center", gap: 12, padding: 12, borderRadius: 16, borderWidth: 1.5 },
-  feedbackCorrect: { borderColor: theme.colors.ink, backgroundColor: theme.colors.surface },
-  feedbackIncorrect: { borderColor: theme.colors.borderStrong, backgroundColor: theme.colors.surfaceMuted },
+  feedback: { flexDirection: "row", alignItems: "center", gap: 12, padding: 12, borderRadius: 12 },
+  feedbackCorrect: { backgroundColor: theme.colors.accentSoft },
+  feedbackIncorrect: { backgroundColor: theme.colors.fill2 },
   feedbackText: { flex: 1, gap: 2 },
   feedbackTitleRow: { flexDirection: "row", alignItems: "center", gap: 6 },
   feedbackTitle: { color: theme.colors.text, fontSize: 17, fontWeight: "700" },

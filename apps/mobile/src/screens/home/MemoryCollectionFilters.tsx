@@ -24,9 +24,10 @@ export function MemoryCollectionFilters({ collections, selected, onSelect, onTou
 }
 
 const styles = createStyles(() => ({
-  row: { gap: 6, paddingHorizontal: theme.gutter - 4, paddingVertical: 6 },
-  chip: { minHeight: 32, maxWidth: 180, paddingHorizontal: 12, borderRadius: theme.radius.pill, justifyContent: "center" },
-  selectedChip: { backgroundColor: theme.colors.surfaceMuted },
-  label: { fontSize: 14, color: theme.colors.textMuted },
+  // Xiaohongshu-style channel row: plain text, the active one bold. No pills.
+  row: { gap: 4, paddingHorizontal: theme.gutter - 10, paddingVertical: 4 },
+  chip: { minHeight: 36, maxWidth: 180, paddingHorizontal: 10, justifyContent: "center" },
+  selectedChip: {},
+  label: { fontSize: 15, color: theme.colors.textMuted },
   selectedLabel: { color: theme.colors.text, fontWeight: "600" },
 }));

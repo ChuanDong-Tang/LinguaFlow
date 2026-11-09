@@ -2,63 +2,76 @@ import { Platform, StyleSheet } from "react-native";
 
 import { appearance } from "./appearance/state";
 
-// OIO design tokens — black-and-white hand-drawn style; only the mascot and
-// photos carry color. Two palettes with identical keys: light (ink on paper)
-// and inverted (light ink on dark paper), chosen once at startup.
-// See skills/linguaflow-sketch-style.
+// OIO design tokens — Xiaohongshu-style layering: a light gray feed behind
+// borderless white cards, separated by background color, never by outlines or
+// shadows. One brand color (OIO green, from the mascot's pocket) for primary
+// actions, the active tab and "done" states; everything else is neutral.
+// Two palettes with identical keys (light / dark). See skills/linguaflow-visual-style.
 const lightPalette = {
-  paper: "#FDFDFB",
-  white: "#FFFFFF",
+  page: "#FFFFFF",
+  feed: "#F5F5F5",
+  card: "#FFFFFF",
   onDark: "#FFFFFF",
-  sand50: "#F7F7F4",
-  sand100: "#F2F1EC",
-  sand200: "#E6E5E0",
-  sand300: "#D3D2CC",
-  ink900: "#1C1C1A",
-  ink700: "#3A3936",
-  ink600: "#62615C",
-  ink500: "#8A8983",
-  ink400: "#A6A59F",
+  fill1: "#F7F7F8",
+  fill2: "#F0F0F1",
+  fill3: "#E4E4E6",
+  hairline: "#EDEDED",
+  separator: "#E0E0E0",
+  text1: "#333333",
+  text2: "#4D4D4D",
+  text3: "#666666",
+  text4: "#8C8C8C",
+  text5: "#BABABA",
+  brand: "#20904E",
+  brandPressed: "#1A7A42",
+  brandSoft: "#E8F5EC",
+  brandFaint: "#F3FAF5",
+  onBrand: "#FFFFFF",
+  ink: "#333333",
   mascotGreen: "#A8D65E",
   mascotGreenInk: "#2F6B3F",
-  red700: "#B3261E",
-  redSoft: "#FBE9E7",
-  green600: "#3E7B5B",
-  greenSoft: "#EAF3EC",
-  amber600: "#B7791F",
-  amber50: "#FBF3E4",
-  highlight: "#E9E8E2",
-  pencilShadow: "rgba(98, 97, 92, 0.35)",
-  scrim: "rgba(28, 28, 26, 0.32)",
-  scrimLight: "rgba(28, 28, 26, 0.12)",
-  shadowColor: "#1C1C1A",
+  link: "#133667",
+  red700: "#E5484D",
+  redSoft: "#FDECEC",
+  amber600: "#D97706",
+  amber50: "#FFF4E5",
+  highlight: "#EDEDED",
+  scrim: "rgba(0, 0, 0, 0.5)",
+  scrimLight: "rgba(0, 0, 0, 0.16)",
+  shadowColor: "#000000",
 };
 
 const darkPalette: typeof lightPalette = {
-  paper: "#1A1A18",
-  white: "#232321",
-  onDark: "#1A1A18",
-  sand50: "#1F1F1D",
-  sand100: "#2A2A27",
-  sand200: "#353531",
-  sand300: "#4A4944",
-  ink900: "#ECEBE6",
-  ink700: "#D3D2CC",
-  ink600: "#A9A8A2",
-  ink500: "#868580",
-  ink400: "#6C6B66",
+  page: "#121215",
+  feed: "#0B0B0D",
+  card: "#1C1C21",
+  onDark: "#121215",
+  fill1: "#1F1F24",
+  fill2: "#26262C",
+  fill3: "#323239",
+  hairline: "#26262B",
+  separator: "#33333A",
+  text1: "#E3E3E6",
+  text2: "#CFCFD3",
+  text3: "#A3A3A9",
+  text4: "#7C7C83",
+  text5: "#55555C",
+  brand: "#6CCB7E",
+  brandPressed: "#5BB86C",
+  brandSoft: "#18301F",
+  brandFaint: "#142219",
+  onBrand: "#0E1A12",
+  ink: "#E3E3E6",
   mascotGreen: "#A8D65E",
   mascotGreenInk: "#2F6B3F",
-  red700: "#F08A80",
-  redSoft: "#3A2624",
-  green600: "#86C3A0",
-  greenSoft: "#22302A",
-  amber600: "#E3AA55",
-  amber50: "#352C1E",
-  highlight: "#3A3A36",
-  pencilShadow: "rgba(236, 235, 230, 0.16)",
-  scrim: "rgba(0, 0, 0, 0.55)",
-  scrimLight: "rgba(0, 0, 0, 0.3)",
+  link: "#8AB4F8",
+  red700: "#FF6B6B",
+  redSoft: "#3A2224",
+  amber600: "#F2A541",
+  amber50: "#33271A",
+  highlight: "#2C2C32",
+  scrim: "rgba(0, 0, 0, 0.6)",
+  scrimLight: "rgba(0, 0, 0, 0.35)",
   shadowColor: "#000000",
 };
 
@@ -69,45 +82,48 @@ export function isDarkAppearance() {
 // values in place (applyAppearancePalette) and regenerates createStyles()
 // sheets, so module-level imports of `theme` stay valid.
 const palette = { ...(isDarkAppearance() ? darkPalette : lightPalette) };
-const PENCIL_FILLS = { light: ["#F4F4F1", "#EFEFEB", "#F7F7F4", "#ECECE7"], dark: ["#262624", "#2B2B28", "#232321", "#2F2F2C"] };
+// Text-only card covers: soft neutral tints picked by a stable hash of the id.
+const PENCIL_FILLS = { light: ["#F3F3F5", "#EEF5F0", "#F5F1EC", "#EEF1F6"], dark: ["#24242A", "#1E2A22", "#2A2620", "#20242C"] };
 
 function paletteColors() {
   return {
-
-    canvas: palette.paper,
-    surface: palette.white,
-    surfaceMuted: palette.sand100,
-    surfaceSunken: palette.sand50,
-    surfacePressed: palette.sand100,
-    text: palette.ink900,
-    textStrong: palette.ink700,
-    textSecondary: palette.ink600,
-    textMuted: palette.ink500,
-    textFaint: palette.ink400,
-    border: palette.sand200,
-    borderStrong: palette.sand300,
-    // Black and white everywhere except the mascot: the primary action is a
-    // solid ink fill with paper-colored text; soft emphasis is pencil gray.
-    accent: palette.ink900,
-    accentPressed: palette.ink700,
-    accentSoft: palette.sand100,
-    accentFaint: palette.sand50,
-    onAccent: palette.onDark,
-    // Emphasis for text, icons, outlines and spinners (never yellow text).
-    accentStrong: palette.ink900,
-    ink: palette.ink900,
+    /** Page background (detail pages, sheets, settings). */
+    canvas: palette.page,
+    /** Feed background behind cards (home, related, blind box). */
+    feed: palette.feed,
+    surface: palette.card,
+    surfaceMuted: palette.fill2,
+    surfaceSunken: palette.fill1,
+    surfacePressed: palette.fill2,
+    fill1: palette.fill1,
+    fill2: palette.fill2,
+    fill3: palette.fill3,
+    text: palette.text1,
+    textStrong: palette.text2,
+    textSecondary: palette.text3,
+    textMuted: palette.text4,
+    textFaint: palette.text5,
+    border: palette.hairline,
+    borderStrong: palette.separator,
+    // OIO green: primary actions, active tab, progress / done.
+    accent: palette.brand,
+    accentPressed: palette.brandPressed,
+    accentSoft: palette.brandSoft,
+    accentFaint: palette.brandFaint,
+    onAccent: palette.onBrand,
+    accentStrong: palette.brand,
+    // Neutral solid fill for secondary filled controls (selected chips…).
+    ink: palette.ink,
     onInk: palette.onDark,
+    link: palette.link,
     danger: palette.red700,
     dangerSoft: palette.redSoft,
-    // Black-and-white rule: "done / correct" is shown with ink and drawn marks,
-    // not green. Only real errors keep a (muted) red.
-    success: palette.ink900,
-    successSoft: palette.sand100,
+    success: palette.brand,
+    successSoft: palette.brandSoft,
     warning: palette.amber600,
     warningSoft: palette.amber50,
     highlight: palette.highlight,
-    disabled: palette.sand300,
-    pencilShadow: palette.pencilShadow,
+    disabled: palette.fill3,
     scrim: palette.scrim,
     scrimLight: palette.scrimLight,
   };
@@ -135,8 +151,8 @@ export const theme = {
   radius: {
     tiny: 4,
     control: 10,
-    card: 14,
-    sheet: 22,
+    card: 10,
+    sheet: 16,
     pill: 999,
   },
   space: { xxs: 2, xs: 4, sm: 8, md: 12, lg: 16, xl: 20, xxl: 24, xxxl: 32 },
@@ -152,7 +168,7 @@ export const theme = {
     micro: { fontSize: 11, lineHeight: 15, fontWeight: "500", letterSpacing: 0.2 },
   },
   // Memory game route: graphite steps (black-and-white style).
-  gameRoute: [palette.ink900, palette.ink700, palette.ink600, palette.ink500] as readonly string[],
+  gameRoute: [palette.brand, palette.text2, palette.text3, palette.text4] as readonly string[],
   hairline: StyleSheet.hairlineWidth,
   shadow: shadows(),
 } as const;
@@ -163,6 +179,6 @@ export function applyAppearancePalette(resolved: "light" | "dark") {
   Object.assign(palette, resolved === "dark" ? darkPalette : lightPalette);
   Object.assign(theme.colors, paletteColors());
   (theme.pencilFills as string[]).splice(0, theme.pencilFills.length, ...PENCIL_FILLS[resolved]);
-  (theme.gameRoute as string[]).splice(0, theme.gameRoute.length, palette.ink900, palette.ink700, palette.ink600, palette.ink500);
+  (theme.gameRoute as string[]).splice(0, theme.gameRoute.length, palette.brand, palette.text2, palette.text3, palette.text4);
   Object.assign(theme.shadow, shadows());
 }

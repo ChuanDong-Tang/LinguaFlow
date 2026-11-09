@@ -8,7 +8,7 @@ description: How OIO responds to touch — haptics map, press/disabled/loading/s
 Every touch gets an answer within 100 ms: something moves, something changes
 color, or the phone ticks. The user should never wonder whether a tap landed.
 
-Look: `skills/linguaflow-sketch-style/SKILL.md`. Motion numbers: `skills/linguaflow-motion/SKILL.md`.
+Look: `skills/linguaflow-visual-style/SKILL.md`. Motion numbers: `skills/linguaflow-motion/SKILL.md`.
 
 ## Haptics map
 
@@ -29,12 +29,12 @@ No haptics on scroll, on passive updates, or more than once per 120 ms.
 
 ## States every interactive element needs
 
-- **Pressed**: see the press pattern in linguaflow-motion (paper press / dim).
+- **Pressed**: see the press pattern in linguaflow-motion (dim + slight shrink).
 - **Disabled**: faint text, outline at 40% opacity, no shadow, no haptic; explain why nearby if it is not obvious.
-- **Loading**: keep the element's size; replace the label with a small ink spinner or a pencil "…" line; block double taps.
-- **Success**: a drawn check, then return to rest. Do not show a modal for success.
-- **Error**: an ink strike or outline emphasis on the affected element plus one sentence saying what happened and what to do. Keep the user's input.
-- **Empty**: mascot + one line of what goes here + one ink primary action.
+- **Loading**: keep the element's size; replace the label with a small spinner; block double taps.
+- **Success**: a brand-green check, then return to rest. Do not show a modal for success.
+- **Error**: a gray fill on the affected element plus one sentence saying what happened and what to do. Keep the user's input.
+- **Empty**: mascot + one line of what goes here + one brand-green primary action.
 
 Touch targets are at least 44×44 pt. Destructive actions ask once, inline, never twice.
 
@@ -47,11 +47,11 @@ Touch targets are at least 44×44 pt. Destructive actions ask once, inline, neve
 ## Memory game feel
 
 - **Answering**: tapping an option answers immediately (no separate "check" step for choice questions).
-- **Correct**: option gets a drawn ring and check, the blank fills with the word and a drawn underline, mascot hops, `haptic.success()`. "下一题" (ink primary) appears with a small pop. A swipe or tap advances.
-- **Wrong**: option shakes, gets an ink strike line and fades to faint, becomes disabled, mascot tilts, `haptic.warning()`, copy "再想想". The user can try again; the answer is revealed after the second wrong try.
-- **Progress**: hand-drawn dots, filled ink when done, the current dot slightly larger. Never a percentage bar.
+- **Correct**: the feedback strip turns brand-tinted with a check, the blank fills with the word, mascot hops, `haptic.success()`. "继续" (brand primary) appears with a small pop. A swipe or tap advances.
+- **Wrong**: option shakes, the strip shows "正确答案 …" on gray, becomes disabled, mascot tilts, `haptic.warning()`, copy "再想想". The user can try again; the answer is revealed after the second wrong try.
+- **Progress**: dots filled brand green when done, the current dot slightly larger. Never a percentage bar.
 - **Streak**: 3 correct in a row → mascot does a double hop and a short line of praise ("连对 3 题"). No confetti, no sounds unless the user enabled sound.
-- **Round summary**: a drawn card that summarizes the round (cards reviewed, new words, streak), one ink "再来一组" and one secondary "回到主页". The summary is a moment of calm, not a scoreboard.
+- **Round summary**: a card that summarizes the round (cards reviewed, new words, streak), one brand "再来一组" and one secondary "回到主页". The summary is a moment of calm, not a scoreboard.
 
 ## Feedback copy
 

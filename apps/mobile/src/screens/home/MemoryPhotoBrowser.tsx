@@ -10,7 +10,7 @@ import { FlashList } from "@shopify/flash-list";
 import { Text, TextInput } from "../../components/Typography";
 import { Icon } from "../../components/Icon";
 import { RealtimeSttButton } from "../../components/RealtimeSttButton";
-import { SketchCheck, SketchPressable } from "../../components/sketch/Sketch";
+import { CheckMark, PressableSurface } from "../../components/surface/Surface";
 import { useRealtimeSttInput } from "../../hooks/useRealtimeSttInput";
 import { haptic } from "../../feedback/haptics";
 import { motion } from "../../motion";
@@ -161,7 +161,7 @@ export function MemoryPhotoBrowser({ random = false, onClose, onConfirm, onPract
         {denied ? <View style={styles.center}>
           <Text style={styles.title}>{copy("从照片里，找回生活", "Find a moment in your photos")}</Text>
           <Text style={styles.explanation}>{copy("允许访问相册后，可在这里翻看照片。浏览不会上传，也不会删除原照片；只有确认生成回忆后才会上传。", "Allow photo access to browse here. Browsing never uploads or deletes photos. Photos are uploaded only after you confirm creating a memory.")}</Text>
-          {!state.loading ? <View><SketchPressable seed="photo-permission" radius={22} fill={theme.colors.accent} style={styles.primary} contentStyle={styles.primaryInner} onPress={() => void permissionAction(false)}><Text style={styles.primaryText}>{copy(state.canAskAgain ? "选择可访问的照片" : "前往设置", state.canAskAgain ? "Allow photo access" : "Open settings")}</Text></SketchPressable></View> : null}
+          {!state.loading ? <View><PressableSurface radius={22} fill={theme.colors.accent} style={styles.primary} contentStyle={styles.primaryInner} onPress={() => void permissionAction(false)}><Text style={styles.primaryText}>{copy(state.canAskAgain ? "选择可访问的照片" : "前往设置", state.canAskAgain ? "Allow photo access" : "Open settings")}</Text></PressableSurface></View> : null}
         </View> : !deck.length ? <View style={styles.center}>
           {state.loading ? <ActivityIndicator color={theme.colors.textSecondary} /> : <Text style={styles.explanation}>{random ? copy("这里还没有可浏览的照片", "No accessible photos here yet") : copy("最近三天还没有照片", "No photos from the last three days")}</Text>}
         </View> : <GestureDetector gesture={swipeUp}><View style={styles.stage}>
@@ -181,7 +181,7 @@ export function MemoryPhotoBrowser({ random = false, onClose, onConfirm, onPract
               ? <SetEnd width={width} generatedIds={generatedIds} generatedAssets={deck.filter((asset) => generated[asset.id])} onPractice={() => onPracticeSet(generatedIds)} onNext={() => void nextSet()} />
               : <Reanimated.View entering={slot === 0 ? ZoomIn.springify().damping(14).stiffness(140) : undefined} style={[styles.photoPage, { width }]}>
                 <PhotoStage asset={item} shrink={composerOpen && slot === index} maxHeight={height} />
-                {generated[item.id] ? <Reanimated.View entering={ZoomIn.duration(motion.duration.enter)} style={styles.generatedBadge}><SketchCheck seed={`gen-${item.id}`} size={16} draw /><Text style={styles.generatedText}>{copy("已生成", "Saved")}</Text></Reanimated.View> : null}
+                {generated[item.id] ? <Reanimated.View entering={ZoomIn.duration(motion.duration.enter)} style={styles.generatedBadge}><CheckMark size={16} /><Text style={styles.generatedText}>{copy("已生成", "Saved")}</Text></Reanimated.View> : null}
               </Reanimated.View>}
           />
           {state.access === "limited" ? <Pressable style={styles.limitedBanner} onPress={() => void permissionAction(true)}><Text style={styles.limitedText}>{copy("仅展示已授权照片 · 调整范围", "Showing selected photos · Manage access")}</Text></Pressable> : null}
@@ -280,9 +280,9 @@ function PhotoComposer({ asset, maxLength, onClose, onSubmit }: {
         <RealtimeSttButton status={speech.status} audioLevel={speech.audioLevel} disabled={busy} onPress={() => { Keyboard.dismiss(); input.current?.blur(); void speech.toggle(); }} />
         <View style={{ flex: 1 }} />
         <Text style={styles.composerCount}>{text.length}/{maxLength}</Text>
-        <SketchPressable seed="photo-rewrite" radius={20} fill={ready ? theme.colors.accent : theme.colors.surface} disabled={!ready} feedback="medium" contentStyle={styles.composerSubmit} onPress={() => void submit()}>
+        <PressableSurface radius={20} fill={ready ? theme.colors.accent : theme.colors.surface} disabled={!ready} feedback="medium" contentStyle={styles.composerSubmit} onPress={() => void submit()}>
           {busy ? <ActivityIndicator size="small" color={theme.colors.onAccent} /> : <Text style={[styles.composerSubmitText, ready && { color: theme.colors.onAccent }]}>{t("card_detail.rewrite_action")}</Text>}
-        </SketchPressable>
+        </PressableSurface>
       </View>
     </Reanimated.View>
   </KeyboardAvoidingView>;
@@ -303,13 +303,13 @@ function SetEnd({ width, generatedIds, generatedAssets, onPractice, onNext }: {
       <Reanimated.View entering={FadeIn.delay(240)} style={styles.endPrompt}>
         <Text style={styles.endQuestion}>{t("photo_flow.practice_now")}</Text>
         <View style={styles.endActions}>
-          <SketchPressable seed="photo-end-skip" radius={22} fill={theme.colors.surface} feedback="light" contentStyle={styles.endButton} onPress={onNext}><Text style={styles.endButtonText}>{t("photo_flow.skip")}</Text></SketchPressable>
-          <SketchPressable seed="photo-end-practice" radius={22} fill={theme.colors.accent} feedback="medium" contentStyle={styles.endButton} onPress={onPractice}><Text style={[styles.endButtonText, { color: theme.colors.onAccent }]}>{t("photo_flow.start_practice")}</Text></SketchPressable>
+          <PressableSurface radius={22} fill={theme.colors.fill2} feedback="light" contentStyle={styles.endButton} onPress={onNext}><Text style={styles.endButtonText}>{t("photo_flow.skip")}</Text></PressableSurface>
+          <PressableSurface radius={22} fill={theme.colors.accent} feedback="medium" contentStyle={styles.endButton} onPress={onPractice}><Text style={[styles.endButtonText, { color: theme.colors.onAccent }]}>{t("photo_flow.start_practice")}</Text></PressableSurface>
         </View>
       </Reanimated.View>
     </> : <>
       <Text style={styles.endTitle}>{t("photo_flow.end_none")}</Text>
-      <View><SketchPressable seed="photo-end-next" radius={22} fill={theme.colors.accent} feedback="medium" contentStyle={styles.endButton} onPress={onNext}><Text style={[styles.endButtonText, { color: theme.colors.onAccent }]}>{memoryPhotoCopy(getLanguage(), "下一组", "Next set")}</Text></SketchPressable></View>
+      <View><PressableSurface radius={22} fill={theme.colors.accent} feedback="medium" contentStyle={styles.endButton} onPress={onNext}><Text style={[styles.endButtonText, { color: theme.colors.onAccent }]}>{memoryPhotoCopy(getLanguage(), "下一组", "Next set")}</Text></PressableSurface></View>
     </>}
   </View>;
 }
@@ -351,8 +351,8 @@ const styles = createStyles(() => ({
   progress: { flex: 1, flexDirection: "row", gap: 3, alignItems: "center" },
   progressSegment: { flex: 1, height: 3, borderRadius: 2, backgroundColor: theme.colors.border },
   progressSegmentOn: { backgroundColor: theme.colors.textSecondary },
-  progressSegmentDone: { backgroundColor: theme.colors.ink },
-  countChip: { minHeight: 32, paddingHorizontal: 10, borderRadius: 16, borderWidth: 1, borderColor: theme.colors.border, flexDirection: "row", alignItems: "center", gap: 3 },
+  progressSegmentDone: { backgroundColor: theme.colors.accent },
+  countChip: { minHeight: 32, paddingHorizontal: 10, borderRadius: 16, backgroundColor: theme.colors.fill2, flexDirection: "row", alignItems: "center", gap: 3 },
   countText: { color: theme.colors.text, fontSize: 13, fontWeight: "700", fontVariant: ["tabular-nums"] },
   center: { flex: 1, alignItems: "center", justifyContent: "center", gap: 18, paddingHorizontal: 28 },
   title: { color: theme.colors.text, fontSize: 19, fontWeight: "700" },
@@ -364,12 +364,12 @@ const styles = createStyles(() => ({
   photoPage: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 12, paddingVertical: 10 },
   photoFrame: { width: "100%", flex: 1 },
   photo: { width: "100%", height: "100%", borderRadius: 14 },
-  generatedBadge: { position: "absolute", top: 22, right: 24, minHeight: 30, paddingHorizontal: 10, borderRadius: 15, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.ink, flexDirection: "row", alignItems: "center", gap: 4 },
+  generatedBadge: { position: "absolute", top: 22, right: 24, minHeight: 30, paddingHorizontal: 10, borderRadius: 15, backgroundColor: theme.colors.surface, flexDirection: "row", alignItems: "center", gap: 4 },
   generatedText: { color: theme.colors.text, fontSize: 12, fontWeight: "700" },
   limitedBanner: { position: "absolute", top: 8, alignSelf: "center", paddingHorizontal: 12, paddingVertical: 6, borderRadius: 14, backgroundColor: theme.colors.surface },
   limitedText: { color: theme.colors.textSecondary, fontSize: 12 },
   footer: { position: "absolute", left: 0, right: 0, bottom: 14, alignItems: "center", gap: 10 },
-  dayChip: { minHeight: 36, paddingHorizontal: 14, borderRadius: 18, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.border, flexDirection: "row", alignItems: "center", gap: 6 },
+  dayChip: { minHeight: 36, paddingHorizontal: 14, borderRadius: 18, backgroundColor: theme.colors.surface, flexDirection: "row", alignItems: "center", gap: 6 },
   dayChipText: { color: theme.colors.text, fontSize: 14, fontWeight: "600" },
   swipeHint: { minHeight: 36, paddingHorizontal: 12, flexDirection: "row", alignItems: "center", gap: 4 },
   swipeHintText: { color: theme.colors.textSecondary, fontSize: 13 },
@@ -386,7 +386,7 @@ const styles = createStyles(() => ({
   endPage: { flex: 1, alignItems: "center", justifyContent: "center", gap: 20, paddingHorizontal: 24 },
   endTitle: { color: theme.colors.text, fontSize: 18, fontWeight: "700", textAlign: "center" },
   endGrid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 8, maxWidth: 300 },
-  endThumb: { width: 86, height: 86, borderRadius: 12, overflow: "hidden", borderWidth: 1, borderColor: theme.colors.border },
+  endThumb: { width: 86, height: 86, borderRadius: 12, overflow: "hidden" },
   endThumbImage: { width: "100%", height: "100%" },
   endPrompt: { alignItems: "center", gap: 14 },
   endQuestion: { color: theme.colors.textSecondary, fontSize: 15 },
@@ -396,5 +396,5 @@ const styles = createStyles(() => ({
   dayPage: { flex: 1, backgroundColor: theme.colors.canvas },
   dayTitle: { flex: 1, textAlign: "center", color: theme.colors.text, fontSize: 17, fontWeight: "700" },
   dayTile: { margin: 5, borderRadius: 12, padding: 3, borderWidth: 1, borderColor: "transparent" },
-  dayTileCurrent: { borderColor: theme.colors.ink },
+  dayTileCurrent: { borderColor: theme.colors.accent },
 }));
