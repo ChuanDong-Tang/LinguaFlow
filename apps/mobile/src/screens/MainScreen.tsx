@@ -165,7 +165,10 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
   const shuffleSeed = useRef(Crypto.randomUUID());
   const [libraryMenuVisible, setLibraryMenuVisible] = useState(false);
     const [selectingRecords, setSelectingRecords] = useState(false);
-  const gridLayout = homeLayout === "grid" && libraryView !== TRASH_VIEW;
+  // 今日 is a single-column feed (big photo, then words — like Threads / 朋友圈);
+  // 回忆 keeps the two-column masonry.
+  const todayFeed = homeTab === "today" && libraryView !== TRASH_VIEW;
+  const gridLayout = homeLayout === "grid" && libraryView !== TRASH_VIEW && !todayFeed;
   const [selectedRecordIds, setSelectedRecordIds] = useState<Set<string>>(new Set());
   const [batchMoveVisible, setBatchMoveVisible] = useState(false);
   const [cardCapabilities, setCardCapabilities] = useState<CardCapabilities>(DEFAULT_CARD_CAPABILITIES);
@@ -1694,10 +1697,10 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
         data={[...(recordsScope === queryScope ? records : [])].filter((record) => (!selectingRecords || !record.isSample) && (!dateScope || record.dateKey === dateScope)).sort((a, b) => Number(b.isSample) - Number(a.isSample))}
         keyExtractor={(record) => record.id}
         renderItem={({ item: record, index }) => (
-          <CardCard enterIndex={index} grid={gridLayout} record={record} collectionName={record.collectionId ? collections.find((collection) => collection.id === record.collectionId)?.name : undefined} selecting={selectingRecords} selected={selectedRecordIds.has(record.id)} onPress={(origin) => selectingRecords ? toggleRecordSelection(record.id) : libraryView === TRASH_VIEW ? undefined : void openDetail(record, origin)} onOpenActions={(anchor) => openRecordActions(record, anchor)} onHideTutorial={() => hideTutorial(record.id)} onThumbnailError={recoverFailedThumbnail} />
+          <CardCard enterIndex={index} grid={gridLayout} feed={todayFeed} record={record} collectionName={record.collectionId ? collections.find((collection) => collection.id === record.collectionId)?.name : undefined} selecting={selectingRecords} selected={selectedRecordIds.has(record.id)} onPress={(origin) => selectingRecords ? toggleRecordSelection(record.id) : libraryView === TRASH_VIEW ? undefined : void openDetail(record, origin)} onOpenActions={(anchor) => openRecordActions(record, anchor)} onHideTutorial={() => hideTutorial(record.id)} onThumbnailError={recoverFailedThumbnail} />
         )}
         ListHeaderComponent={homeTab === "memory" && !selectingRecords && libraryView !== TRASH_VIEW ? <View style={gridLayout ? styles.gridHeader : undefined}><MemoryRoundShortcut active={isActive} resume={memoryRoundResumeAvailable} onPress={onOpenMemoryRound} /></View> : null}
-        contentContainerStyle={gridLayout ? styles.gridList : styles.list}
+        contentContainerStyle={gridLayout ? styles.gridList : todayFeed ? styles.todayList : styles.list}
         alwaysBounceVertical
         bounces
         showsVerticalScrollIndicator
@@ -3056,8 +3059,10 @@ async function stabilizeRecordThumbnails(
   }));
 }
 
-function CardCard({ record, grid = false, enterIndex, collectionName, selecting = false, selected = false, onPress, onOpenActions, onThumbnailError, onHideTutorial }: {
+function CardCard({ record, grid = false, feed = false, enterIndex, collectionName, selecting = false, selected = false, onPress, onOpenActions, onThumbnailError, onHideTutorial }: {
   grid?: boolean;
+  /** 今日 single-column feed card. */
+  feed?: boolean;
   enterIndex?: number;
   record: CardRecordSummary;
   collectionName?: string;
@@ -3130,6 +3135,31 @@ function CardCard({ record, grid = false, enterIndex, collectionName, selecting 
         </View>
       </View>
   );
+  if (feed && !selecting) {
+    const enter = firstAppearance && enterIndex !== undefined && enterIndex < motion.maxStaggered
+      ? FadeInDown.duration(motion.duration.enter).delay(enterIndex * motion.stagger)
+      : undefined;
+    const thumb = record.thumbnail;
+    const preview = (record.rewrittenPreview?.trim() || record.originalPreview).trim();
+    return <Reanimated.View entering={enter}>
+      <PressableSurface ref={cardRef} disabled={processing} dimWhenDisabled={false} accessibilityHint={t("library.long_press_hint")} style={styles.todayCard} contentStyle={styles.todayCardInner} onPress={open} onLongPress={longPress} delayLongPress={350}>
+        {thumb ? <View ref={thumbnailRef} collapsable={false} style={[styles.todayCover, { aspectRatio: Math.max(0.8, Math.min(1.5, thumb.width / Math.max(1, thumb.height))) }]}>
+          <Image source={{ uri: thumb.url }} style={StyleSheet.absoluteFill} resizeMode="cover" onError={onThumbnailError} />
+        </View> : null}
+        <View style={styles.todayBody}>
+          {record.displayTitle.trim() ? <Text numberOfLines={2} style={styles.todayTitle}>{record.displayTitle}</Text> : null}
+          {preview ? <Text numberOfLines={thumb ? 3 : 6} style={styles.todayPreview}>{preview}</Text> : null}
+          <View style={styles.todayFooter}>
+            <Text style={styles.todayTime}>{formatTime(record.recordedAt ?? record.createdAt)}</Text>
+            {processing ? <ActivityIndicator size="small" color={theme.colors.accentStrong} /> : record.practiceSummary?.encounterCount !== undefined ? <View style={styles.cardEncounter}>
+              <Eye size={14} color={theme.colors.textMuted} />
+              <Text style={styles.cardEncounterText}>{record.practiceSummary.encounterCount}</Text>
+            </View> : null}
+          </View>
+        </View>
+      </PressableSurface>
+    </Reanimated.View>;
+  }
   if (grid) {
     const enter = firstAppearance && enterIndex !== undefined && enterIndex < motion.maxStaggered
       ? FadeInDown.duration(motion.duration.enter).delay(enterIndex * motion.stagger)
@@ -3397,6 +3427,15 @@ const styles = createStyles(() => ({
   searchSubmitText: { color: theme.colors.surface, fontSize: 13, fontWeight: "600" },
   libraryList: { flex: 1, backgroundColor: theme.colors.feed },
   list: { paddingHorizontal: theme.gutter, paddingTop: 6, paddingBottom: 120 },
+  todayList: { paddingHorizontal: 12, paddingTop: 10, paddingBottom: 120 },
+  todayCard: { marginBottom: 12 },
+  todayCardInner: { overflow: "hidden" },
+  todayCover: { width: "100%", backgroundColor: theme.colors.surfaceMuted },
+  todayBody: { paddingHorizontal: 14, paddingTop: 12, paddingBottom: 12, gap: 6 },
+  todayTitle: { color: theme.colors.text, fontSize: 17, lineHeight: 24, fontWeight: "600" },
+  todayPreview: { color: theme.colors.textStrong, fontSize: 15, lineHeight: 23 },
+  todayFooter: { marginTop: 2, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  todayTime: { color: theme.colors.textMuted, fontSize: 12 },
   gridHeader: { paddingHorizontal: 3.5 },
   gridList: { paddingHorizontal: 6, paddingTop: 8, paddingBottom: 120 },
   recallShortcuts: { marginHorizontal: 22, marginBottom: 8, paddingVertical: 6, flexDirection: "row", gap: 7 },

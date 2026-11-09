@@ -399,6 +399,8 @@ export interface CardRepository {
     clozeCorrectBlankCount: number;
   }>>;
   findEarliestCompletedDateKey(userId: string): Promise<string | null>;
+  /** First photo of each day (earliest recorded card with an image) for calendar covers. */
+  firstImageByDate(userId: string, fromDateKey: string, toDateKey: string): Promise<Array<{ dateKey: string; image: CardImageAssetEntity }>>;
   listRecentCompleted(userId: string, beforeDateKey: string, limit: number): Promise<CardEntryEntity[]>;
   listMemoryRoundEntries(userId: string, limit: number, cardIds?: string[], allowOriginalPractice?: boolean): Promise<CardEntryEntity[]>;
   claimNextQueued(workerId: string, leaseExpiresAt: Date): Promise<CardEntryEntity | null>;

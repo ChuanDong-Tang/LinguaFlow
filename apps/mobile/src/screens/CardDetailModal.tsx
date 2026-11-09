@@ -3540,14 +3540,14 @@ function Review({ practiceCommand, onLanguageControlChange, hidePhraseRecommenda
         <CardPlaybackSeekBar progress={progress} durationMs={durationMs} enabled={playbackBelongsToCard && durationMs > 0 && !(articleStreaming && playback.activeNavigationKey?.startsWith(articleNavigationPrefix))} loading={progressLoading} />
         <View style={styles.cardPlaybackControls}>
           <Pressable disabled={!playbackBelongsToCard} style={styles.cardPlaybackUtility} onPress={cycleTtsPlaybackRate}><Text style={[styles.cardPlaybackRate, !playbackBelongsToCard && styles.cardPlaybackRateDisabled]}>{playback.playbackRate.toFixed(1)}x</Text></Pressable>
-          <Pressable disabled={!playbackBelongsToCard || !playback.canNavigatePrevious} style={styles.cardPlaybackSideControl} onPress={navigateTtsPrevious}><Icon name="play-skip-back" size={22} color={playbackBelongsToCard && playback.canNavigatePrevious ? theme.colors.text : theme.colors.textMuted} /></Pressable>
-          <Pressable disabled={loading} style={styles.cardPlaybackMainControl} onPress={() => playbackBelongsToCard ? toggleTtsPlayback() : void playArticle()}>
-            {loading ? <ActivityIndicator color={theme.colors.surface} /> : <Icon name={playing ? "pause" : "play"} size={28} color={theme.colors.surface} />}
+          <Pressable disabled={!playbackBelongsToCard || !playback.canNavigatePrevious} style={styles.cardPlaybackSideControl} onPress={navigateTtsPrevious}><Icon name="play-skip-back" size={28} color={playbackBelongsToCard && playback.canNavigatePrevious ? theme.colors.text : theme.colors.textMuted} /></Pressable>
+          <Pressable disabled={loading} style={styles.cardPlaybackMainControl} onPress={() => playbackBelongsToCard ? toggleTtsPlayback() : void playArticle(activeArticleMarkIndex ?? 0, playback.loopMode === "one")}>
+            {loading ? <ActivityIndicator color={theme.colors.onAccent} /> : <Icon name={playing ? "pause" : "play"} size={32} color={theme.colors.onAccent} />}
           </Pressable>
-          <Pressable disabled={!playbackBelongsToCard || !playback.canNavigateNext} style={styles.cardPlaybackSideControl} onPress={navigateTtsNext}><Icon name="play-skip-forward" size={22} color={playbackBelongsToCard && playback.canNavigateNext ? theme.colors.text : theme.colors.textMuted} /></Pressable>
+          <Pressable disabled={!playbackBelongsToCard || !playback.canNavigateNext} style={styles.cardPlaybackSideControl} onPress={navigateTtsNext}><Icon name="play-skip-forward" size={28} color={playbackBelongsToCard && playback.canNavigateNext ? theme.colors.text : theme.colors.textMuted} /></Pressable>
           <Pressable accessibilityLabel={loopLabel} style={styles.cardPlaybackLoopControl} onPress={cycleCardLoopMode}>
             <View style={styles.cardPlaybackLoopIcon}>
-              <Icon name="sync-outline" size={19} color={playback.loopMode !== "off" ? theme.colors.accentStrong : theme.colors.textMuted} />
+              <Icon name="sync-outline" size={24} color={playback.loopMode !== "off" ? theme.colors.accentStrong : theme.colors.textMuted} />
               {playback.loopMode === "one" ? <Text style={styles.cardPlaybackLoopOne}>1</Text> : null}
             </View>
           </Pressable>
@@ -5662,14 +5662,14 @@ const styles = createStyles(() => ({
   cardPlaybackLoadingFill: { width: "30%", height: "100%", borderRadius: 2, backgroundColor: theme.colors.success },
   cardPlaybackProgressFill: { height: "100%", borderRadius: 2, backgroundColor: theme.colors.success },
   cardPlaybackProgressThumb: { position: "absolute", top: -5, width: 13, height: 13, marginLeft: -6.5, borderRadius: 7, borderWidth: 2, borderColor: theme.colors.surface, backgroundColor: theme.colors.success },
-  cardPlaybackControls: { height: 64, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  cardPlaybackSideControl: { width: 42, height: 42, alignItems: "center", justifyContent: "center" },
-  cardPlaybackMainControl: { width: 50, height: 50, borderRadius: 25, backgroundColor: theme.colors.text, alignItems: "center", justifyContent: "center" },
-  cardPlaybackUtility: { minWidth: 40, height: 34, alignItems: "center", justifyContent: "center" },
-  cardPlaybackLoopControl: { width: 40, height: 40, alignItems: "center", justifyContent: "center" },
-  cardPlaybackLoopIcon: { width: 24, height: 21, alignItems: "center", justifyContent: "center" },
-  cardPlaybackLoopOne: { position: "absolute", color: theme.colors.success, fontSize: 8, lineHeight: 10, fontWeight: "700" },
-  cardPlaybackRate: { color: theme.colors.textSecondary, fontSize: 13, fontWeight: "600" },
+  cardPlaybackControls: { height: 84, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  cardPlaybackSideControl: { width: 56, height: 56, alignItems: "center", justifyContent: "center" },
+  cardPlaybackMainControl: { width: 66, height: 66, borderRadius: 33, backgroundColor: theme.colors.accent, alignItems: "center", justifyContent: "center" },
+  cardPlaybackUtility: { minWidth: 52, height: 52, alignItems: "center", justifyContent: "center" },
+  cardPlaybackLoopControl: { width: 52, height: 52, alignItems: "center", justifyContent: "center" },
+  cardPlaybackLoopIcon: { width: 30, height: 26, alignItems: "center", justifyContent: "center" },
+  cardPlaybackLoopOne: { position: "absolute", color: theme.colors.accentStrong, fontSize: 10, lineHeight: 12, fontWeight: "700" },
+  cardPlaybackRate: { color: theme.colors.textSecondary, fontSize: 15, fontWeight: "600" },
   cardPlaybackRateDisabled: { color: theme.colors.textMuted },
   recommendationButton: { position: "absolute", zIndex: 12, elevation: 5, right: 22, bottom: 70, width: 44, height: 44, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.borderStrong, borderRadius: 22, backgroundColor: theme.colors.surfaceSunken, alignItems: "center", justifyContent: "center", shadowColor: "#385C50", shadowOpacity: 0.12, shadowRadius: 8, shadowOffset: { width: 0, height: 3 } },
   recommendationButtonDisabled: { opacity: 0.48 },

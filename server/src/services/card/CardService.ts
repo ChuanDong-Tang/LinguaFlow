@@ -1700,10 +1700,16 @@ export class CardService {
     assertDateKey(toDateKey);
     if (fromDateKey > toDateKey) throw new CardValidationError("Invalid calendar range");
     if (dateRangeDays(fromDateKey, toDateKey) > 370) throw new CardValidationError("Calendar range is too large");
-    const [days, firstRecordDateKey] = await Promise.all([
+    const [aggregated, firstRecordDateKey, covers] = await Promise.all([
       this.repository.aggregateCalendarByDate(userId, fromDateKey, toDateKey),
       this.repository.findEarliestCompletedDateKey(userId),
+      this.imageService ? this.repository.firstImageByDate(userId, fromDateKey, toDateKey).catch(() => []) : Promise.resolve([]),
     ]);
+    // Each day's first photo, shown in the calendar instead of a plain heat cell.
+    const coverUrls = new Map(await Promise.all(covers.map(async ({ dateKey, image }) => {
+      try { return [dateKey, (await this.imageService!.views(image)).thumbnail.url] as const; } catch { return [dateKey, null] as const; }
+    })));
+    const days = aggregated.map((day) => ({ ...day, coverUrl: coverUrls.get(day.dateKey) ?? null }));
     return {
       fromDateKey,
       toDateKey,

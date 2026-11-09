@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, AppState, Modal, Platform, Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { ActivityIndicator, AppState, Image, Modal, Platform, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { Text } from "../components/Typography";
 import { Icon } from "../components/Icon";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
@@ -27,7 +27,13 @@ export function CardCalendarScreen({ visible, onClose, onOpenCard, onSelectDate 
   const availableMonthCount = firstRecordDateKey
     ? Math.max(1, monthDistance(new Date(Number(firstRecordDateKey.slice(0, 4)), Number(firstRecordDateKey.slice(5, 7)) - 1, 1), now) + 1)
     : 1;
-  const months = useMemo(() => Array.from({ length: Math.min(monthCount, availableMonthCount) }, (_, offset) => new Date(now.getFullYear(), now.getMonth() - offset, 1)), [availableMonthCount, monthCount, visible]);
+  // Oldest month at the top, the current month at the bottom (opened scrolled
+  // to the bottom); older months load as the reader scrolls up.
+  const months = useMemo(() => Array.from({ length: Math.min(monthCount, availableMonthCount) }, (_, offset) => new Date(now.getFullYear(), now.getMonth() - offset, 1)).reverse(), [availableMonthCount, monthCount, visible]);
+  const pinnedToBottomRef = useRef(true);
+  const monthOffsetsRef = useRef(new Map<string, number>());
+  const pendingMonthScrollRef = useRef<string | null>(null);
+  useEffect(() => { if (visible) pinnedToBottomRef.current = true; }, [visible, mode]);
 
   useEffect(() => {
     if (!visible) return;
@@ -75,9 +81,13 @@ export function CardCalendarScreen({ visible, onClose, onOpenCard, onSelectDate 
     <SafeAreaView edges={["left", "right", "bottom"]} style={[styles.page, { paddingTop: modalTopInset }]}>
       <View style={styles.header}><Pressable style={styles.headerButton} onPress={onClose}><Icon name="close-outline" size={29} color={theme.colors.text} /></Pressable><Text style={styles.headerTitle}>{t("calendar.title")}</Text><View style={styles.headerButton} /></View>
       <View style={styles.tabs}>{(["month", "year"] as const).map((value) => <Pressable key={value} style={[styles.tab, mode === value && styles.tabActive]} onPress={() => setMode(value)}><Text style={[styles.tabText, mode === value && styles.tabTextActive]}>{t(`calendar.${value}`)}</Text></Pressable>)}</View>
-      {mode === "month" ? <ScrollView ref={monthScrollRef} showsVerticalScrollIndicator={false} contentContainerStyle={styles.monthList} scrollEventThrottle={200} onScroll={({ nativeEvent }) => { const distance = nativeEvent.contentSize.height - nativeEvent.layoutMeasurement.height - nativeEvent.contentOffset.y; if (distance < 500) setMonthCount((count) => Math.min(availableMonthCount, count + 6)); }}>
-        {months.map((month) => <MonthPanel key={monthKey(month)} month={month} summary={summaries[monthKey(month)]} loading={loadingKeys.has(monthKey(month))} onSelectDate={(value) => onSelectDate ? onSelectDate(value) : setSelectedDateKey(value)} />)}
-      </ScrollView> : <YearPanel year={year} summary={summaries[`year:${year}`]} loading={loadingKeys.has(`year:${year}`)} onPrevious={() => setYear((value) => value - 1)} onNext={() => setYear((value) => Math.min(now.getFullYear(), value + 1))} onSelectMonth={(month) => { const offset = (now.getFullYear() - year) * 12 + now.getMonth() - month; setMonthCount(Math.max(6, offset + 6)); setMode("month"); setTimeout(() => monthScrollRef.current?.scrollTo({ y: Math.max(0, offset * 500), animated: false }), 80); }} onSelectDate={(value) => onSelectDate ? onSelectDate(value) : setSelectedDateKey(value)} />}
+      {mode === "month" ? <ScrollView ref={monthScrollRef} showsVerticalScrollIndicator={false} contentContainerStyle={styles.monthList} scrollEventThrottle={200} maintainVisibleContentPosition={{ minIndexForVisible: 0 }} onContentSizeChange={() => {
+          const target = pendingMonthScrollRef.current;
+          if (target && monthOffsetsRef.current.has(target)) { pendingMonthScrollRef.current = null; monthScrollRef.current?.scrollTo({ y: monthOffsetsRef.current.get(target)!, animated: false }); return; }
+          if (pinnedToBottomRef.current) monthScrollRef.current?.scrollToEnd({ animated: false });
+        }} onScrollBeginDrag={() => { pinnedToBottomRef.current = false; }} onScroll={({ nativeEvent }) => { if (nativeEvent.contentOffset.y < 500 && !pinnedToBottomRef.current) setMonthCount((count) => Math.min(availableMonthCount, count + 6)); }}>
+        {months.map((month) => <MonthPanel key={monthKey(month)} onLayoutY={(y) => monthOffsetsRef.current.set(monthKey(month), y)} month={month} summary={summaries[monthKey(month)]} loading={loadingKeys.has(monthKey(month))} onSelectDate={(value) => onSelectDate ? onSelectDate(value) : setSelectedDateKey(value)} />)}
+      </ScrollView> : <YearPanel year={year} summary={summaries[`year:${year}`]} loading={loadingKeys.has(`year:${year}`)} onPrevious={() => setYear((value) => value - 1)} onNext={() => setYear((value) => Math.min(now.getFullYear(), value + 1))} onSelectMonth={(month) => { const offset = (now.getFullYear() - year) * 12 + now.getMonth() - month; setMonthCount(Math.max(6, offset + 6)); pinnedToBottomRef.current = false; pendingMonthScrollRef.current = monthKey(new Date(year, month, 1)); setMode("month"); setTimeout(() => { const y = monthOffsetsRef.current.get(pendingMonthScrollRef.current ?? ""); if (y !== undefined) { monthScrollRef.current?.scrollTo({ y, animated: false }); pendingMonthScrollRef.current = null; } }, 120); }} onSelectDate={(value) => onSelectDate ? onSelectDate(value) : setSelectedDateKey(value)} />}
       {!onSelectDate ? <DayCardsModal
         dateKeyValue={selectedDateKey}
         onClose={() => setSelectedDateKey(null)}
@@ -173,18 +183,20 @@ export function CalendarSidebarPreview({ onPress }: { onPress: () => void }) {
   </Pressable>;
 }
 
-function MonthPanel({ month, summary, loading, onSelectDate }: { month: Date; summary?: CardCalendarSummary; loading: boolean; onSelectDate: (value: string) => void }) {
+function MonthPanel({ month, summary, loading, onSelectDate, onLayoutY }: { month: Date; summary?: CardCalendarSummary; loading: boolean; onSelectDate: (value: string) => void; onLayoutY?: (y: number) => void }) {
   const days = summary?.days ?? [];
   const byDate = new Map(days.map((day) => [day.dateKey, day]));
   const cells = monthCells(month);
-  return <View style={styles.monthPanel}>
-    <View style={styles.monthHeader}><Text style={styles.monthTitle}>{new Intl.DateTimeFormat(getLanguage(), { year: "numeric", month: "long" }).format(month)}</Text>{loading ? <ActivityIndicator size="small" color={theme.colors.textMuted} /> : null}</View>
+  return <View style={styles.monthPanel} onLayout={(event) => onLayoutY?.(event.nativeEvent.layout.y)}>
+    <View style={styles.monthHeader}><Text style={styles.monthTitle}>{formatMonthTitle(month)}</Text>{loading ? <ActivityIndicator size="small" color={theme.colors.textMuted} /> : null}</View>
     <Text style={styles.summary}>{tf("calendar.month_summary", { cards: summary?.totals.cardCount ?? 0, chars: summary?.totals.originalChars ?? 0, days: summary?.totals.recordedDays ?? 0 })}</Text>
     <View style={styles.weekRow}>{weekLabels().map((label, index) => <Text key={`${label}:${index}`} style={styles.weekLabel}>{label}</Text>)}</View>
     <View style={styles.grid}>{cells.map((day, index) => {
       if (!day) return <View key={`blank:${index}`} style={styles.dayCell} />;
       const key = dateKey(day); const stat = byDate.get(key);
-      return <Pressable key={key} disabled={!stat} style={styles.dayCell} onPress={() => onSelectDate(key)}><Text style={styles.dayText}>{day.getDate()}</Text><View style={[styles.daySquare, stat && { backgroundColor: calendarHeatColor(stat) }]} /></Pressable>;
+      return <Pressable key={key} disabled={!stat} style={styles.dayCell} onPress={() => onSelectDate(key)}><Text style={styles.dayText}>{day.getDate()}</Text>{stat?.coverUrl
+        ? <Image source={{ uri: stat.coverUrl }} style={styles.daySquare} resizeMode="cover" />
+        : <View style={[styles.daySquare, stat && styles.dayRecorded]}>{stat ? <View style={styles.dayDot} /> : null}</View>}</Pressable>;
     })}</View>
   </View>;
 }
@@ -240,7 +252,7 @@ function weekLabels(): string[] { const base = new Date(2026, 7, 2); return Arra
 // A recorded day is simply filled in (no shades): the heatmap shows *that*
 // you wrote, not how well you practiced.
 function calendarHeatColor(day: CardCalendarSummary["days"][number]): string {
-  return day.cardCount > 0 ? inkAlpha(0.82) : inkAlpha(0.1);
+  return day.cardCount > 0 ? theme.colors.accent : inkAlpha(0.08);
 }
 
 const calendarSidebarStyles = createStyles(() => ({
@@ -286,11 +298,18 @@ const calendarSidebarStyles = createStyles(() => ({
   },
 }));
 
-const styles = createStyles(() => ({ page: { flex: 1, backgroundColor: theme.colors.surface }, header: { height: 56, paddingHorizontal: 12, flexDirection: "row", alignItems: "center" }, headerButton: { width: 46, height: 46, alignItems: "center", justifyContent: "center" }, headerTitle: { flex: 1, textAlign: "center", color: theme.colors.text, fontSize: 18, fontWeight: "700" }, tabs: { alignSelf: "center", padding: 3, borderRadius: 10, backgroundColor: theme.colors.surfaceMuted, flexDirection: "row" }, tab: { minWidth: 110, paddingVertical: 9, borderRadius: 8, alignItems: "center" }, tabActive: { backgroundColor: theme.colors.surface }, tabText: { color: theme.colors.textMuted, fontSize: 15 }, tabTextActive: { color: theme.colors.text, fontWeight: "600" }, monthList: { paddingHorizontal: 22, paddingTop: 4, paddingBottom: 44 }, monthPanel: { paddingTop: 24, paddingBottom: 22 }, monthHeader: { minHeight: 30, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }, monthTitle: { color: theme.colors.text, fontSize: 23, lineHeight: 30, fontWeight: "700" }, summary: { marginTop: 4, color: theme.colors.textSecondary, fontSize: 13, lineHeight: 19 }, weekRow: { marginTop: 20, flexDirection: "row" }, weekLabel: { width: "14.285%", color: theme.colors.textMuted, fontSize: 12, lineHeight: 17, textAlign: "center" }, grid: { marginTop: 8, flexDirection: "row", flexWrap: "wrap" }, dayCell: { width: "14.285%", height: 72, paddingHorizontal: 3, alignItems: "stretch" }, dayText: { height: 20, marginBottom: 3, color: theme.colors.textMuted, fontSize: 11, lineHeight: 17, textAlign: "center" }, daySquare: { width: "100%", aspectRatio: 1, borderRadius: 7, backgroundColor: theme.colors.surfaceMuted }, yearPage: { paddingHorizontal: 18, paddingBottom: 40 }, yearHeader: { marginTop: 18, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 18 }, yearArrow: { width: 40, height: 40, alignItems: "center", justifyContent: "center" }, yearTitle: { color: theme.colors.text, fontSize: 24, fontWeight: "700" }, yearSummary: { marginTop: 6, color: theme.colors.textMuted, textAlign: "center", fontSize: 12 }, yearGrid: { marginTop: 22, flexDirection: "row", flexWrap: "wrap", gap: 12 }, miniMonth: { width: "47%", padding: 10, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.border, borderRadius: 10 }, miniMonthTitle: { color: theme.colors.text, fontSize: 13, fontWeight: "600" }, miniGrid: { marginTop: 8, flexDirection: "row", flexWrap: "wrap" }, miniDay: { width: "14.285%", aspectRatio: 1, borderWidth: 1.5, borderColor: theme.colors.surface, borderRadius: 2, backgroundColor: theme.colors.surfaceMuted }, miniMeta: { marginTop: 6, color: theme.colors.textMuted, fontSize: 10, textAlign: "right" }, sidebarPreview: { marginHorizontal: 12, paddingHorizontal: 8, paddingTop: 10, paddingBottom: 14 }, sidebarStats: { flexDirection: "row", justifyContent: "space-between" }, sidebarStatItem: { flex: 1 }, sidebarStatItemRight: { alignItems: "flex-end" }, sidebarStatValue: { color: theme.colors.text, fontSize: 23, lineHeight: 29, fontWeight: "500" }, sidebarStatLabel: { marginTop: 1, color: theme.colors.textMuted, fontSize: 11, lineHeight: 16 }, sidebarHeatmap: { width: "100%", marginTop: 13, flexDirection: "row", justifyContent: "space-between" }, sidebarHeatWeek: { gap: 3 }, sidebarHeatCell: { width: 14, height: 14, borderRadius: 3, backgroundColor: theme.colors.surfaceMuted }, sidebarHeatCellActive: { backgroundColor: theme.colors.accent }, sidebarMonths: { width: "100%", marginTop: 7, flexDirection: "row" }, sidebarMonthText: { width: "33.333%", color: theme.colors.textMuted, fontSize: 10, lineHeight: 14, textAlign: "center" }, dayPage: { flex: 1, backgroundColor: theme.colors.surface }, dayListScroller: { flex: 1 }, dayList: { paddingHorizontal: 18, paddingTop: 4, paddingBottom: 28, gap: 0 }, dayCard: { paddingVertical: 16, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.border }, dayCardTitle: { color: theme.colors.text, fontSize: 16, lineHeight: 23, fontWeight: "600" }, dayCardText: { marginTop: 5, color: theme.colors.textSecondary, fontSize: 14, lineHeight: 21 } }));
+const styles = createStyles(() => ({ page: { flex: 1, backgroundColor: theme.colors.surface }, header: { height: 56, paddingHorizontal: 12, flexDirection: "row", alignItems: "center" }, headerButton: { width: 46, height: 46, alignItems: "center", justifyContent: "center" }, headerTitle: { flex: 1, textAlign: "center", color: theme.colors.text, fontSize: 18, fontWeight: "700" }, tabs: { alignSelf: "center", padding: 3, borderRadius: 10, backgroundColor: theme.colors.surfaceMuted, flexDirection: "row" }, tab: { minWidth: 110, paddingVertical: 9, borderRadius: 8, alignItems: "center" }, tabActive: { backgroundColor: theme.colors.surface }, tabText: { color: theme.colors.textMuted, fontSize: 15 }, tabTextActive: { color: theme.colors.text, fontWeight: "600" }, monthList: { paddingHorizontal: 22, paddingTop: 4, paddingBottom: 44 }, monthPanel: { paddingTop: 24, paddingBottom: 22 }, monthHeader: { minHeight: 30, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }, monthTitle: { color: theme.colors.text, fontSize: 23, lineHeight: 30, fontWeight: "700" }, summary: { marginTop: 4, color: theme.colors.textSecondary, fontSize: 13, lineHeight: 19 }, weekRow: { marginTop: 20, flexDirection: "row" }, weekLabel: { width: "14.285%", color: theme.colors.textMuted, fontSize: 12, lineHeight: 17, textAlign: "center" }, grid: { marginTop: 8, flexDirection: "row", flexWrap: "wrap" }, dayCell: { width: "14.285%", height: 72, paddingHorizontal: 3, alignItems: "stretch" }, dayText: { height: 20, marginBottom: 3, color: theme.colors.textMuted, fontSize: 11, lineHeight: 17, textAlign: "center" }, daySquare: { width: "100%", aspectRatio: 1, borderRadius: 7, backgroundColor: theme.colors.surfaceMuted, overflow: "hidden" }, dayRecorded: { backgroundColor: theme.colors.accentSoft, alignItems: "center", justifyContent: "center" }, dayDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: theme.colors.accent }, yearPage: { paddingHorizontal: 18, paddingBottom: 40 }, yearHeader: { marginTop: 18, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 18 }, yearArrow: { width: 40, height: 40, alignItems: "center", justifyContent: "center" }, yearTitle: { color: theme.colors.text, fontSize: 24, fontWeight: "700" }, yearSummary: { marginTop: 6, color: theme.colors.textMuted, textAlign: "center", fontSize: 12 }, yearGrid: { marginTop: 22, flexDirection: "row", flexWrap: "wrap", gap: 12 }, miniMonth: { width: "47%", padding: 10, borderWidth: StyleSheet.hairlineWidth, borderColor: theme.colors.border, borderRadius: 10 }, miniMonthTitle: { color: theme.colors.text, fontSize: 13, fontWeight: "600" }, miniGrid: { marginTop: 8, flexDirection: "row", flexWrap: "wrap" }, miniDay: { width: "14.285%", aspectRatio: 1, borderWidth: 1.5, borderColor: theme.colors.surface, borderRadius: 2, backgroundColor: theme.colors.surfaceMuted }, miniMeta: { marginTop: 6, color: theme.colors.textMuted, fontSize: 10, textAlign: "right" }, sidebarPreview: { marginHorizontal: 12, paddingHorizontal: 8, paddingTop: 10, paddingBottom: 14 }, sidebarStats: { flexDirection: "row", justifyContent: "space-between" }, sidebarStatItem: { flex: 1 }, sidebarStatItemRight: { alignItems: "flex-end" }, sidebarStatValue: { color: theme.colors.text, fontSize: 23, lineHeight: 29, fontWeight: "500" }, sidebarStatLabel: { marginTop: 1, color: theme.colors.textMuted, fontSize: 11, lineHeight: 16 }, sidebarHeatmap: { width: "100%", marginTop: 13, flexDirection: "row", justifyContent: "space-between" }, sidebarHeatWeek: { gap: 3 }, sidebarHeatCell: { width: 14, height: 14, borderRadius: 3, backgroundColor: theme.colors.surfaceMuted }, sidebarHeatCellActive: { backgroundColor: theme.colors.accent }, sidebarMonths: { width: "100%", marginTop: 7, flexDirection: "row" }, sidebarMonthText: { width: "33.333%", color: theme.colors.textMuted, fontSize: 10, lineHeight: 14, textAlign: "center" }, dayPage: { flex: 1, backgroundColor: theme.colors.surface }, dayListScroller: { flex: 1 }, dayList: { paddingHorizontal: 18, paddingTop: 4, paddingBottom: 28, gap: 0 }, dayCard: { paddingVertical: 16, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.colors.border }, dayCardTitle: { color: theme.colors.text, fontSize: 16, lineHeight: 23, fontWeight: "600" }, dayCardText: { marginTop: 5, color: theme.colors.textSecondary, fontSize: 14, lineHeight: 21 } }));
 
 // Heatmap cells are ink at a given strength, so they read in both appearances.
 function inkAlpha(alpha: number) {
   const hex = theme.colors.ink.replace("#", "");
   const [r, g, b] = [0, 2, 4].map((offset) => parseInt(hex.slice(offset, offset + 2), 16));
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+// Hermes ships without CJK month names; format those by hand.
+function formatMonthTitle(month: Date): string {
+  const language = getLanguage();
+  if (language.startsWith("zh") || language.startsWith("ja")) return `${month.getFullYear()}年${month.getMonth() + 1}月`;
+  return new Intl.DateTimeFormat(language, { year: "numeric", month: "long" }).format(month);
 }

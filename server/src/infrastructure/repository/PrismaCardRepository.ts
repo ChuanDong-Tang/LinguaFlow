@@ -1120,6 +1120,24 @@ export class PrismaCardRepository implements CardRepository {
     return rows.map((row: { dateKey: string }) => row.dateKey);
   }
 
+  async firstImageByDate(userId: string, fromDateKey: string, toDateKey: string): Promise<Array<{ dateKey: string; image: CardImageAssetEntity }>> {
+    const rows = await this.prisma.card.findMany({
+      where: {
+        userId, deletedAt: null, status: "completed", isSample: false,
+        dateKey: { gte: fromDateKey, lte: toDateKey },
+        images: { some: {} },
+      },
+      select: { dateKey: true, recordedAt: true, images: { orderBy: [{ ordinal: "asc" }, { createdAt: "asc" }], take: 1 } },
+      orderBy: [{ dateKey: "asc" }, { recordedAt: "asc" }],
+    });
+    const byDate = new Map<string, CardImageAssetEntity>();
+    for (const row of rows) {
+      const image = (row as { images?: unknown[] }).images?.[0];
+      if (image && !byDate.has(row.dateKey)) byDate.set(row.dateKey, toImageAsset(image));
+    }
+    return [...byDate].map(([dateKey, image]) => ({ dateKey, image }));
+  }
+
   async aggregateCalendarByDate(userId: string, fromDateKey: string, toDateKey: string): Promise<Array<{
     dateKey: string;
     cardCount: number;

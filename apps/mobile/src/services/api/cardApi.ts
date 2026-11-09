@@ -487,7 +487,7 @@ export type CardCalendarSummary = {
   toDateKey: string;
   firstRecordDateKey: string | null;
   totals: { cardCount: number; originalChars: number; recordedDays: number };
-  days: Array<{ dateKey: string; cardCount: number; originalChars: number; clozeBlankCount: number; clozeAttemptedBlankCount: number; clozeCorrectBlankCount: number }>;
+  days: Array<{ dateKey: string; cardCount: number; originalChars: number; clozeBlankCount: number; clozeAttemptedBlankCount: number; clozeCorrectBlankCount: number; /** First photo of the day, if any. */ coverUrl?: string | null }>;
 };
 
 export async function getCardCalendarSummary(fromDateKey: string, toDateKey: string): Promise<CardCalendarSummary> {
