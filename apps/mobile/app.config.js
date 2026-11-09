@@ -106,7 +106,6 @@ module.exports = {
         },
       ],
       "./plugins/with-memory-photo-permissions",
-      "./plugins/with-android-audio-playback-policy",
       "expo-secure-store",
       "./plugins/with-chat-selectable-text",
       "./plugins/with-picovoice-voice-processor",

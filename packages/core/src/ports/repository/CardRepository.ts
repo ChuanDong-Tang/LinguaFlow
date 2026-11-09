@@ -399,6 +399,14 @@ export interface CardRepository {
     clozeCorrectBlankCount: number;
   }>>;
   findEarliestCompletedDateKey(userId: string): Promise<string | null>;
+  /** Podcast home: card count and cover image per folder (custom cover, else the latest photo). */
+  collectionPodcastStats(userId: string): Promise<Array<{ collectionId: string; cardCount: number; cover: CardImageAssetEntity | null }>>;
+  /** Set (or clear) a folder cover to the first photo of one of the folder's cards. False when not allowed. */
+  setCollectionCover(userId: string, collectionId: string, cardId: string | null): Promise<boolean>;
+  /** Recent completed cards with their display text, for theme grouping. */
+  listThemeSources(userId: string, limit: number): Promise<Array<{ id: string; text: string; cover: CardImageAssetEntity | null }>>;
+  getThemeSnapshot(userId: string): Promise<{ promptVersion: string; sourceHash: string; sourceCount: number; themes: unknown; generatedAt: Date } | null>;
+  saveThemeSnapshot(userId: string, snapshot: { promptVersion: string; sourceHash: string; sourceCount: number; themes: unknown }): Promise<void>;
   /** First photo of each day (earliest recorded card with an image) for calendar covers. */
   firstImageByDate(userId: string, fromDateKey: string, toDateKey: string): Promise<Array<{ dateKey: string; image: CardImageAssetEntity }>>;
   listRecentCompleted(userId: string, beforeDateKey: string, limit: number): Promise<CardEntryEntity[]>;

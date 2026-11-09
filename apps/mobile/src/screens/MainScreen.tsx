@@ -11,6 +11,8 @@ import * as MediaLibrary from "expo-media-library/legacy";
 import { readMemoryPhotoSource } from "../services/device/memoryPhotoLibrary";
 import { useAndroidBack } from "../hooks/useAndroidBack";
 import { subscribeCardEncounters } from "../services/card/cardEncounters";
+import { PodcastHome } from "./podcast/PodcastHome";
+import { PodcastMiniPlayer, PodcastPlayer } from "./podcast/PodcastPlayer";
 import { MemoryPhotoBrowser } from "./home/MemoryPhotoBrowser";
 import { MemoryArchiveDeck } from "./home/MemoryArchiveDeck";
 import { MemoryCollectionFilters } from "./home/MemoryCollectionFilters";
@@ -145,6 +147,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
   const touchingCollectionFilters = useRef(false);
   const [photoBrowser, setPhotoBrowser] = useState<"today" | "random" | null>(null);
   const [photoSourceMenuVisible, setPhotoSourceMenuVisible] = useState(false);
+  const [podcastPlayerVisible, setPodcastPlayerVisible] = useState(false);
   useAndroidBack(photoSourceMenuVisible, () => setPhotoSourceMenuVisible(false));
   const photoConfirmLock = useRef(false);
   const [homeLayout, setHomeLayout] = useState<"grid" | "list">("grid");
@@ -1662,7 +1665,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
           : libraryView === TRASH_VIEW
             ? <View style={styles.homeSectionTabs}><Text numberOfLines={1} style={styles.homeHeaderTitle}>{headerTitle}</Text></View>
             : <View style={styles.homeSectionTabs} accessibilityRole="tablist">
-              {(["memory", "today", "blind"] as const).map((tab) => <Pressable key={tab} accessibilityRole="tab" accessibilityState={{ selected: homeTab === tab }} hitSlop={6} style={styles.memoryTab} onPress={() => { if (homeTab !== tab) haptic.select(); setHomeTab(tab); }}><Text style={[styles.memoryTabText, homeTab === tab && styles.memoryTabSelected]}>{homeCopy[tab]}</Text>{homeTab === tab ? <TabUnderline key={tab} width={28} style={styles.memoryTabUnderline} /> : <View style={styles.memoryTabUnderlineSpace} />}</Pressable>)}
+              {(["memory", "today", "blind", "podcast"] as const).map((tab) => <Pressable key={tab} accessibilityRole="tab" accessibilityState={{ selected: homeTab === tab }} hitSlop={6} style={styles.memoryTab} onPress={() => { if (homeTab !== tab) haptic.select(); setHomeTab(tab); }}><Text style={[styles.memoryTabText, homeTab === tab && styles.memoryTabSelected]}>{homeCopy[tab]}</Text>{homeTab === tab ? <TabUnderline key={tab} width={28} style={styles.memoryTabUnderline} /> : <View style={styles.memoryTabUnderlineSpace} />}</Pressable>)}
             </View>}
         <View style={styles.headerActions}>
           {!selectingRecords ? <Pressable accessibilityRole="button" accessibilityLabel={t("contact.curious_companion.name")} hitSlop={8} style={styles.headerCharacter} onPressIn={() => headerMascot.current?.hop()} onPress={() => { haptic.light(); void openAssistant(); }}><OioMascot ref={headerMascot} size={29} /></Pressable> : null}
@@ -1682,7 +1685,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
 
       <View style={{ flex: 1 }} {...homeTabsResponder.panHandlers}>
       {!selectingRecords && editorialHome ? <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 4 }}><View style={{ flex: 1, minWidth: 0 }}><MemoryCollectionFilters editorial={editorialHome} collections={collections} selected={libraryView} onSelect={selectLibraryView} onTouching={value => { touchingCollectionFilters.current = value; }} /></View><Pressable accessibilityRole="button" accessibilityLabel={t("library.display_options")} hitSlop={6} style={[styles.headerIconButton, { marginRight: 10 }]} onPress={chooseLibraryAction}><Icon name="ellipsis-horizontal" size={21} color={theme.colors.textSecondary} /></Pressable></View> : null}
-      {homeTab === "blind" && libraryView !== TRASH_VIEW && !selectingRecords ? <ScrollView style={{ flex: 1, minHeight: 0 }} contentContainerStyle={styles.memoryLanding}>
+      {homeTab === "podcast" && libraryView !== TRASH_VIEW && !selectingRecords ? <PodcastHome collections={collections} bottomInset={screenInsets.bottom} onOpenPlayer={() => setPodcastPlayerVisible(true)} /> : homeTab === "blind" && libraryView !== TRASH_VIEW && !selectingRecords ? <ScrollView style={{ flex: 1, minHeight: 0 }} contentContainerStyle={styles.memoryLanding}>
         <MemoryArchiveDeck key={`${libraryView}:${sortMode}`} records={recordsScope === queryScope ? records : []} loading={loading || loadingMore} hasMore={recordsScope === queryScope && Boolean(nextCursor)} onThumbnailError={recoverFailedThumbnail} onLoadMore={() => void loadMore()} onOpen={(ids, first, handlers) => onOpenCard(first, "review", undefined, { browseRecordIds: ids, onBrowseSetFinished: handlers.onFinished, onBrowseClosed: handlers.onClosed, closeOnBrowseFinish: true })} />
       </ScrollView> : <>
       {!selectingRecords && libraryView !== TRASH_VIEW && homeTab === "today" ? <View style={styles.memoryToolbar}><Text style={styles.memoryTodayDate}>{localDay}</Text></View> : null}
@@ -1731,7 +1734,9 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
         onMove={(record) => { setRecordActionMenu(null); openMoveActions(record); }}
         onDelete={(record) => { setRecordActionMenu(null); confirmDelete(record.id); }}
       />
-      {!selectingRecords && libraryView !== TRASH_VIEW ? <Surface radius={28} fill={theme.colors.surface} style={[styles.memoryEntryDock, { bottom: Math.max(screenInsets.bottom + 10, 14) }]}>
+      {!selectingRecords && libraryView !== TRASH_VIEW ? <PodcastMiniPlayer bottom={homeTab === "podcast" ? Math.max(screenInsets.bottom + 10, 14) : Math.max(screenInsets.bottom + 10, 14) + 74} onOpen={() => setPodcastPlayerVisible(true)} /> : null}
+      <PodcastPlayer visible={podcastPlayerVisible} onClose={() => setPodcastPlayerVisible(false)} />
+      {!selectingRecords && libraryView !== TRASH_VIEW && homeTab !== "podcast" ? <Surface radius={28} fill={theme.colors.surface} style={[styles.memoryEntryDock, { bottom: Math.max(screenInsets.bottom + 10, 14) }]}>
         <Pressable accessibilityRole="button" accessibilityLabel={t("card_detail.photo.camera")} style={({ pressed }) => [styles.memoryPhotoShortcut, pressed && styles.memoryPhotoShortcutPressed]} onPress={() => { haptic.medium(); void captureMemoryPhoto(); }}>
           <Camera size={25} color={theme.colors.text} />
           <Text style={styles.memoryEntryLabel}>{homeCopy.camera}</Text>

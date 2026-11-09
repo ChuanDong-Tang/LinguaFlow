@@ -41,6 +41,7 @@ model User {
   cardContentPracticeStates   CardContentPracticeState[]
   cardSpeechAssets            CardSpeechAsset[]
   cardCollections             CardCollection[]
+  cardThemeSnapshot           CardThemeSnapshot?
   cardEmbeddings              CardEmbedding[]
   phraseEmbeddings            PhraseEmbedding[]
   phraseOccurrenceEmbeddings  PhraseOccurrenceEmbedding[]
@@ -431,6 +432,22 @@ model CardSpeechAsset {
   @@map("card_speech_assets")
 }
 
+/// Podcast themes: AI grouping of a user's memories into recurring topics.
+model CardThemeSnapshot {
+  userId        String   @id
+  promptVersion String
+  sourceHash    String
+  sourceCount   Int
+  themes        Json
+  generatedAt   DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("card_theme_snapshots")
+}
+
+/// Optional custom cover chosen from one of the folder's own photos.
 model CardCollection {
   id                String   @id @default(cuid())
   userId            String
@@ -438,6 +455,7 @@ model CardCollection {
   sortOrder         Int      @default(0)
   isFavorite        Boolean  @default(false)
   favoriteSortOrder Int?
+  coverImageId      String?
   name              String
   normalizedName    String
   createdAt         DateTime @default(now())

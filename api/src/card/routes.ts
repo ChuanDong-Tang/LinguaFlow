@@ -3,6 +3,7 @@ import type { CardService } from "@lf/server/services/card/CardService.js";
 import type { MemorySentenceMeaningService } from "@lf/server/services/card/MemorySentenceMeaningService.js";
 import type { CardImageService } from "@lf/server/services/card/CardImageService.js";
 import type { CardRelationService } from "@lf/server/services/card/CardRelationService.js";
+import type { CardPodcastService } from "@lf/server/services/card/CardPodcastService.js";
 import type { CardCollectionService } from "@lf/server/services/card/CardCollectionService.js";
 import type { RecallService } from "@lf/server/services/card/RecallService.js";
 import {
@@ -53,6 +54,7 @@ export interface CardRouteDeps {
   cardCollectionService: CardCollectionService;
   recallService: RecallService;
   cardRelationService?: CardRelationService;
+  cardPodcastService?: CardPodcastService;
   cardEnabled: boolean;
   rateLimiter?: { consume(key: string, limit: number, windowMs: number): Promise<boolean> };
   userRepository: {
@@ -1233,6 +1235,36 @@ export function registerCardRoutes(app: FastifyInstance, deps: CardRouteDeps): v
       } catch (error) { return handleCardError(reply, requestId, error); }
     });
   }
+
+  // Podcast home: folder covers + AI themes (themes may take a few seconds the
+  // first time; afterwards they are served from the per-user snapshot).
+  app.get("/cards/podcast/home", async (req, reply) => {
+    const requestId = resolveRequestId(req.headers["x-request-id"]); reply.header("x-request-id", requestId);
+    const userId = await resolveCardUser(req, reply, deps, requestId, "/cards/podcast/home"); if (!userId) return;
+    if (!deps.cardPodcastService) return reply.status(200).send({ ok: true, request_id: requestId, data: { folders: [], themes: [] } });
+    const appLocale = typeof (req.query as { appLocale?: unknown } | null)?.appLocale === "string" ? (req.query as { appLocale: string }).appLocale : null;
+    try {
+      const [folders, themes] = await Promise.all([
+        deps.cardPodcastService.folders(userId),
+        deps.cardPodcastService.themes(userId, appLocale).catch(() => []),
+      ]);
+      return reply.status(200).send({ ok: true, request_id: requestId, data: { folders, themes } });
+    } catch (error) { return handleCardError(reply, requestId, error); }
+  });
+
+  app.put("/cards/collections/:collectionId/cover", async (req, reply) => {
+    const requestId = resolveRequestId(req.headers["x-request-id"]); reply.header("x-request-id", requestId);
+    const userId = await resolveCardUser(req, reply, deps, requestId, "/cards/collections/:collectionId/cover"); if (!userId) return;
+    if (!deps.cardPodcastService) return failure(reply, 404, requestId, "NOT_FOUND", "Podcast is unavailable");
+    const collectionId = String((req.params as { collectionId?: unknown }).collectionId ?? "");
+    const body = (req.body ?? {}) as { recordId?: unknown };
+    const recordId = typeof body.recordId === "string" ? body.recordId : null;
+    try {
+      const ok = await deps.cardPodcastService.setFolderCover(userId, collectionId, recordId);
+      if (!ok) return failure(reply, 404, requestId, "NOT_FOUND", "Folder or photo not found");
+      return reply.status(200).send({ ok: true, request_id: requestId, data: { ok: true } });
+    } catch (error) { return handleCardError(reply, requestId, error); }
+  });
 
   app.get("/cards/trash", async (req, reply) => {
     const requestId = resolveRequestId(req.headers["x-request-id"]); reply.header("x-request-id", requestId);

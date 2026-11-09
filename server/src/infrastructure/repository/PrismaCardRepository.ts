@@ -44,10 +44,16 @@ type PrismaCardClient = {
     update: (args: any) => Promise<any>;
     updateMany: (args: any) => Promise<{ count: number }>;
     deleteMany: (args: any) => Promise<{ count: number }>;
+    groupBy: (args: any) => Promise<any[]>;
   };
   cardCollection: {
     findFirst: (args: any) => Promise<any>;
     findMany: (args: any) => Promise<any[]>;
+    update: (args: any) => Promise<any>;
+  };
+  cardThemeSnapshot: {
+    findUnique: (args: any) => Promise<any>;
+    upsert: (args: any) => Promise<any>;
   };
   cardRewriteSegment: {
     deleteMany: (args: any) => Promise<any>;
@@ -1118,6 +1124,71 @@ export class PrismaCardRepository implements CardRepository {
       orderBy: { dateKey: "asc" },
     });
     return rows.map((row: { dateKey: string }) => row.dateKey);
+  }
+
+  async collectionPodcastStats(userId: string): Promise<Array<{ collectionId: string; cardCount: number; cover: CardImageAssetEntity | null }>> {
+    const [collections, counts] = await Promise.all([
+      this.prisma.cardCollection.findMany({ where: { userId }, select: { id: true, coverImageId: true } }),
+      this.prisma.card.groupBy({
+        by: ["collectionId"],
+        where: { userId, deletedAt: null, status: "completed", isSample: false, collectionId: { not: null } },
+        _count: { _all: true },
+      }),
+    ]);
+    const countById = new Map(counts.map((row) => [row.collectionId as string, row._count._all]));
+    return Promise.all(collections.map(async (collection) => {
+      let image: unknown = collection.coverImageId
+        ? await this.prisma.cardImageAsset.findFirst({ where: { id: collection.coverImageId, userId } })
+        : null;
+      if (!image) {
+        const latest = await this.prisma.card.findFirst({
+          where: { userId, collectionId: collection.id, deletedAt: null, status: "completed", images: { some: {} } },
+          orderBy: { recordedAt: "desc" },
+          select: { images: { orderBy: [{ ordinal: "asc" }, { createdAt: "asc" }], take: 1 } },
+        });
+        image = latest?.images[0] ?? null;
+      }
+      return { collectionId: collection.id, cardCount: countById.get(collection.id) ?? 0, cover: image ? toImageAsset(image) : null };
+    }));
+  }
+
+  async setCollectionCover(userId: string, collectionId: string, cardId: string | null): Promise<boolean> {
+    const collection = await this.prisma.cardCollection.findFirst({ where: { id: collectionId, userId }, select: { id: true } });
+    if (!collection) return false;
+    let coverImageId: string | null = null;
+    if (cardId) {
+      const card = await this.prisma.card.findFirst({
+        where: { id: cardId, userId, collectionId, deletedAt: null },
+        select: { images: { orderBy: [{ ordinal: "asc" }, { createdAt: "asc" }], take: 1, select: { id: true } } },
+      });
+      coverImageId = card?.images[0]?.id ?? null;
+      if (!coverImageId) return false;
+    }
+    await this.prisma.cardCollection.update({ where: { id: collectionId }, data: { coverImageId } });
+    return true;
+  }
+
+  async listThemeSources(userId: string, limit: number): Promise<Array<{ id: string; text: string; cover: CardImageAssetEntity | null }>> {
+    const rows = await this.prisma.card.findMany({
+      where: { userId, deletedAt: null, status: "completed", isSample: false },
+      orderBy: { recordedAt: "desc" },
+      take: limit,
+      select: { id: true, title: true, topic: true, headline: true, originalText: true, images: { orderBy: [{ ordinal: "asc" }, { createdAt: "asc" }], take: 1 } },
+    });
+    return rows.flatMap((row) => {
+      const text = (row.topic || row.title || row.headline || row.originalText?.split("\n").find((line: string) => line.trim()) || "").trim().slice(0, 60);
+      return text ? [{ id: row.id, text, cover: row.images[0] ? toImageAsset(row.images[0]) : null }] : [];
+    });
+  }
+
+  async getThemeSnapshot(userId: string) {
+    const row = await this.prisma.cardThemeSnapshot.findUnique({ where: { userId } });
+    return row ? { promptVersion: row.promptVersion, sourceHash: row.sourceHash, sourceCount: row.sourceCount, themes: row.themes, generatedAt: row.generatedAt } : null;
+  }
+
+  async saveThemeSnapshot(userId: string, snapshot: { promptVersion: string; sourceHash: string; sourceCount: number; themes: unknown }): Promise<void> {
+    const data = { ...snapshot, themes: snapshot.themes as object, generatedAt: new Date() };
+    await this.prisma.cardThemeSnapshot.upsert({ where: { userId }, create: { userId, ...data }, update: data });
   }
 
   async firstImageByDate(userId: string, fromDateKey: string, toDateKey: string): Promise<Array<{ dateKey: string; image: CardImageAssetEntity }>> {

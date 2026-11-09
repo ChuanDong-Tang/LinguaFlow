@@ -23,6 +23,7 @@ import { CardImageService } from "@lf/server/services/card/CardImageService.js";
 import { AzureEmbeddingProvider } from "@lf/server/providers/ai/AzureEmbeddingProvider.js";
 import { PrismaCardRelationRepository } from "@lf/server/infrastructure/repository/PrismaCardRelationRepository.js";
 import { CardRelationService } from "@lf/server/services/card/CardRelationService.js";
+import { CardPodcastService } from "@lf/server/services/card/CardPodcastService.js";
 import { PrismaCardCollectionRepository } from "@lf/server/infrastructure/repository/PrismaCardCollectionRepository.js";
 import { CardCollectionService } from "@lf/server/services/card/CardCollectionService.js";
 import { PrismaRecallRepository } from "@lf/server/infrastructure/repository/PrismaRecallRepository.js";
@@ -338,6 +339,7 @@ export function createApp() {
     },
     cardImageService,
   );
+  const cardPodcastService = new CardPodcastService(cardRepository, aiProvider, cardImageService, contentSafetyService);
   const trustedCertRepository = new PrismaTrustedCertRepository(prisma);
   const autoRenewRepository = new PrismaAutoRenewRepository(prisma);
   const appleIapAccountLinkRepository = new PrismaAppleIapAccountLinkRepository(prisma);
@@ -512,6 +514,7 @@ export function createApp() {
       cardCollectionService,
       recallService,
       cardRelationService,
+      cardPodcastService,
       cardEnabled: runtimeConfig.cardEnabled,
       rateLimiter: chatGenerationRateLimiter,
       userRepository,

@@ -904,3 +904,18 @@ async function request<T>(path: string, init: RequestInit = {}, timeoutMs?: numb
   }
   return result.data;
 }
+
+export type PodcastHomeData = {
+  folders: Array<{ id: string; cardCount: number; coverUrl: string | null }>;
+  themes: Array<{ label: string; recordIds: string[]; coverUrl: string | null }>;
+};
+
+/** Podcast home: folder covers and AI-grouped themes. */
+export async function getPodcastHome(appLocale: string): Promise<PodcastHomeData> {
+  return request(`/cards/podcast/home?appLocale=${encodeURIComponent(appLocale)}`);
+}
+
+/** Use the first photo of one of the folder's cards as its cover (null = automatic). */
+export async function setCardCollectionCover(collectionId: string, recordId: string | null): Promise<void> {
+  await request(`/cards/collections/${encodeURIComponent(collectionId)}/cover`, { method: "PUT", body: JSON.stringify({ recordId }) });
+}

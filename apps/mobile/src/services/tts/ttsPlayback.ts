@@ -3,6 +3,12 @@ import { Directory, File, Paths } from "expo-file-system";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 let activePlayer: AudioPlayer | null = null;
+/**
+ * Podcast player kept alive across cards. Android only lets the app start the
+ * media foreground service while it is in the foreground, so background
+ * playback must swap sources on one player instead of creating new ones.
+ */
+let backgroundPlayer: AudioPlayer | null = null;
 let activeStopTimer: ReturnType<typeof setInterval> | null = null;
 let activeLoadTimer: ReturnType<typeof setTimeout> | null = null;
 let activePlaybackSubscription: { remove: () => void } | null = null;
@@ -54,6 +60,11 @@ export type TtsAudioSource = {
   sessionId?: number;
   loadTimeoutMs?: number;
   startPositionMs?: number;
+  /**
+   * Podcast mode: keep playing when the app is backgrounded or the screen is
+   * locked, and show this item on the lock screen / notification.
+   */
+  background?: { title: string; artist?: string; artworkUrl?: string };
 };
 
 export type TtsPlaybackState = {
@@ -97,12 +108,13 @@ export async function playTtsAudio(source: string | TtsAudioSource, playbackRang
   await setAudioModeAsync({
     allowsRecording: false,
     playsInSilentMode: true,
-    shouldPlayInBackground: false,
-    interruptionMode: "mixWithOthers",
+    shouldPlayInBackground: Boolean(resolvedSource.background),
+    // Lock-screen controls require exclusive audio focus.
+    interruptionMode: resolvedSource.background ? "doNotMix" : "mixWithOthers",
   });
 
   if (requestId !== playbackRequestId) return;
-  stopActivePlayer();
+  stopActivePlayer({ retainBackground: Boolean(resolvedSource.background) });
 
   const nextLoopScope = resolvedSource.loopScope ?? "one";
   const loopAllowed = resolvedSource.allowLoop !== false;
@@ -129,7 +141,23 @@ export async function playTtsAudio(source: string | TtsAudioSource, playbackRang
 
   const effectivePlaybackRange = resolvedSource.playbackRange ?? playbackRange;
 
-  const player = createAudioPlayer({ uri: audioUri }, { updateInterval: 30 });
+  let player: AudioPlayer;
+  if (resolvedSource.background && backgroundPlayer) {
+    player = backgroundPlayer;
+    player.replace({ uri: audioUri });
+    try { player.updateLockScreenMetadata(resolvedSource.background); } catch { /* optional */ }
+  } else {
+    if (!resolvedSource.background) releaseBackgroundPlayer();
+    player = createAudioPlayer({ uri: audioUri }, { updateInterval: 30 });
+    if (resolvedSource.background) {
+      backgroundPlayer = player;
+      try {
+        player.setActiveForLockScreen(true, resolvedSource.background, { showSeekForward: true, showSeekBackward: true });
+      } catch {
+        // Lock-screen controls are optional (e.g. Expo Go / unsupported builds).
+      }
+    }
+  }
   activePlayer = player;
   let loopRestartInFlight = false;
   let playbackFinished = false;
@@ -150,7 +178,8 @@ export async function playTtsAudio(source: string | TtsAudioSource, playbackRang
     if (activePlayer !== player || playbackFinished) return;
     playbackFinished = true;
     const onFinished = resolvedSource.onFinished;
-    stopActivePlayer();
+    // Keep the podcast player alive so onFinished can play the next card on it.
+    stopActivePlayer({ retainBackground: true });
     onFinished?.();
   };
   activePlaybackSubscription = player.addListener("playbackStatusUpdate", (status) => {
@@ -207,7 +236,7 @@ export async function playTtsAudio(source: string | TtsAudioSource, playbackRang
     );
     await player.seekTo(startSeconds, 0, 0);
     if (requestId !== playbackRequestId) {
-      player.remove();
+      if (player !== backgroundPlayer) player.remove();
       return;
     }
     activeStopTimer = setInterval(() => {
@@ -233,9 +262,9 @@ export async function playTtsAudio(source: string | TtsAudioSource, playbackRang
   }
 }
 
-export function stopTtsAudio(options: { resetControls?: boolean } = {}): void {
+export function stopTtsAudio(options: { resetControls?: boolean; retainBackground?: boolean } = {}): void {
   playbackRequestId += 1;
-  stopActivePlayer();
+  stopActivePlayer({ retainBackground: options.retainBackground });
   if (options.resetControls) {
     setPlaybackState({
       activeNavigationKey: null,
@@ -243,8 +272,8 @@ export function stopTtsAudio(options: { resetControls?: boolean } = {}): void {
   }
 }
 
-export function beginTtsPlaybackSession(): number {
-  stopTtsAudio();
+export function beginTtsPlaybackSession(options: { retainBackground?: boolean } = {}): number {
+  stopTtsAudio({ retainBackground: options.retainBackground });
   return playbackRequestId;
 }
 
@@ -350,7 +379,15 @@ export function subscribeTtsPlayback(listener: () => void): () => void {
   return () => playbackSubscribers.delete(listener);
 }
 
-function stopActivePlayer(): void {
+function releaseBackgroundPlayer(): void {
+  const player = backgroundPlayer;
+  backgroundPlayer = null;
+  if (!player) return;
+  try { player.pause(); player.setActiveForLockScreen(false); } catch { /* not active */ }
+  player.remove();
+}
+
+function stopActivePlayer(options: { retainBackground?: boolean } = {}): void {
   if (activeStopTimer) {
     clearInterval(activeStopTimer);
     activeStopTimer = null;
@@ -365,8 +402,14 @@ function stopActivePlayer(): void {
   }
   if (activePlayer) {
     activePlayer.pause();
-    activePlayer.remove();
+    if (activePlayer === backgroundPlayer) {
+      // Keep the podcast player (and its lock-screen service) for the next card.
+      if (!options.retainBackground) releaseBackgroundPlayer();
+    } else {
+      activePlayer.remove();
+    }
   }
+  if (!options.retainBackground && backgroundPlayer) releaseBackgroundPlayer();
   activePlayer = null;
   setPlaybackState({
     hasActiveAudio: false,

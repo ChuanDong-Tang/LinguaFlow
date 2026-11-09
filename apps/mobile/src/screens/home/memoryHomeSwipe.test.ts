@@ -8,7 +8,9 @@ test("home swipe follows visual tab order and stops at both ends", () => {
   assert.equal(swipedMemoryTab("blind", 100, 2), "today");
   assert.equal(swipedMemoryTab("today", 100, 2), "memory");
   assert.equal(swipedMemoryTab("memory", 100, 2), "memory");
-  assert.equal(swipedMemoryTab("blind", -100, 2), "blind");
+  assert.equal(swipedMemoryTab("blind", -100, 2), "podcast");
+  assert.equal(swipedMemoryTab("podcast", 100, 2), "blind");
+  assert.equal(swipedMemoryTab("podcast", -100, 2), "podcast");
 });
 
 test("short, vertical and diagonal gestures keep the current home tab", () => {
