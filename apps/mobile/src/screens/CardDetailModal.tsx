@@ -713,7 +713,7 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
           </View>
         </View>
         {recallPosition && tab === "review" ? recallPosition.kind === "browse"
-          ? <MemoryBrowseControl hasNextSet={Boolean(onRecallFinish)} index={recallPosition.index} total={recallPosition.total} disabled={loading || editing || imageAdding || recallInteractionLocked || playbackMode} onPrevious={onRecallPrevious ? () => leaveCard(onRecallPrevious, false) : undefined} onNext={onRecallNext ? () => leaveCard(onRecallNext, false) : undefined} onExit={() => leaveCard(onRecallFinish ?? onClose, false)} />
+          ? <MemoryBrowseControl hasNextSet={Boolean(onRecallFinish)} index={recallPosition.index} total={recallPosition.total} disabled={editing || imageAdding || recallInteractionLocked || playbackMode} onPrevious={onRecallPrevious ? () => { if (!loading) leaveCard(onRecallPrevious, false); } : undefined} onNext={onRecallNext ? () => { if (!loading) leaveCard(onRecallNext, false); } : undefined} onExit={() => leaveCard(onRecallFinish ?? onClose, false)} />
           : <Text numberOfLines={1} style={[styles.recallContextLabel, !recallContextLabel && styles.recallContextLabelHidden]}>{recallContextLabel ?? " "}</Text> : null}
         {detailActionMenuVisible ? <View style={styles.detailActionLayer}><Pressable style={StyleSheet.absoluteFill} onPress={() => setDetailActionMenuVisible(false)} /><View style={styles.detailMenu}>
           {detail?.rewrittenText && detail.mode !== "corpus" && onUpdateMetadata ? <Pressable style={styles.detailActionItem} onPress={() => void openRewriteEditor()}><Icon name="create-outline" size={17} color={theme.colors.textSecondary} /><Text style={styles.detailActionText}>{t("card_detail.edit_rewrite")}</Text></Pressable> : null}
@@ -876,7 +876,8 @@ function RecallAdjacentCard({ detail, position, contextLabel, canUseDictation, b
         </View>
         <View style={styles.headerEnd}><View style={styles.iconHeaderButton}><Icon name="ellipsis-horizontal" size={23} color={theme.colors.text} /></View></View>
       </View>
-      <MemoryBrowseControl index={position.index} total={position.total} disabled onExit={() => undefined} />
+      {/* Same look as the live control (the preview is not touchable), so nothing changes when it becomes the real page. */}
+      <MemoryBrowseControl index={position.index} total={position.total} disabled={false} onPrevious={position.index > 0 ? () => undefined : undefined} onNext={() => undefined} onExit={() => undefined} />
     </> : <>
       <View style={styles.header}><View style={styles.historyButtons}><View style={styles.historyButton} /></View><Text style={styles.title}>{position.index + 1} / {position.total}</Text><View style={styles.headerEnd}><View style={styles.iconHeaderButton}><Icon name="close" size={23} color={theme.colors.text} /></View></View></View>
       <Text numberOfLines={1} style={[styles.recallContextLabel, !contextLabel && styles.recallContextLabelHidden]}>{contextLabel ?? " "}</Text>
@@ -2110,6 +2111,8 @@ function detailGalleryImages(images: NonNullable<CardRecordDetail["images"]>, le
   }));
 }
 
+let cachedReviewCollections: CardCollection[] = [];
+
 function Review({ practiceCommand, onLanguageControlChange, hidePhraseRecommendation = true, detail, imageAdding, contentBinding, playbackMode, practiceEnabled, canUseDictation, autoStartClozePractice, clozeState, clozeVersion, onClozeChange, onLearningContentClozeChange, onSelectLearningContent, onActivateLearningContent, onSaveOriginal, onUpdateMetadata, onRemoveImage, onCoverPositionChange, relations, onOpenRelated, relationFocusSentence = null, onOpenDictation, pendingGenerationTargets = [], failedGenerationTargets = [], retryingGenerationTarget = null, onRetryGeneration, onGeneratePhraseRecommendation, onRecallFinish, onClozeAttempt, onPendingClozeCheckHandlerChange, onInteractionLockChange, onImageSwipeContextChange, focusLearningContent = false, onLearningTargetReady, focusActionBar = false, onActionBarTargetReady }: {
   detail: CardRecordDetail;
   imageAdding: boolean;
@@ -2269,7 +2272,16 @@ function Review({ practiceCommand, onLanguageControlChange, hidePhraseRecommenda
   const [titleEditing, setTitleEditing] = useState(false);
   const [titleDraft, setTitleDraft] = useState(detail.title ?? detail.displayTitle);
   const [metadataSaving, setMetadataSaving] = useState(false);
-  const [collections, setCollections] = useState<CardCollection[]>([]);
+  // Start from the last known folders so swiping to the next card does not
+  // flash "…" in the # folder tag while the list reloads.
+  const [collections, setCollectionsState] = useState<CardCollection[]>(() => cachedReviewCollections);
+  const setCollections = (value: CardCollection[] | ((current: CardCollection[]) => CardCollection[])) => {
+    setCollectionsState((current) => {
+      const next = typeof value === "function" ? value(current) : value;
+      cachedReviewCollections = next;
+      return next;
+    });
+  };
   const [collectionPickerVisible, setCollectionPickerVisible] = useState(false);
   const [recordTimeEditorVisible, setRecordTimeEditorVisible] = useState(false);
   useEffect(() => { setOriginalDraft(detail.originalText); }, [detail.originalText]);
