@@ -83,6 +83,9 @@ export type UsageV2 = {
     reservedBytes: string;
     remainingBytes: string;
     dailyUploadLimit: number;
+    /** Older API builds omit these two. */
+    dailyUploadsUsed?: number;
+    dailyResetAt?: string;
   };
   features: {
     community: boolean;

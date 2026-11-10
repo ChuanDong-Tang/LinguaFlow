@@ -17,6 +17,10 @@ export type CardDraftImage = {
   focusY?: number;
   fileSize: number;
   mimeType: "image/jpeg" | "image/png";
+  /** ISO time the photo was taken (library date / EXIF / camera shutter). */
+  capturedAt?: string | null;
+  /** Photo-library asset id, so a used photo links back to its card. */
+  sourceAssetId?: string | null;
 };
 
 export type CardDraft = {
@@ -141,6 +145,8 @@ function normalizeImage(value: unknown): CardDraftImage | null {
     focusY: clampUnit(row.focusY),
     fileSize: Number(row.fileSize) || 0,
     mimeType: row.mimeType === "image/png" ? "image/png" : "image/jpeg",
+    capturedAt: typeof row.capturedAt === "string" ? row.capturedAt : null,
+    sourceAssetId: typeof row.sourceAssetId === "string" ? row.sourceAssetId : null,
   };
 }
 

@@ -720,6 +720,22 @@ export function registerCardRoutes(app: FastifyInstance, deps: CardRouteDeps): v
     }
   });
 
+  app.post("/cards/image-sources", async (req, reply) => {
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    reply.header("x-request-id", requestId);
+    if (!deps.cardEnabled) return cardDisabled(reply, requestId);
+    const userId = await resolveCardUser(req, reply, deps, requestId, "/cards/image-sources");
+    if (!userId) return;
+    const body = req.body as { sourceAssetIds?: unknown } | null;
+    const ids = Array.isArray(body?.sourceAssetIds) ? body.sourceAssetIds.filter((id): id is string => typeof id === "string") : [];
+    try {
+      const items = await deps.cardImageService.linkedCards(userId, ids);
+      return reply.send({ ok: true, request_id: requestId, data: { items } });
+    } catch (error) {
+      return handleCardError(reply, requestId, error);
+    }
+  });
+
   app.post("/cards/image-uploads", async (req, reply) => {
     const requestId = resolveRequestId(req.headers["x-request-id"]);
     reply.header("x-request-id", requestId);
@@ -750,7 +766,7 @@ export function registerCardRoutes(app: FastifyInstance, deps: CardRouteDeps): v
       });
       return failure(reply, 429, requestId, "RATE_LIMITED", "图片处理过于频繁，请稍后再试");
     }
-    const body = req.body as { mimeType?: unknown; fileSize?: unknown; width?: unknown; height?: unknown } | null;
+    const body = req.body as { mimeType?: unknown; fileSize?: unknown; width?: unknown; height?: unknown; capturedAt?: unknown; sourceAssetId?: unknown } | null;
     try {
       const data = await deps.cardImageService.createUpload({
         userId,
@@ -759,6 +775,8 @@ export function registerCardRoutes(app: FastifyInstance, deps: CardRouteDeps): v
         width: Number(body?.width),
         height: Number(body?.height),
         usageApiVersion: "v2",
+        capturedAt: parseCaptureTime(body?.capturedAt),
+        sourceAssetId: typeof body?.sourceAssetId === "string" && body.sourceAssetId.length > 0 && body.sourceAssetId.length <= 256 ? body.sourceAssetId : null,
       });
       return reply.status(201).send({ ok: true, request_id: requestId, data });
     } catch (error) {
@@ -1553,4 +1571,13 @@ function cardDisabled(reply: FastifyReply, requestId: string) {
 function isLearningContentType(value: unknown): value is CardLearningContentType {
   return value === "original" || value === "rewrite" || value === "reply"
     || typeof value === "string" && /^image:[A-Za-z0-9_-]{1,128}$/u.test(value);
+}
+
+/** A photo's own capture time: a valid ISO timestamp, not in the future (1 day of clock skew allowed). */
+function parseCaptureTime(value: unknown): Date | null {
+  if (typeof value !== "string" || !value) return null;
+  const date = new Date(value);
+  const time = date.getTime();
+  if (!Number.isFinite(time) || time < Date.UTC(1990, 0, 1) || time > Date.now() + 24 * 60 * 60 * 1000) return null;
+  return date;
 }

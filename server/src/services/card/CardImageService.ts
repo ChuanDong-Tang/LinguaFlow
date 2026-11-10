@@ -83,6 +83,8 @@ export class CardImageService {
     width: number;
     height: number;
     usageApiVersion?: "v2";
+    capturedAt?: Date | null;
+    sourceAssetId?: string | null;
   }) {
     if (!['image/jpeg', 'image/png'].includes(input.mimeType)) throw new CardValidationError("只支持 JPEG 或 PNG 图片");
     if (!Number.isInteger(input.fileSize) || input.fileSize < 1 || input.fileSize > MAX_IMAGE_BYTES) throw new CardValidationError("图片大小不符合要求");
@@ -101,7 +103,7 @@ export class CardImageService {
         objectKey,
       });
       try {
-        await this.repository.createImageUpload({ id, userId: input.userId, objectKey, mimeType: input.mimeType, fileSize: input.fileSize, width: input.width, height: input.height, expiresAt });
+        await this.repository.createImageUpload({ id, userId: input.userId, objectKey, mimeType: input.mimeType, fileSize: input.fileSize, width: input.width, height: input.height, expiresAt, capturedAt: input.capturedAt, sourceAssetId: input.sourceAssetId });
       } catch (error) {
         await this.usageV2Service.releaseImageReservation(input.userId, id).catch(() => undefined);
         throw error;
@@ -112,6 +114,7 @@ export class CardImageService {
       const reserved = await this.repository.createImageUploadWithinQuota({
         id, userId: input.userId, quotaDateKey: entitlement.dateKey, objectKey,
         mimeType: input.mimeType, fileSize: input.fileSize, width: input.width, height: input.height, expiresAt,
+        capturedAt: input.capturedAt, sourceAssetId: input.sourceAssetId,
       });
       if (!reserved) throw new CardImageQuotaExceededError("Cloud image quota exceeded");
     }
@@ -124,6 +127,13 @@ export class CardImageService {
       throw error;
     }
     return { uploadId: id, uploadUrl: upload.uploadUrl, headers: { ...upload.headers, "Content-Type": input.mimeType }, expiresAt: expiresAt.toISOString() };
+  }
+
+  /** Device photos that already became a card, so the photo browser links to it instead of a new memory. */
+  async linkedCards(userId: string, sourceAssetIds: string[]): Promise<Array<{ sourceAssetId: string; recordId: string }>> {
+    const ids = [...new Set(sourceAssetIds.filter((id) => typeof id === "string" && id.length > 0 && id.length <= 256))].slice(0, 300);
+    const rows = await this.repository.findCardsBySourceAssets(userId, ids);
+    return rows.map((row) => ({ sourceAssetId: row.sourceAssetId, recordId: `card:${row.cardId}` }));
   }
 
   async complete(userId: string, uploadId: string) {

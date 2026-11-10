@@ -82,6 +82,8 @@ export interface CardEntryEntity {
   failedAt: Date | null;
   deletedAt: Date | null;
   recordedAt: Date;
+  /** User-corrected memory time; otherwise the first photo's own capture time is used. */
+  capturedAt?: Date | null;
   createdAt: Date;
   updatedAt: Date;
   segments: CardSegmentEntity[];
@@ -164,6 +166,10 @@ export interface CardImageAssetEntity {
   descriptionUpdatedAt: Date | null;
   expiresAt: Date;
   claimedAt: Date | null;
+  /** When the photo itself was taken, from the device library / EXIF. */
+  capturedAt?: Date | null;
+  /** Device photo-library asset id the image was picked from. */
+  sourceAssetId?: string | null;
 }
 
 export interface CreateQueuedCardEntryInput {
@@ -511,6 +517,8 @@ export interface CardRepository {
     width: number;
     height: number;
     expiresAt: Date;
+    capturedAt?: Date | null;
+    sourceAssetId?: string | null;
   }): Promise<CardImageAssetEntity | null>;
   createImageUpload(input: {
     id: string;
@@ -521,7 +529,12 @@ export interface CardRepository {
     width: number;
     height: number;
     expiresAt: Date;
+    capturedAt?: Date | null;
+    sourceAssetId?: string | null;
   }): Promise<CardImageAssetEntity>;
+  /** Which of these device asset ids already belong to a live card of this user. */
+  setCapturedAt(userId: string, cardId: string, capturedAt: Date | null): Promise<void>;
+  findCardsBySourceAssets(userId: string, sourceAssetIds: string[]): Promise<Array<{ sourceAssetId: string; cardId: string }>>;
   findImageUpload(id: string, userId: string): Promise<CardImageAssetEntity | null>;
   updateImageUploadModeration(input: {
     id: string;

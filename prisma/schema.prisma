@@ -224,6 +224,8 @@ model Card {
   linkUrl                           String?
   linkProvider                      String?
   linkTitle                         String?
+  /// When the attached photo / video itself was taken (memory time). Null for text-only cards.
+  capturedAt                        DateTime?
   collectionId                      String?
   publishedAt                       DateTime?
   processingAt                      DateTime?
@@ -335,6 +337,10 @@ model CardImageAsset {
   descriptionStatus                 String    @default("not_requested")
   descriptionError                  String?
   descriptionUpdatedAt              DateTime?
+  /// Capture time read from the device photo library / EXIF.
+  capturedAt                        DateTime?
+  /// Device photo-library asset id, so the app can link a photo back to its card.
+  sourceAssetId                     String?
   expiresAt                         DateTime
   claimedAt                         DateTime?
   createdAt                         DateTime  @default(now())
@@ -347,6 +353,7 @@ model CardImageAsset {
   @@index([entryId, ordinal])
   @@index([status, expiresAt])
   @@index([thumbnailStatus, updatedAt])
+  @@index([userId, sourceAssetId])
   @@map("card_image_assets")
 }
 

@@ -72,6 +72,10 @@ export type UsageV2View = {
     reservedBytes: string;
     remainingBytes: string;
     dailyUploadLimit: number;
+    /** Uploads already counted against today's limit (quota time zone). */
+    dailyUploadsUsed: number;
+    /** When today's upload count resets. */
+    dailyResetAt: string;
   };
   features: {
     community: boolean;
@@ -116,6 +120,7 @@ type UsagePrismaClient = {
   usageV2SystemState: {
     findUnique(args: any): Promise<{ launchedAt: Date } | null>;
   };
+  imageStorageTransaction?: { count(args: any): Promise<number> };
 };
 
 export type TokenReservationView = {
@@ -198,6 +203,10 @@ export class UsageV2Service {
     const bonus = await this.prisma.referralRedemption.findUnique({ where: { userId } });
     const bonusRemaining = Math.max(0, (bonus?.grantedPoints ?? 0) - (bonus?.usedPoints ?? 0) - (bonus?.reservedPoints ?? 0));
     const remainingBytes = maxBigInt(0n, imageAccount.capacityBytes - imageAccount.usedBytes - imageAccount.reservedBytes);
+    const todayKey = formatDateKey(now, config.quotaTimeZone);
+    const dailyUploadsUsed = await this.prisma.imageStorageTransaction?.count({
+      where: { userId, dateKey: todayKey, kind: "upload", status: { in: ["reserved", "committed"] } },
+    }) ?? 0;
     return {
       apiVersion: USAGE_API_VERSION,
       configVersion: config.usageV2ConfigVersion,
@@ -226,6 +235,8 @@ export class UsageV2Service {
         reservedBytes: imageAccount.reservedBytes.toString(),
         remainingBytes: remainingBytes.toString(),
         dailyUploadLimit: dailyImageLimit(subscription.tier),
+        dailyUploadsUsed,
+        dailyResetAt: nextDayStart(now, config.quotaTimeZone).toISOString(),
       },
       features: {
         community: subscription.tier === "pro",
@@ -836,4 +847,19 @@ function formatDateKey(value: Date, timeZone: string): string {
     month: "2-digit",
     day: "2-digit",
   }).format(value);
+}
+
+/** Start of the next calendar day in the quota time zone. */
+function nextDayStart(now: Date, timeZone: string): Date {
+  const today = formatDateKey(now, timeZone);
+  // Walk forward in 15-minute steps to the first instant whose date key changes;
+  // robust to any UTC offset without a timezone library.
+  let probe = new Date(now.getTime());
+  for (let step = 0; step < 4 * 26; step += 1) {
+    probe = new Date(probe.getTime() + 15 * 60 * 1000);
+    if (formatDateKey(probe, timeZone) !== today) break;
+  }
+  probe.setUTCSeconds(0, 0);
+  probe.setUTCMinutes(Math.floor(probe.getUTCMinutes() / 15) * 15);
+  return probe;
 }

@@ -276,6 +276,10 @@ export class PrismaCardRepository implements CardRepository {
     });
   }
 
+  async setCapturedAt(userId: string, cardId: string, capturedAt: Date | null): Promise<void> {
+    await this.prisma.card.updateMany({ where: { id: cardId, userId, deletedAt: null }, data: { capturedAt } });
+  }
+
   async setFavorite(userId: string, cardId: string, favoritedAt: Date | null): Promise<boolean> {
     const updated = await this.prisma.card.updateMany({
       where: { id: cardId, userId, deletedAt: null },
@@ -1916,6 +1920,8 @@ export class PrismaCardRepository implements CardRepository {
     width: number;
     height: number;
     expiresAt: Date;
+    capturedAt?: Date | null;
+    sourceAssetId?: string | null;
   }): Promise<CardImageAssetEntity | null> {
     return this.prisma.$transaction(async (tx) => {
       const reserved = await tx.$executeRaw`
@@ -1939,6 +1945,8 @@ export class PrismaCardRepository implements CardRepository {
           width: input.width,
           height: input.height,
           expiresAt: input.expiresAt,
+          capturedAt: input.capturedAt ?? null,
+          sourceAssetId: input.sourceAssetId ?? null,
         },
       });
       return toImageAsset(row);
@@ -1954,6 +1962,8 @@ export class PrismaCardRepository implements CardRepository {
     width: number;
     height: number;
     expiresAt: Date;
+    capturedAt?: Date | null;
+    sourceAssetId?: string | null;
   }): Promise<CardImageAssetEntity> {
     const row = await this.prisma.cardImageAsset.create({
       data: {
@@ -1967,9 +1977,23 @@ export class PrismaCardRepository implements CardRepository {
         width: input.width,
         height: input.height,
         expiresAt: input.expiresAt,
+        capturedAt: input.capturedAt ?? null,
+        sourceAssetId: input.sourceAssetId ?? null,
       },
     });
     return toImageAsset(row);
+  }
+
+  async findCardsBySourceAssets(userId: string, sourceAssetIds: string[]): Promise<Array<{ sourceAssetId: string; cardId: string }>> {
+    if (!sourceAssetIds.length) return [];
+    const rows = await this.prisma.cardImageAsset.findMany({
+      where: { userId, sourceAssetId: { in: sourceAssetIds }, entryId: { not: null }, entry: { deletedAt: null } },
+      select: { sourceAssetId: true, entryId: true },
+      orderBy: { createdAt: "desc" },
+    });
+    const seen = new Map<string, string>();
+    for (const row of rows) if (row.sourceAssetId && row.entryId && !seen.has(row.sourceAssetId)) seen.set(row.sourceAssetId, row.entryId);
+    return [...seen].map(([sourceAssetId, cardId]) => ({ sourceAssetId, cardId }));
   }
 
   async findImageUpload(id: string, userId: string): Promise<CardImageAssetEntity | null> {
@@ -2723,6 +2747,7 @@ function toEntry(row: any): CardEntryEntity {
     linkUrl: row.linkUrl ?? null,
     linkProvider: row.linkProvider ?? null,
     linkTitle: row.linkTitle ?? null,
+    capturedAt: row.capturedAt ?? null,
     practiceSnapshot: row.practiceState
       ? { clozeState: row.practiceState.clozeState ?? null, clozeLastResult: row.practiceState.clozeLastResult ?? null }
       : row.practiceState === null ? null : undefined,
@@ -2903,6 +2928,8 @@ function toImageAsset(row: any): CardImageAssetEntity {
     descriptionUpdatedAt: row.descriptionUpdatedAt ?? null,
     expiresAt: row.expiresAt,
     claimedAt: row.claimedAt ?? null,
+    capturedAt: row.capturedAt ?? null,
+    sourceAssetId: row.sourceAssetId ?? null,
   };
 }
 

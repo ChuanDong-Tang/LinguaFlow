@@ -1,3 +1,6 @@
+import { pickedImageSource, type PickedImageSource } from "../services/card/photoCaptureTime";
+import { ensureImageUploadQuota } from "../services/usage/imageUploadQuota";
+import { quotaExhaustionKindForCode } from "../services/usage/quotaExhaustion";
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { countCardEncounter } from "../services/card/cardEncounters";
 import { Alert, Platform } from "react-native";
@@ -18,6 +21,7 @@ import {
   type CardLearningContentType,
   type CardCapabilities,
   type CardRelationReason,
+  CardApiError,
 } from "../services/api/cardApi";
 import {
   prepareCardDraftImage,
@@ -405,30 +409,31 @@ export function CardDetailNavigator({
       }
     }
     const result = source === "camera"
-      ? await ImagePicker.launchCameraAsync({ mediaTypes: ["images"], quality: 1 })
-      : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 1, allowsMultipleSelection: true, selectionLimit: remaining });
+      ? await ImagePicker.launchCameraAsync({ mediaTypes: ["images"], quality: 1, exif: true })
+      : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 1, allowsMultipleSelection: true, selectionLimit: remaining, exif: true });
     const selected = result.assets?.filter((asset) => asset.uri && asset.width && asset.height).slice(0, remaining) ?? [];
     if (result.canceled || !selected.length) return;
-    await appendPickedImages(recordId, selected);
+    await appendPickedImages(recordId, selected.map((asset) => pickedImageSource(asset, source === "camera")));
   }
 
-  async function appendPickedImages(recordId: string, selected: Array<{ uri: string; width: number; height: number }>): Promise<void> {
+  async function appendPickedImages(recordId: string, selected: PickedImageSource[]): Promise<void> {
     setImageAdding(true);
+    const prepared: Array<Awaited<ReturnType<typeof prepareCardDraftImage>>> = [];
     try {
+      for (const asset of selected) prepared.push(await prepareCardDraftImage(asset));
+      // Photos and videos share one upload allowance: check the whole batch before uploading.
+      if (!await ensureImageUploadQuota({ count: prepared.length, bytes: prepared.reduce((sum, image) => sum + image.fileSize, 0) })) return;
       let updated = detail;
-      for (const asset of selected) {
-        let prepared: Awaited<ReturnType<typeof prepareCardDraftImage>> | null = null;
+      for (const image of prepared) {
         let uploadId: string | null = null;
         try {
-          prepared = await prepareCardDraftImage(asset);
-          const ready = await uploadCardDraftImage(prepared, () => undefined);
+          const ready = await uploadCardDraftImage(image, () => undefined);
           if (!ready.uploadId) throw new Error(t("card_detail.photo.upload_incomplete"));
           uploadId = ready.uploadId;
           updated = await stabilizeCardDetailImages(updated, await appendCardRecordImage(recordId, uploadId));
           uploadId = null;
         } finally {
           if (uploadId) void deleteCardImageUpload(uploadId).catch(() => undefined);
-          if (prepared) removePersistentDraftImage(prepared.localUri);
         }
       }
       if (!updated) return;
@@ -436,6 +441,7 @@ export function CardDetailNavigator({
       detailCacheRef.current.set(recordId, { detail: updated, loadedAt: Date.now() });
       onChanged();
     } catch (error) {
+      if (error instanceof CardApiError && quotaExhaustionKindForCode(error.code)) return;
       Alert.alert(
         t("card_detail.photo.add_failed_title"),
         error instanceof CardImageModerationRejectedError
@@ -445,6 +451,7 @@ export function CardDetailNavigator({
             : t("card_detail.photo.add_failed_message"),
       );
     } finally {
+      prepared.forEach((image) => removePersistentDraftImage(image.localUri));
       setImageAdding(false);
     }
   }

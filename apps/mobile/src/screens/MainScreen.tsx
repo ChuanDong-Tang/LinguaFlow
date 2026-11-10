@@ -70,6 +70,10 @@ import {
   type CardDraft,
   type CardDraftImage,
 } from "../services/card/cardDraftStorage";
+import { libraryCaptureTime, pickedImageSource, type PickedImageSource } from "../services/card/photoCaptureTime";
+import { photoTakenTime } from "../services/device/memoryPhotoPolicy";
+import { ensureImageUploadQuota } from "../services/usage/imageUploadQuota";
+import { quotaExhaustionKindForCode } from "../services/usage/quotaExhaustion";
 import { theme } from "../theme";
 import { createStyles } from "../styles";
 import { CardDetailModal } from "./CardDetailModal";
@@ -146,6 +150,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
   const [homeTab, setHomeTab] = useState<MemoryHomeTab>("memory");
   const touchingCollectionFilters = useRef(false);
   const [photoBrowser, setPhotoBrowser] = useState<"today" | "random" | null>(null);
+  const [photoBrowserHidden, setPhotoBrowserHidden] = useState(false);
   const [photoSourceMenuVisible, setPhotoSourceMenuVisible] = useState(false);
   const [podcastPlayerVisible, setPodcastPlayerVisible] = useState(false);
   useAndroidBack(photoSourceMenuVisible, () => setPhotoSourceMenuVisible(false));
@@ -1145,7 +1150,10 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
       persistDraftImage(ready);
     } catch (error) {
       console.warn("[card] image upload failed", error);
-      if (error instanceof CardApiError && (error.code === "IMAGE_STORAGE_QUOTA_EXCEEDED" || error.code === "CARD_IMAGE_QUOTA_EXCEEDED")) {
+      if (error instanceof CardApiError && quotaExhaustionKindForCode(error.code)) {
+        // Refused on quota (the dialog is already showing): take the photo back out.
+        void updateCommittedDraft((current) => ({ ...current, images: current.images.filter((candidate) => candidate.localUri !== image.localUri) }));
+        removePersistentDraftImage(image.localUri);
         return;
       } else if (error instanceof CardImageModerationRejectedError) {
         Alert.alert(t("card_detail.photo.add_failed_title"), t("card_detail.photo.moderation_rejected_message"));
@@ -1187,14 +1195,13 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
       }
     }
     const result = source === "camera"
-      ? await ImagePicker.launchCameraAsync({ mediaTypes: ["images"], quality: 1 })
-      : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 1, allowsMultipleSelection: true, selectionLimit: remaining });
+      ? await ImagePicker.launchCameraAsync({ mediaTypes: ["images"], quality: 1, exif: true })
+      : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 1, allowsMultipleSelection: true, selectionLimit: remaining, exif: true });
     const selected = result.assets?.filter((asset) => asset.uri && asset.width && asset.height) ?? [];
     if (result.canceled || !selected.length) return 0;
     if (selected.length > remaining) Alert.alert(t("card_detail.photo.limit_title"), tf("card_detail.photo.selection_limited", { count: remaining }));
-    const accepted = selected.slice(0, remaining);
-    for (const asset of accepted) await applyDraftImage(asset);
-    return accepted.length;
+    const accepted = selected.slice(0, remaining).map((asset) => pickedImageSource(asset, source === "camera"));
+    return applyDraftImages(accepted);
   }
 
   /**
@@ -1202,7 +1209,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
    * browser. Resolves with the new card id once it exists (generation keeps
    * running in the background), or null when it could not be created.
    */
-  async function confirmMemoryPhoto(asset: MediaLibrary.Asset, text: string, title = ""): Promise<string | null> {
+  async function confirmMemoryPhoto(asset: MediaLibrary.Asset, text: string, title = ""): Promise<string | null | "refused"> {
     if (photoConfirmLock.current) return null;
     const current = draftRef.current;
     const revision = draftRevisionRef.current;
@@ -1219,13 +1226,24 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
       // The caller has explicitly confirmed upload and generation. Never invoke
       // this path from photo browsing, paging, or the initial selection action.
       const source = await readMemoryPhotoSource(asset, true);
-      const prepared = await prepareCardDraftImage(source);
-      if (draftRevisionRef.current !== revision) return null;
+      const prepared = await prepareCardDraftImage({ ...source, capturedAt: libraryCaptureTime(photoTakenTime(asset)), sourceAssetId: asset.id });
+      if (draftRevisionRef.current !== revision) { removePersistentDraftImage(prepared.localUri); return null; }
+      // One check before uploading; when the allowance is used up, refuse and keep browsing.
+      if (!await ensureImageUploadQuota({ count: 1, bytes: prepared.fileSize })) {
+        removePersistentDraftImage(prepared.localUri);
+        return "refused";
+      }
       await commitDraft({ ...EMPTY_DRAFT, collectionId: current.collectionId, title, text, generateImageDescription: true, images: [prepared] });
       try {
         const ready = await uploadCardDraftImage(prepared, persistDraftImage);
         await updateCommittedDraft((value) => ({ ...value, images: [ready] }));
-      } catch {
+      } catch (error) {
+        if (error instanceof CardApiError && quotaExhaustionKindForCode(error.code)) {
+          // The server refused on quota (dialog already shown): drop the draft, nothing was spent.
+          await commitDraft({ ...EMPTY_DRAFT, collectionId: current.collectionId });
+          removePersistentDraftImage(prepared.localUri);
+          return "refused";
+        }
         // Keep the user's words: hand the draft to the full editor to retry.
         await updateCommittedDraft((value) => ({ ...value, images: value.images.map((image) => ({ ...image, status: "failed" as const })) }));
         setPhotoBrowser(null);
@@ -1240,20 +1258,41 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
     } finally { photoConfirmLock.current = false; }
   }
 
-  async function applyDraftImage(selected: { uri: string; width: number; height: number }): Promise<void> {
-    if (draft.images.length >= cardLimits.imagesPerCard) {
+  async function applyDraftImage(selected: PickedImageSource): Promise<void> {
+    await applyDraftImages([selected]);
+  }
+
+  /**
+   * Prepare a picked batch locally, then check the shared photo/video upload
+   * allowance once for the whole batch before any upload starts. A batch that
+   * does not fit is refused as a whole (the dialog offers recharge / refresh).
+   */
+  async function applyDraftImages(selected: PickedImageSource[]): Promise<number> {
+    const room = cardLimits.imagesPerCard - draftRef.current.images.length;
+    if (room <= 0) {
       Alert.alert(t("card_detail.photo.limit_title"));
-      return;
+      return 0;
     }
-    setPreparingDraftImageCount((count) => count + 1);
+    const batch = selected.slice(0, room);
+    setPreparingDraftImageCount((count) => count + batch.length);
+    const prepared: CardDraftImage[] = [];
     try {
-      const prepared = await prepareCardDraftImage({ uri: selected.uri, width: selected.width, height: selected.height });
-      persistDraftImage(prepared);
-      void processDraftImage(prepared);
-    } catch {
-      Alert.alert(t("card_detail.photo.prepare_failed_title"), t("card_detail.photo.prepare_failed_message"));
+      for (const source of batch) {
+        try { prepared.push(await prepareCardDraftImage(source)); } catch {
+          Alert.alert(t("card_detail.photo.prepare_failed_title"), t("card_detail.photo.prepare_failed_message"));
+        }
+      }
+      if (!await ensureImageUploadQuota({ count: prepared.length, bytes: prepared.reduce((sum, image) => sum + image.fileSize, 0) })) {
+        prepared.forEach((image) => removePersistentDraftImage(image.localUri));
+        return 0;
+      }
+      for (const image of prepared) {
+        persistDraftImage(image);
+        void processDraftImage(image);
+      }
+      return prepared.length;
     } finally {
-      setPreparingDraftImageCount((count) => Math.max(0, count - 1));
+      setPreparingDraftImageCount((count) => Math.max(0, count - batch.length));
     }
   }
 
@@ -1750,7 +1789,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
           <Text style={styles.memoryEntryLabel}>{homeCopy.photos}</Text>
         </Pressable>
       </Surface> : null}
-      <PhotoSourceMenu visible={photoSourceMenuVisible} bottomInset={screenInsets.bottom} onClose={() => setPhotoSourceMenuVisible(false)} onPick={(mode) => { setPhotoSourceMenuVisible(false); setPhotoBrowser(mode); }} />
+      <PhotoSourceMenu visible={photoSourceMenuVisible} bottomInset={screenInsets.bottom} onClose={() => setPhotoSourceMenuVisible(false)} onPick={(mode) => { setPhotoSourceMenuVisible(false); setPhotoBrowserHidden(false); setPhotoBrowser(mode); }} />
       {selectingRecords && selectedRecordIds.size ? <View style={[styles.batchActionBar, libraryView === TRASH_VIEW && styles.batchActionBarCentered, { paddingBottom: Math.max(screenInsets.bottom, 10) }]}>{libraryView !== TRASH_VIEW ? <Pressable style={styles.batchAction} onPress={() => setBatchMoveVisible(true)}><Icon name="folder-open-outline" size={22} color={theme.colors.text} /><Text style={styles.batchActionText}>{t("library.move")}</Text></Pressable> : null}<Pressable style={styles.batchAction} onPress={confirmBatchDelete}><Icon name="trash-outline" size={22} color={theme.colors.danger} /><Text style={[styles.batchActionText, { color: theme.colors.danger }]}>{libraryView === TRASH_VIEW ? "彻底删除" : t("common.delete")}</Text></Pressable></View> : null}
       <Modal visible={libraryMenuVisible} transparent animationType="fade" onRequestClose={() => setLibraryMenuVisible(false)}>
         <Pressable style={styles.libraryMenuBackdrop} onPress={() => setLibraryMenuVisible(false)}>
@@ -1795,7 +1834,11 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
         />
       </AnimatedSearchOverlay>
 
-      {photoBrowser ? <MemoryPhotoBrowser random={photoBrowser === "random"} maxTextLength={cardLimits.contentChars} onClose={() => setPhotoBrowser(null)} onConfirm={confirmMemoryPhoto} onPracticeSet={(recordIds) => {
+      {photoBrowser ? <MemoryPhotoBrowser random={photoBrowser === "random"} hidden={photoBrowserHidden} maxTextLength={cardLimits.contentChars} onClose={() => setPhotoBrowser(null)} onConfirm={confirmMemoryPhoto} onOpenCard={(recordId) => {
+        // Step out of the photo flow to the card, then come back to the same photo.
+        setPhotoBrowserHidden(true);
+        onOpenCard(recordId, "review", undefined, { onBrowseClosed: () => setPhotoBrowserHidden(false) });
+      }} onPracticeSet={(recordIds) => {
         setPhotoBrowser(null);
         const [first] = recordIds;
         if (first) onOpenCard(first, "cloze", undefined, { browseRecordIds: recordIds });

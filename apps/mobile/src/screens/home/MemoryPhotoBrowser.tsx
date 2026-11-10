@@ -18,6 +18,7 @@ import { getLanguage, t } from "../../i18n";
 import { theme } from "../../theme";
 import { createStyles } from "../../styles";
 import { canReadMemoryPhoto, readMemoryPhotoPage, requestMemoryPhotoPermission } from "../../services/device/memoryPhotoLibrary";
+import { getLinkedPhotoCards } from "../../services/api/cardApi";
 import { createMemoryPhotoPager, type PhotoPagerState } from "../../services/device/memoryPhotoPager";
 import { isRecentPhoto, nextPhotoSet, photoBatch, photoTakenTime, relativePhotoDay } from "../../services/device/memoryPhotoPolicy";
 import { memoryPhotoCopy } from "./memoryPhotoCopy";
@@ -32,11 +33,15 @@ const SET_SIZES = [5, 15, 30] as const;
  * about; after the set, optionally practice the memories you just made.
  * Photos are uploaded only when the user taps 改写 for that photo.
  */
-export function MemoryPhotoBrowser({ random = false, onClose, onConfirm, onPracticeSet, maxTextLength }: {
+export function MemoryPhotoBrowser({ random = false, hidden = false, onClose, onConfirm, onPracticeSet, onOpenCard, maxTextLength }: {
   random?: boolean;
+  /** Kept mounted (position and state intact) while a linked card is open on top. */
+  hidden?: boolean;
   onClose: () => void;
-  /** Create a memory from this photo; resolves with the new card id. */
-  onConfirm: (asset: Asset, text: string, title: string) => Promise<string | null>;
+  /** Open the card a photo already became, instead of making a second one. */
+  onOpenCard: (recordId: string) => void;
+  /** Create a memory from this photo; resolves with the new card id, null on failure, "refused" when the upload allowance is used up. */
+  onConfirm: (asset: Asset, text: string, title: string) => Promise<string | null | "refused">;
   onPracticeSet: (recordIds: string[]) => void;
   maxTextLength: number;
 }) {
@@ -49,6 +54,17 @@ export function MemoryPhotoBrowser({ random = false, onClose, onConfirm, onPract
   const [index, setIndex] = useState(0);
   const [round, setRound] = useState(0);
   const [generated, setGenerated] = useState<Record<string, string>>({});
+  // Photos that already became a card (any session / device install): assetId → recordId.
+  const [linked, setLinked] = useState<Record<string, string>>({});
+  const checkedAssets = useRef(new Set<string>());
+  const lookupLinked = useCallback((assets: Asset[]) => {
+    const ids = assets.map((asset) => asset.id).filter((id) => !checkedAssets.current.has(id));
+    if (!ids.length) return;
+    ids.forEach((id) => checkedAssets.current.add(id));
+    void getLinkedPhotoCards(ids).then((found) => {
+      if (alive.current && Object.keys(found).length) setLinked((value) => ({ ...value, ...found }));
+    }).catch(() => { ids.forEach((id) => checkedAssets.current.delete(id)); });
+  }, []);
   const [composerOpen, setComposerOpen] = useState(false);
   const [dayPickerFor, setDayPickerFor] = useState<Asset | null>(null);
   const [permissionBusy, setPermissionBusy] = useState(false);
@@ -125,6 +141,10 @@ export function MemoryPhotoBrowser({ random = false, onClose, onConfirm, onPract
     } finally { if (alive.current) setPermissionBusy(false); }
   }
 
+  useEffect(() => { lookupLinked(deck); }, [deck, lookupLinked]);
+  const cardFor = (asset: Asset) => generated[asset.id] ?? linked[asset.id] ?? null;
+  const openLinked = useCallback((recordId: string) => { haptic.light(); onOpenCard(recordId); }, [onOpenCard]);
+
   const current = deck[index] ?? null;
   const onViewable = useRef(({ viewableItems }: { viewableItems: ViewToken[] }) => {
     const first = viewableItems[0];
@@ -135,7 +155,12 @@ export function MemoryPhotoBrowser({ random = false, onClose, onConfirm, onPract
 
   // Swipe up on a photo → write about it. Gesture-handler pan runs alongside
   // the horizontal pager (Android's native pager eats JS responders).
-  const openComposer = useCallback(() => { haptic.light(); setComposerOpen(true); }, []);
+  const currentCard = current ? cardFor(current) : null;
+  const openComposer = useCallback(() => {
+    // A photo that already has a card opens that card; never a second memory.
+    if (currentCard) { openLinked(currentCard); return; }
+    haptic.light(); setComposerOpen(true);
+  }, [currentCard, openLinked]);
   const swipeUp = useMemo(() => Gesture.Pan()
     .enabled(!composerOpen)
     .activeOffsetY(-24)
@@ -147,7 +172,7 @@ export function MemoryPhotoBrowser({ random = false, onClose, onConfirm, onPract
   const generatedIds = deck.flatMap((asset) => generated[asset.id] ? [generated[asset.id]!] : []);
   const label = current ? photoDayLabel(current, now) : "";
 
-  return <Modal animationType="slide" onRequestClose={handleBack}>
+  return <Modal visible={!hidden} animationType="slide" onRequestClose={handleBack}>
     <GestureHandlerRootView style={{ flex: 1 }}>
     <SafeAreaProvider>
       <SafeAreaView style={styles.page} edges={["top", "bottom"]}>
@@ -180,8 +205,13 @@ export function MemoryPhotoBrowser({ random = false, onClose, onConfirm, onPract
             renderItem={({ item, index: slot }) => item === "end"
               ? <SetEnd width={width} generatedIds={generatedIds} generatedAssets={deck.filter((asset) => generated[asset.id])} onPractice={() => onPracticeSet(generatedIds)} onNext={() => void nextSet()} />
               : <Reanimated.View entering={slot === 0 ? ZoomIn.springify().damping(14).stiffness(140) : undefined} style={[styles.photoPage, { width }]}>
-                <PhotoStage asset={item} shrink={composerOpen && slot === index} maxHeight={height} />
-                {generated[item.id] ? <Reanimated.View entering={ZoomIn.duration(motion.duration.enter)} style={styles.generatedBadge}><CheckMark size={16} /><Text style={styles.generatedText}>{copy("已生成", "Saved")}</Text></Reanimated.View> : null}
+                <PhotoStage asset={item} shrink={composerOpen && slot === index} maxHeight={height} framed={Boolean(cardFor(item))} />
+                {generated[item.id] ? <Reanimated.View entering={ZoomIn.duration(motion.duration.enter)} style={styles.generatedBadge}><CheckMark size={16} /><Text style={styles.generatedText}>{copy("已生成", "Saved")}</Text></Reanimated.View>
+                  : linked[item.id] ? <Reanimated.View entering={FadeIn.duration(motion.duration.enter)} style={styles.generatedBadge}>
+                    <Pressable accessibilityRole="button" accessibilityLabel={copy("已有卡片，查看", "Has a card · open")} hitSlop={8} style={styles.linkedBadgeInner} onPress={() => openLinked(linked[item.id]!)}>
+                      <Icon name="albums-outline" size={14} color={theme.colors.accent} /><Text style={styles.generatedText}>{copy("已有卡片", "Has a card")}</Text><Icon name="chevron-forward" size={13} />
+                    </Pressable>
+                  </Reanimated.View> : null}
               </Reanimated.View>}
           />
           {state.access === "limited" ? <Pressable style={styles.limitedBanner} onPress={() => void permissionAction(true)}><Text style={styles.limitedText}>{copy("仅展示已授权照片 · 调整范围", "Showing selected photos · Manage access")}</Text></Pressable> : null}
@@ -189,17 +219,21 @@ export function MemoryPhotoBrowser({ random = false, onClose, onConfirm, onPract
             <Pressable accessibilityRole="button" style={({ pressed }) => [styles.dayChip, pressed && { opacity: 0.7 }]} onPress={() => { haptic.light(); setDayPickerFor(current); }}>
               <Icon name="calendar-outline" size={15} /><Text style={styles.dayChipText}>{label}</Text>
             </Pressable>
-            {!generated[current.id] ? <Pressable accessibilityRole="button" accessibilityLabel={copy("写点什么", "Write about it")} style={({ pressed }) => [styles.swipeHint, pressed && { opacity: 0.7 }]} onPress={() => { haptic.light(); setComposerOpen(true); }}>
+            {currentCard ? <Pressable accessibilityRole="button" accessibilityLabel={copy("查看这张照片的卡片", "Open this photo's card")} style={({ pressed }) => [styles.swipeHint, pressed && { opacity: 0.7 }]} onPress={() => openLinked(currentCard)}>
+              <Icon name="chevron-up" size={18} color={theme.colors.accent} /><Text style={[styles.swipeHintText, { color: theme.colors.accent }]}>{copy("上滑，查看卡片", "Swipe up to open its card")}</Text>
+            </Pressable> : <Pressable accessibilityRole="button" accessibilityLabel={copy("写点什么", "Write about it")} style={({ pressed }) => [styles.swipeHint, pressed && { opacity: 0.7 }]} onPress={openComposer}>
               <Icon name="chevron-up" size={18} /><Text style={styles.swipeHintText}>{copy("上滑，写点什么", "Swipe up to write")}</Text>
-            </Pressable> : null}
+            </Pressable>}
           </View> : null}
         </View></GestureDetector>}
-        {composerOpen && current ? <PhotoComposer
+        {composerOpen && current && !linked[current.id] ? <PhotoComposer
           asset={current}
           maxLength={maxTextLength}
           onClose={() => setComposerOpen(false)}
           onSubmit={async (text, title) => {
             const recordId = await onConfirm(current, text, title);
+            // Refused on quota: the recharge / refresh dialog explains it; keep the words, no error line.
+            if (recordId === "refused") return "refused";
             if (!recordId || !alive.current) return false;
             haptic.success();
             setGenerated((value) => ({ ...value, [current.id]: recordId }));
@@ -208,7 +242,7 @@ export function MemoryPhotoBrowser({ random = false, onClose, onConfirm, onPract
           }}
         /> : null}
       </SafeAreaView>
-      {dayPickerFor ? <DayPhotos asset={dayPickerFor} onClose={() => setDayPickerFor(null)} onChoose={(asset) => {
+      {dayPickerFor ? <DayPhotos asset={dayPickerFor} linked={{ ...linked, ...generated }} onLoaded={lookupLinked} onClose={() => setDayPickerFor(null)} onChoose={(asset) => {
         haptic.select();
         setDeck((value) => value.map((item, slot) => slot === index ? asset : item));
         setDayPickerFor(null);
@@ -233,12 +267,18 @@ function formatPhotoDate(date: Date): string {
 }
 
 /** The photo fills the stage; when writing it shrinks to the top third. */
-function PhotoStage({ asset, shrink, maxHeight }: { asset: Asset; shrink: boolean; maxHeight: number }) {
+function PhotoStage({ asset, shrink, maxHeight, framed = false }: { asset: Asset; shrink: boolean; maxHeight: number; framed?: boolean }) {
   const scale = useSharedValue(1);
+  const [box, setBox] = useState<{ width: number; height: number } | null>(null);
   useEffect(() => { scale.value = shrink ? withSpring(0.36, motion.spring.land) : withSpring(1, motion.spring.land); }, [scale, shrink]);
   const style = useAnimatedStyle(() => ({ transform: [{ translateY: (1 - scale.value) * -maxHeight * 0.34 }, { scale: scale.value }] }));
-  return <Reanimated.View style={[styles.photoFrame, style]}>
+  // The photo is letterboxed (contain); draw the "has a card" frame around the photo itself.
+  const fitted = box && asset.width > 0 && asset.height > 0
+    ? (() => { const ratio = Math.min(box.width / asset.width, box.height / asset.height); return { width: asset.width * ratio, height: asset.height * ratio }; })()
+    : null;
+  return <Reanimated.View style={[styles.photoFrame, style]} onLayout={(event) => { const { width, height } = event.nativeEvent.layout; setBox({ width, height }); }}>
     <MemoryPhotoPreview asset={asset} style={styles.photo} />
+    {framed && fitted ? <View pointerEvents="none" style={[styles.linkedFrame, { width: fitted.width + 6, height: fitted.height + 6, left: (box!.width - fitted.width) / 2 - 3, top: (box!.height - fitted.height) / 2 - 3 }]} /> : null}
   </Reanimated.View>;
 }
 
@@ -246,7 +286,7 @@ function PhotoComposer({ asset, maxLength, onClose, onSubmit }: {
   asset: Asset;
   maxLength: number;
   onClose: () => void;
-  onSubmit: (text: string, title: string) => Promise<boolean>;
+  onSubmit: (text: string, title: string) => Promise<boolean | "refused">;
 }) {
   const insets = useSafeAreaInsets();
   const [title, setTitle] = useState("");
@@ -264,7 +304,7 @@ function PhotoComposer({ asset, maxLength, onClose, onSubmit }: {
     setBusy(true); setFailed(false);
     try {
       const ok = await onSubmit(text.trim(), title.trim());
-      if (!ok) setFailed(true);
+      if (ok === false) setFailed(true);
     } catch { setFailed(true); } finally { setBusy(false); }
   }, [onSubmit, ready, text, title]);
   void asset;
@@ -315,12 +355,17 @@ function SetEnd({ width, generatedIds, generatedAssets, onPractice, onNext }: {
 }
 
 /** Every photo from the same day, scattered; pick one to swap in. */
-function DayPhotos({ asset, onClose, onChoose }: { asset: Asset; onClose: () => void; onChoose: (asset: Asset) => void }) {
+function DayPhotos({ asset, linked, onLoaded, onClose, onChoose }: { asset: Asset; linked: Record<string, string>; onLoaded: (assets: Asset[]) => void; onClose: () => void; onChoose: (asset: Asset) => void }) {
   const [photos, setPhotos] = useState<Asset[] | null>(null);
   const day = useMemo(() => new Date(photoTakenTime(asset) || Date.now()), [asset]);
   useEffect(() => {
     let active = true;
-    void readMemoryPhotoPage({ day }).then((page) => { if (active) setPhotos(page.assets.length ? page.assets : [asset]); }).catch(() => { if (active) setPhotos([asset]); });
+    void readMemoryPhotoPage({ day }).then((page) => {
+      if (!active) return;
+      const assets = page.assets.length ? page.assets : [asset];
+      setPhotos(assets);
+      onLoaded(assets);
+    }).catch(() => { if (active) setPhotos([asset]); });
     return () => { active = false; };
   }, [asset, day]);
   return <Modal animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
@@ -338,6 +383,7 @@ function DayPhotos({ asset, onClose, onChoose }: { asset: Asset; onClose: () => 
         contentContainerStyle={{ paddingHorizontal: 10, paddingBottom: 30 }}
         renderItem={({ item, index }) => <Pressable accessibilityRole="button" style={({ pressed }) => [styles.dayTile, item.id === asset.id && styles.dayTileCurrent, pressed && { opacity: 0.8 }]} onPress={() => onChoose(item)}>
           <MemoryPhotoPreview asset={item} cover style={{ width: "100%", aspectRatio: index % 3 === 0 ? 0.75 : index % 3 === 1 ? 1.2 : 1, borderRadius: 10 }} />
+          {linked[item.id] ? <View style={styles.dayTileBadge}><Icon name="albums-outline" size={12} color={theme.colors.onAccent} /><Text style={styles.dayTileBadgeText}>{t("photo_flow.has_card")}</Text></View> : null}
         </Pressable>}
       />}
     </SafeAreaView>
@@ -366,6 +412,8 @@ const styles = createStyles(() => ({
   photo: { width: "100%", height: "100%", borderRadius: 14 },
   generatedBadge: { position: "absolute", top: 22, right: 24, minHeight: 30, paddingHorizontal: 10, borderRadius: 15, backgroundColor: theme.colors.surface, flexDirection: "row", alignItems: "center", gap: 4 },
   generatedText: { color: theme.colors.text, fontSize: 12, fontWeight: "700" },
+  linkedBadgeInner: { minHeight: 30, flexDirection: "row", alignItems: "center", gap: 4 },
+  linkedFrame: { position: "absolute", borderRadius: 16, borderWidth: 3, borderColor: theme.colors.accent },
   limitedBanner: { position: "absolute", top: 8, alignSelf: "center", paddingHorizontal: 12, paddingVertical: 6, borderRadius: 14, backgroundColor: theme.colors.surface },
   limitedText: { color: theme.colors.textSecondary, fontSize: 12 },
   footer: { position: "absolute", left: 0, right: 0, bottom: 14, alignItems: "center", gap: 10 },
@@ -397,4 +445,6 @@ const styles = createStyles(() => ({
   dayTitle: { flex: 1, textAlign: "center", color: theme.colors.text, fontSize: 17, fontWeight: "700" },
   dayTile: { margin: 5, borderRadius: 12, padding: 3, borderWidth: 1, borderColor: "transparent" },
   dayTileCurrent: { borderColor: theme.colors.accent },
+  dayTileBadge: { position: "absolute", left: 10, bottom: 10, minHeight: 22, paddingHorizontal: 7, borderRadius: 11, backgroundColor: theme.colors.accent, flexDirection: "row", alignItems: "center", gap: 3 },
+  dayTileBadgeText: { color: theme.colors.onAccent, fontSize: 11, fontWeight: "700" },
 }));

@@ -799,6 +799,9 @@ export class CardService {
       throw error;
     }
     if (!updated) throw new CardContentConflictError("The Card was changed by another request");
+    if (Object.prototype.hasOwnProperty.call(patch, "capturedAt")) {
+      await this.repository.setCapturedAt(userId, parsed.sourceId, patch.capturedAt ? parseCardRecordedAt(patch.capturedAt) : null);
+    }
     return this.detail(userId, recordId);
   }
 
@@ -1861,6 +1864,7 @@ export class CardService {
       thumbnail: imageViews[0]?.thumbnail ?? null,
       status: "completed",
       link: entry.linkUrl && entry.linkProvider ? { url: entry.linkUrl, provider: entry.linkProvider, title: entry.linkTitle ?? null } : null,
+      capturedAt: (entry.capturedAt ?? entry.images.find((image) => image.capturedAt)?.capturedAt ?? null)?.toISOString() ?? null,
       originalText: entry.originalText ?? "",
       rewrittenText: entry.rewrittenText,
       rewrittenLanguageCode: entry.rewrittenLanguageCode,

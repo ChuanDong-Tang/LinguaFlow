@@ -139,6 +139,11 @@ export interface CardRecordSummaryView {
 export interface CardRecordDetailView extends CardRecordSummaryView {
   /** Attached YouTube / Bilibili video, if any. */
   link?: { url: string; provider: string; title: string | null } | null;
+  /**
+   * Memory time: when the photo / video was taken (or the user's correction).
+   * Null for text-only cards, which use `recordedAt` (the send time).
+   */
+  capturedAt?: string | null;
   originalText: string;
   rewrittenText: string | null;
   rewrittenLanguageCode: string | null;
@@ -228,6 +233,8 @@ export interface UpdateCardContentInput {
   title?: string | null;
   dateKey?: string;
   recordedAt?: string;
+  /** Correct the memory (photo) time without moving the card's send day. */
+  capturedAt?: string | null;
   originalText?: string | null;
   rewrittenText?: string | null;
   translationText?: string | null;

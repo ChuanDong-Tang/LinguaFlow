@@ -904,19 +904,18 @@ export default function App() {
       getUsageV2().catch(() => null),
     ]);
     const isMember = (entitlement?.isMember ?? entitlement?.isPro) === true;
+    const keys = {
+      token: { free: "chat.error.quota_free_empty", member: "chat.error.quota_member_empty", refreshAt: usage?.token.periodEnd },
+      image: { free: "image.error.quota_free_empty", member: "image.error.quota_member_empty", refreshAt: usage?.images.periodEnd },
+      image_daily: { free: "image.error.daily_free_empty", member: "image.error.daily_member_empty", refreshAt: usage?.images.dailyResetAt },
+    } as const;
+    const copy = keys[kind];
     if (!isMember) {
-      setQuotaDialog({
-        message: t(kind === "token" ? "chat.error.quota_free_empty" : "image.error.quota_free_empty"),
-        showMembership: true,
-      });
+      setQuotaDialog({ message: t(copy.free), showMembership: true });
       return;
     }
-    const refreshAt = kind === "token" ? usage?.token.periodEnd : usage?.images.periodEnd;
     setQuotaDialog({
-      message: tf(
-        kind === "token" ? "chat.error.quota_member_empty" : "image.error.quota_member_empty",
-        { time: formatQuotaRefreshTime(refreshAt ?? null) },
-      ),
+      message: tf(copy.member, { time: formatQuotaRefreshTime(copy.refreshAt ?? null) }),
       showMembership: false,
     });
   }

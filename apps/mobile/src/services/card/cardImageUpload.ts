@@ -17,7 +17,7 @@ export class CardImageModerationRejectedError extends Error {
   }
 }
 
-export async function prepareCardDraftImage(input: { uri: string; width: number; height: number }): Promise<CardDraftImage> {
+export async function prepareCardDraftImage(input: { uri: string; width: number; height: number; capturedAt?: string | null; sourceAssetId?: string | null }): Promise<CardDraftImage> {
   const normalized = await ImageManipulator.manipulateAsync(
     input.uri,
     [],
@@ -58,6 +58,8 @@ export async function prepareCardDraftImage(input: { uri: string; width: number;
     height: manipulated.height,
     fileSize,
     mimeType: "image/jpeg",
+    capturedAt: input.capturedAt ?? null,
+    sourceAssetId: input.sourceAssetId ?? null,
   };
 }
 
@@ -83,7 +85,10 @@ export async function uploadCardDraftImage(
   const fileSize = requireCardImageFileSize(imageBlob.size);
   current = { ...current, fileSize };
   onState(current);
-  const session = await createCardImageUpload({ mimeType: image.mimeType, fileSize, width: image.width, height: image.height });
+  const session = await createCardImageUpload({
+    mimeType: image.mimeType, fileSize, width: image.width, height: image.height,
+    capturedAt: image.capturedAt ?? null, sourceAssetId: image.sourceAssetId ?? null,
+  });
   current = { ...current, uploadId: session.uploadId };
   onState(current);
   try {

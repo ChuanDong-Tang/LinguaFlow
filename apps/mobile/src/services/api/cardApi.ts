@@ -69,6 +69,8 @@ export type CardPracticeSummary = {
 export type CardRecordDetail = CardRecordSummary & {
   status: "completed";
   link?: { url: string; provider: string; title: string | null } | null;
+  /** When the photo / video was taken; null for text-only memories (use recordedAt). */
+  capturedAt?: string | null;
   originalText: string;
   rewrittenText: string | null;
   rewrittenLanguageCode: string | null;
@@ -273,7 +275,7 @@ export async function generateCardAutomaticCloze(
 
 export async function updateCardContent(
   recordId: string,
-  input: Partial<Record<"title" | "originalText" | "rewrittenText" | "translationText" | "replyText" | "collectionId" | "dateKey" | "recordedAt", string | null>>,
+  input: Partial<Record<"title" | "originalText" | "rewrittenText" | "translationText" | "replyText" | "collectionId" | "dateKey" | "recordedAt" | "capturedAt", string | null>>,
 ): Promise<CardRecordDetail> {
   return request<CardRecordDetail>(`/cards/${encodeURIComponent(requireCardId(recordId))}/content`, {
     method: "PATCH",
@@ -319,6 +321,7 @@ export type CardImageUploadStatus = "uploading" | "moderating" | "approved" | "a
 
 export async function createCardImageUpload(input: {
   mimeType: string; fileSize: number; width: number; height: number;
+  capturedAt?: string | null; sourceAssetId?: string | null;
 }): Promise<{ uploadId: string; uploadUrl: string; headers: Record<string, string>; expiresAt: string }> {
   return request("/cards/image-uploads", { method: "POST", headers: { "x-lf-usage-api": "v2" }, body: JSON.stringify(input) });
 }
@@ -329,6 +332,16 @@ export async function completeCardImageUpload(uploadId: string): Promise<{ uploa
 
 export async function getCardImageUpload(uploadId: string): Promise<{ uploadId: string; status: CardImageUploadStatus; expiresAt: string }> {
   return request(`/cards/image-uploads/${encodeURIComponent(uploadId)}`);
+}
+
+/** Photo-library assets that already became a card: sourceAssetId → recordId. */
+export async function getLinkedPhotoCards(sourceAssetIds: string[]): Promise<Record<string, string>> {
+  if (!sourceAssetIds.length) return {};
+  const data = await request<{ items: Array<{ sourceAssetId: string; recordId: string }> }>("/cards/image-sources", {
+    method: "POST",
+    body: JSON.stringify({ sourceAssetIds }),
+  });
+  return Object.fromEntries(data.items.map((item) => [item.sourceAssetId, item.recordId]));
 }
 
 export async function deleteCardImageUpload(uploadId: string): Promise<void> {

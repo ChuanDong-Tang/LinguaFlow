@@ -1,4 +1,5 @@
-export type QuotaExhaustionKind = "token" | "image";
+/** "image" = monthly image storage; "image_daily" = today's upload count. */
+export type QuotaExhaustionKind = "token" | "image" | "image_daily";
 
 type QuotaExhaustionHandler = (kind: QuotaExhaustionKind) => void;
 
@@ -22,5 +23,6 @@ export function notifyQuotaExhaustion(kind: QuotaExhaustionKind): void {
 export function quotaExhaustionKindForCode(code: string): QuotaExhaustionKind | null {
   if (code === "TOKEN_QUOTA_EXCEEDED" || code === "DAILY_QUOTA_EXCEEDED") return "token";
   if (code === "IMAGE_STORAGE_QUOTA_EXCEEDED" || code === "CARD_IMAGE_QUOTA_EXCEEDED") return "image";
+  if (code === "DAILY_IMAGE_UPLOAD_LIMIT_EXCEEDED") return "image_daily";
   return null;
 }

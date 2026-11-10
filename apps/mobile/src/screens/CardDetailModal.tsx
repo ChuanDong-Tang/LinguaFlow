@@ -180,7 +180,7 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
   hideRelations?: boolean;
   hidePhraseRecommendation?: boolean;
   onUpdateContent?: (input: { title: string | null; originalText: string; collectionId: string | null; selectedTargets: Array<"expression" | "translation" | "reply"> }) => Promise<boolean | void>;
-  onUpdateMetadata?: (input: { title?: string | null; collectionId?: string | null; dateKey?: string; recordedAt?: string; rewrittenText?: string }) => Promise<boolean | void>;
+  onUpdateMetadata?: (input: { title?: string | null; collectionId?: string | null; dateKey?: string; recordedAt?: string; capturedAt?: string | null; rewrittenText?: string }) => Promise<boolean | void>;
   onEditCard?: () => void;
   pendingGenerationTargets?: CardGenerationTarget[];
   failedGenerationTargets?: CardGenerationTarget[];
@@ -2130,7 +2130,7 @@ function Review({ practiceCommand, onLanguageControlChange, hidePhraseRecommenda
   onSelectLearningContent?: (contentType: CardLearningContentType) => void;
   onActivateLearningContent?: (contentType: CardLearningContentType) => Promise<CardRecordDetail>;
   onSaveOriginal?: (text: string) => Promise<void>;
-  onUpdateMetadata?: (input: { title?: string | null; collectionId?: string | null; dateKey?: string; recordedAt?: string; rewrittenText?: string }) => Promise<boolean | void>;
+  onUpdateMetadata?: (input: { title?: string | null; collectionId?: string | null; dateKey?: string; recordedAt?: string; capturedAt?: string | null; rewrittenText?: string }) => Promise<boolean | void>;
   onRemoveImage?: (imageId?: string) => void;
   onCoverPositionChange?: (imageId: string, focusX: number, focusY: number) => Promise<void>;
   relations: CardRelationItem[];
@@ -2431,7 +2431,7 @@ function Review({ practiceCommand, onLanguageControlChange, hidePhraseRecommenda
       setOriginalSaving(false);
     }
   }
-  async function saveMetadata(input: { title?: string | null; collectionId?: string | null; dateKey?: string; recordedAt?: string }): Promise<boolean> {
+  async function saveMetadata(input: { title?: string | null; collectionId?: string | null; dateKey?: string; recordedAt?: string; capturedAt?: string | null }): Promise<boolean> {
     if (!onUpdateMetadata || metadataSaving) return false;
     setMetadataSaving(true);
     try {
@@ -2497,6 +2497,9 @@ function Review({ practiceCommand, onLanguageControlChange, hidePhraseRecommenda
     ? "toggle"
     : imageDescriptionPending ? "loading" : "generate";
   const recordedAt = detail.recordedAt ?? detail.createdAt;
+  // Memory time: photo / video cards show when it was taken; text-only cards show when it was sent.
+  const memoryTime = detail.capturedAt ?? recordedAt;
+  const memoryDateKey = detail.capturedAt ? localDateKey(new Date(detail.capturedAt)) : detail.dateKey;
   const selectedCollection = collections.find((collection) => collection.id === detail.collectionId);
   const collectionLabel = selectedCollection ? collectionPathName(selectedCollection, collections) : detail.collectionId ? "…" : t("sidebar.unclassified");
   const primaryText = primaryTextBlock?.text ?? (detail.mode === "corpus" ? detail.originalText : detail.rewrittenText || detail.originalText);
@@ -3691,7 +3694,7 @@ function Review({ practiceCommand, onLanguageControlChange, hidePhraseRecommenda
           alwaysBounceVertical={false}
         >
           <View collapsable={false} style={{ backgroundColor: theme.colors.surface }}>
-          <CardImageGallery readingPresentation={detail.isSample ? undefined : "photo"} images={detailGalleryImages(images, detail.thumbnail?.url)} loading={imageAdding} dateLabel={`${formatDate(detail.dateKey)} · ${formatTime(recordedAt)}`} onRemove={onRemoveImage} onCoverPositionChange={onCoverPositionChange} onSwipeContextChange={onImageSwipeContextChange} onIndexChange={(index) => {
+          <CardImageGallery readingPresentation={detail.isSample ? undefined : "photo"} images={detailGalleryImages(images, detail.thumbnail?.url)} loading={imageAdding} dateLabel={`${formatDate(memoryDateKey)} · ${formatTime(memoryTime)}`} onRemove={onRemoveImage} onCoverPositionChange={onCoverPositionChange} onSwipeContextChange={onImageSwipeContextChange} onIndexChange={(index) => {
             setImageIndex(index);
             const image = images[index];
             if (image) onSelectLearningContent?.(`image:${image.id}`);
@@ -3795,7 +3798,7 @@ function Review({ practiceCommand, onLanguageControlChange, hidePhraseRecommenda
           </View> : null}
           <View style={styles.readingFooter}>
             <Pressable disabled={!onUpdateMetadata} hitSlop={6} onPress={() => setRecordTimeEditorVisible(true)}>
-              <Text style={styles.readingFooterTime}>{formatDate(detail.dateKey)} · {formatTime(recordedAt)}</Text>
+              <Text style={styles.readingFooterTime}>{formatDate(memoryDateKey)} · {formatTime(memoryTime)}</Text>
             </Pressable>
             <View style={styles.readingFooterActions}>
               {hasBlanks && wholeCardPracticeBlocks.length ? <Pressable accessibilityRole="button" accessibilityLabel={answersVisible ? t("card_detail.dictation.hide_answer") : t("card_detail.dictation.show_answer")} hitSlop={6} style={styles.footerIcon} onPress={() => { haptic.select(); setAnswersVisible((current) => !current); }}>
@@ -3928,9 +3931,12 @@ function Review({ practiceCommand, onLanguageControlChange, hidePhraseRecommenda
     />
     <RecordTimeEditorModal
       visible={recordTimeEditorVisible}
-      value={recordedAt}
+      value={memoryTime}
       onClose={() => setRecordTimeEditorVisible(false)}
-      onSave={async (value) => saveMetadata({ recordedAt: value.toISOString(), dateKey: localDateKey(value) })}
+      // Correcting a photo memory's time never moves it off the day it was sent.
+      onSave={async (value) => detail.capturedAt
+        ? saveMetadata({ capturedAt: value.toISOString() })
+        : saveMetadata({ recordedAt: value.toISOString(), dateKey: localDateKey(value) })}
     />
     <Modal visible={Boolean(blankAction)} transparent animationType="none" statusBarTranslucent onRequestClose={() => setBlankAction(null)}>
       <Pressable style={styles.blankActionBackdrop} onPress={() => setBlankAction(null)}>
