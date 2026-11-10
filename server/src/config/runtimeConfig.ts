@@ -371,7 +371,8 @@ export function getRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeC
     cardPhraseNormalizationGlobalConcurrency: readPositiveInt(env.CARD_PHRASE_NORMALIZATION_GLOBAL_CONCURRENCY, 4),
     cardPhraseHistoryGlobalConcurrency: readPositiveInt(env.CARD_PHRASE_HISTORY_GLOBAL_CONCURRENCY, 2),
     cardPhraseIndexGlobalConcurrency: readPositiveInt(env.CARD_PHRASE_INDEX_GLOBAL_CONCURRENCY, 2),
-    cardRewriteAlignmentEnabled: readBoolean(env.CARD_REWRITE_ALIGNMENT_ENABLED, true),
+    // Off by default since 2026-11 (flip view replaced the aligned view).
+    cardRewriteAlignmentEnabled: readBoolean(env.CARD_REWRITE_ALIGNMENT_ENABLED, false),
     cardRewriteAlignmentJobIntervalMs: readPositiveInt(env.CARD_REWRITE_ALIGNMENT_JOB_INTERVAL_MS, 1_000),
     cardImageDescriptionWorkerEnabled: readBoolean(env.CARD_IMAGE_DESCRIPTION_WORKER_ENABLED, true),
     cardImageDescriptionJobIntervalMs: readPositiveInt(env.CARD_IMAGE_DESCRIPTION_JOB_INTERVAL_MS ?? env.CARD_IMAGE_DESCRIPTION_BACKFILL_JOB_INTERVAL_MS, 1_000),

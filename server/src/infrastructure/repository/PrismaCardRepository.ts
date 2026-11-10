@@ -2424,10 +2424,16 @@ async function enqueueEmbeddingGeneration(
   });
 }
 
+const REWRITE_ALIGNMENT_ENABLED = process.env.CARD_REWRITE_ALIGNMENT_ENABLED === "true";
+
 async function enqueueRewriteAlignmentGeneration(
   tx: any,
   input: { userId: string; cardId: string; originalText: string; rewrittenText: string },
 ): Promise<void> {
+  // 2026-11: the reading page flips between the whole rewrite and the whole
+  // original, so sentence-by-sentence rewrite↔original alignment is no longer
+  // shown. Skip the LLM job; the worker and prompt are kept but disabled.
+  if (!REWRITE_ALIGNMENT_ENABLED) return;
   const normalized = `${input.originalText}\u0000${input.rewrittenText}`
     .normalize("NFKC")
     .replace(/\r\n?/gu, "\n")
