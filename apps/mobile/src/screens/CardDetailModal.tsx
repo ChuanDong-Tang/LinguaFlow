@@ -235,11 +235,11 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
   }
   const [editing, setEditing] = useState(initialEditing && !detail?.isSample);
   const [detailActionMenuVisible, setDetailActionMenuVisible] = useState(false);
-  const [practiceCommand, setPracticeCommand] = useState<{ mode: CardPracticeMode | "edit"; nonce: number } | null>(null);
+  const [practiceCommand, setPracticeCommand] = useState<{ mode: CardPracticeMode; nonce: number } | null>(null);
   const [rewriteEditorVisible, setRewriteEditorVisible] = useState(false);
   const currentPracticeMode = useCardPracticeMode();
   useAndroidBack(detailActionMenuVisible, () => setDetailActionMenuVisible(false));
-  function choosePracticeMode(mode: CardPracticeMode | "edit" | "dictation"): void {
+  function choosePracticeMode(mode: CardPracticeMode | "dictation"): void {
     setDetailActionMenuVisible(false);
     haptic.select();
     if (mode === "dictation") { setTab("dictation"); return; }
@@ -721,7 +721,7 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
           <View style={styles.detailActionDivider} />
           <Text style={styles.detailMenuLabel}>{t("card_detail.practice_mode")}</Text>
           <View style={styles.detailMenuModes}>
-            {(["choice", "keyboard", "dictation", "edit"] as const).filter((mode) => mode !== "dictation" || (!detail?.isSample && hasProAccess === true)).map((mode) => {
+            {(["choice", "keyboard", "dictation"] as const).filter((mode) => mode !== "dictation" || (!detail?.isSample && hasProAccess === true)).map((mode) => {
               const active = mode === currentPracticeMode && tab === "review";
               return <Pressable key={mode} accessibilityRole="radio" accessibilityState={{ checked: active }} style={[styles.detailMenuMode, active && styles.detailMenuModeOn]} onPress={() => choosePracticeMode(mode)}><Text style={[styles.detailMenuModeText, active && styles.detailMenuModeTextOn]}>{t(`card_detail.practice_mode.${mode}`)}</Text></Pressable>;
             })}
@@ -2151,8 +2151,8 @@ function Review({ practiceCommand, onLanguageControlChange, hidePhraseRecommenda
   onLearningTargetReady?: (target: ClozeOnboardingTarget) => void;
   focusActionBar?: boolean;
   onActionBarTargetReady?: (target: ClozeOnboardingTarget) => void;
-  /** From the ⋯ menu: switch practice mode ("edit" = edit blanks). */
-  practiceCommand?: { mode: CardPracticeMode | "edit"; nonce: number } | null;
+  /** From the ⋯ menu: switch practice mode. */
+  practiceCommand?: { mode: CardPracticeMode; nonce: number } | null;
 }) {
   const { width: reviewWindowWidth, height: reviewWindowHeight } = useWindowDimensions();
   const reviewInsets = useSafeAreaInsets();
@@ -2792,21 +2792,14 @@ function Review({ practiceCommand, onLanguageControlChange, hidePhraseRecommenda
   }, []);
 
   // Blanks are practiced by default in the remembered mode (选择 unless the user
-  // picked 填空). "编辑挖空" from the ⋯ menu suspends practice until a mode is picked.
-  const editingBlanksRef = useRef(false);
+  // picked 填空).
   useEffect(() => {
-    if (wholeCardBlankCount === 0 || editingBlanksRef.current) return;
+    if (wholeCardBlankCount === 0) return;
     if (clozeMode !== practicePreference) toggleClozeMode(practicePreference);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [practicePreference, wholeCardBlankCount > 0]);
   useEffect(() => {
     if (!practiceCommand) return;
-    if (practiceCommand.mode === "edit") {
-      editingBlanksRef.current = true;
-      if (clozeMode !== "edit") toggleClozeMode(clozeInputMode);
-      return;
-    }
-    editingBlanksRef.current = false;
     setCardPracticeMode(practiceCommand.mode);
     if (wholeCardBlankCount > 0 && clozeMode !== practiceCommand.mode) toggleClozeMode(practiceCommand.mode);
     // eslint-disable-next-line react-hooks/exhaustive-deps
