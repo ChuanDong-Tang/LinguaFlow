@@ -109,6 +109,8 @@ const includeSegments = {
   contentSegments: { orderBy: [{ contentType: "asc" }, { ordinal: "asc" }] },
   images: { orderBy: [{ ordinal: "asc" }, { createdAt: "asc" }] },
   practiceState: { select: { clozeState: true, clozeLastResult: true } },
+  // Blanks live per learning content (rewrite / original) since multi-content cards.
+  contentPracticeStates: { where: { contentType: { in: ["rewrite", "original"] } }, select: { contentType: true, clozeState: true, clozeLastResult: true } },
 } as const;
 
 const TEXT_CONTENT_TYPES: ReadonlySet<string> = new Set(["original", "rewrite", "reply"]);
@@ -2749,9 +2751,7 @@ function toEntry(row: any): CardEntryEntity {
     linkProvider: row.linkProvider ?? null,
     linkTitle: row.linkTitle ?? null,
     capturedAt: row.capturedAt ?? null,
-    practiceSnapshot: row.practiceState
-      ? { clozeState: row.practiceState.clozeState ?? null, clozeLastResult: row.practiceState.clozeLastResult ?? null }
-      : row.practiceState === null ? null : undefined,
+    practiceSnapshot: practiceSnapshotFor(row),
     collectionId: row.collectionId ?? null,
     publishedAt: row.publishedAt ?? null,
     processingAt: row.processingAt ?? null,
@@ -2942,4 +2942,24 @@ function contentTextForType(entry: any, contentType: CardLearningContentType): s
     return entry.images?.find((image: { id: string }) => `image:${image.id}` === contentType)?.descriptionText ?? null;
   }
   return null;
+}
+
+/**
+ * Cloze snapshot for the home status badge: the primary learning content's
+ * state (rewrite when there is one, else original), falling back to the legacy
+ * whole-card practice state. undefined when practice rows were not loaded.
+ */
+function practiceSnapshotFor(row: any): { clozeState: unknown | null; clozeLastResult: string | null } | null | undefined {
+  const states: Array<{ contentType: string; clozeState: unknown; clozeLastResult: string | null }> | undefined = row.contentPracticeStates;
+  if (states === undefined && row.practiceState === undefined) return undefined;
+  const primary = row.rewrittenText?.trim() ? "rewrite" : "original";
+  const content = states?.find((state) => state.contentType === primary) ?? states?.find((state) => hasBlanks(state.clozeState));
+  if (content) return { clozeState: content.clozeState ?? null, clozeLastResult: content.clozeLastResult ?? null };
+  if (row.practiceState) return { clozeState: row.practiceState.clozeState ?? null, clozeLastResult: row.practiceState.clozeLastResult ?? null };
+  return null;
+}
+
+function hasBlanks(state: unknown): boolean {
+  const blanks = state && typeof state === "object" ? (state as { blanks?: unknown }).blanks : null;
+  return Array.isArray(blanks) && blanks.length > 0;
 }
