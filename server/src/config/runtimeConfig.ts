@@ -371,8 +371,9 @@ export function getRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeC
     cardPhraseNormalizationGlobalConcurrency: readPositiveInt(env.CARD_PHRASE_NORMALIZATION_GLOBAL_CONCURRENCY, 4),
     cardPhraseHistoryGlobalConcurrency: readPositiveInt(env.CARD_PHRASE_HISTORY_GLOBAL_CONCURRENCY, 2),
     cardPhraseIndexGlobalConcurrency: readPositiveInt(env.CARD_PHRASE_INDEX_GLOBAL_CONCURRENCY, 2),
-    // Off by default since 2026-11 (flip view replaced the aligned view).
-    cardRewriteAlignmentEnabled: readBoolean(env.CARD_REWRITE_ALIGNMENT_ENABLED, false),
+    // Released apps (≤ 1.1.9) still render the aligned A/文 view, so alignment
+    // stays on until the flip-view release is live; then set it to false.
+    cardRewriteAlignmentEnabled: readBoolean(env.CARD_REWRITE_ALIGNMENT_ENABLED, true),
     cardRewriteAlignmentJobIntervalMs: readPositiveInt(env.CARD_REWRITE_ALIGNMENT_JOB_INTERVAL_MS, 1_000),
     cardImageDescriptionWorkerEnabled: readBoolean(env.CARD_IMAGE_DESCRIPTION_WORKER_ENABLED, true),
     cardImageDescriptionJobIntervalMs: readPositiveInt(env.CARD_IMAGE_DESCRIPTION_JOB_INTERVAL_MS ?? env.CARD_IMAGE_DESCRIPTION_BACKFILL_JOB_INTERVAL_MS, 1_000),

@@ -2448,7 +2448,8 @@ async function enqueueEmbeddingGeneration(
   });
 }
 
-const REWRITE_ALIGNMENT_ENABLED = process.env.CARD_REWRITE_ALIGNMENT_ENABLED === "true";
+// Kept on for released apps that still show the aligned view; set CARD_REWRITE_ALIGNMENT_ENABLED=false after the flip-view release.
+const REWRITE_ALIGNMENT_ENABLED = process.env.CARD_REWRITE_ALIGNMENT_ENABLED !== "false";
 
 async function enqueueRewriteAlignmentGeneration(
   tx: any,
