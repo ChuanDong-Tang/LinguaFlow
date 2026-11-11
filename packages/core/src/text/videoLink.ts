@@ -43,3 +43,11 @@ export function parseVideoUrl(raw: string): VideoLink | null {
   }
   return null;
 }
+
+/** In-app player URL (official embeds); null when the link can't be embedded (e.g. unresolved b23.tv). */
+export function videoEmbedUrl(raw: string): string | null {
+  const link = parseVideoUrl(raw);
+  if (!link) return null;
+  if (link.provider === "youtube") return `https://www.youtube-nocookie.com/embed/${link.id}?playsinline=1&autoplay=1&rel=0`;
+  return link.id.startsWith("BV") ? `https://player.bilibili.com/player.html?bvid=${link.id}&autoplay=1&high_quality=1&danmaku=0` : null;
+}

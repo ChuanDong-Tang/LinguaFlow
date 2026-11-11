@@ -9,6 +9,7 @@ import { ClozeToneContext } from "./cardDetail/clozeToneContext";
 import { pickBlindBoxSentence } from "../domain/blindBox/pickSentence";
 import { ClozeSummarySheet } from "../components/ClozeSummarySheet";
 import { FolderQuickMenu } from "../components/FolderQuickMenu";
+import { VideoPlayerModal } from "../components/VideoPlayerModal";
 import { ActivityIndicator, Alert, Animated, Easing, FlatList, Image, Keyboard, Modal, PanResponder, Platform, Pressable, ScrollView, StyleSheet, useWindowDimensions, View, Linking } from "react-native";
 import { Text, TextInput } from "../components/Typography";
 import { useFontSize } from "../services/preferences/fontSizePreference";
@@ -2727,6 +2728,7 @@ function Review({ sentencePractice = false, onSentenceDone, practiceCommand, rev
   // 2026-11 grading: remembered-right (green) blanks count as done unless redone.
   const [redoBlankIds, setRedoBlankIds] = useState<ReadonlySet<string>>(() => new Set());
   const [clozeSummary, setClozeSummary] = useState<ReturnType<typeof cardClozeSessionSummary>>(null);
+  const [videoOpen, setVideoOpen] = useState(false);
   const answeredThisVisitRef = useRef(false);
   useEffect(() => { setRedoBlankIds(new Set()); setClozeSummary(null); answeredThisVisitRef.current = false; }, [detail.id]);
   const rememberedRight = useMemo(() => new Set(wholeCardBlanks
@@ -3766,6 +3768,8 @@ function Review({ sentencePractice = false, onSentenceDone, practiceCommand, rev
     <ClozeToneContext.Provider value={clozeToneValue}>
     <View style={styles.reviewPage}>
     <ClozeSummarySheet summary={clozeSummary} onClose={() => setClozeSummary(null)} />
+    {/* Play the attached YouTube / Bilibili video inside OIO. */}
+    <VideoPlayerModal link={videoOpen ? detail.link ?? null : null} onClose={() => setVideoOpen(false)} />
     <View style={styles.flipCardStage}>
       <View style={styles.flipCardShell}>
       <View style={styles.flipCardFace}>
@@ -3831,7 +3835,7 @@ function Review({ sentencePractice = false, onSentenceDone, practiceCommand, rev
                 : null}
             </View>
           </View> : null}
-          {detail.link && !focusSegmentId ? <Pressable accessibilityRole="link" style={({ pressed }) => [styles.readingLinkCard, pressed && styles.metadataPressed]} onPress={() => { haptic.light(); void Linking.openURL(detail.link!.url).catch(() => undefined); }}>
+          {detail.link && !focusSegmentId ? <Pressable accessibilityRole="link" style={({ pressed }) => [styles.readingLinkCard, pressed && styles.metadataPressed]} onPress={() => { haptic.light(); setVideoOpen(true); }}>
             <Icon name="play-circle-outline" size={24} color={theme.colors.text} />
             <Text numberOfLines={2} style={styles.readingLinkTitle}>{detail.link.title || detail.link.url}</Text>
             <Text style={styles.readingLinkProvider}>{detail.link.provider === "bilibili" ? "Bilibili" : "YouTube"}</Text>
