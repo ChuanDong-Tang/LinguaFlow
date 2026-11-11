@@ -28,6 +28,8 @@ import { Camera, ClockCounterClockwise, Eye, Gift, ImagesSquare, SunHorizon, Tra
 import { ProgressRing } from "../components/ProgressRing";
 import { cardProgressRing } from "../domain/practice/cardProgressRing";
 import { blindBoxOrder } from "../domain/blindBox/pickSentence";
+import { TodayDayBar } from "./home/TodayDayBar";
+import { historyDays, relativeDayLabel, type HistoryDay } from "./home/todayDays";
 import Sortable from "react-native-sortables";
 import { FlashList } from "@shopify/flash-list";
 import {
@@ -170,7 +172,23 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
   }, []);
   const [rememberedLibraryView, setLibraryView] = useState<LibraryView>("all");
   const libraryView = homeLibraryView(homeTab, rememberedLibraryView);
-  const dateScope = homeDateKey(homeTab, libraryView === TRASH_VIEW, new Date(`${localDay}T12:00:00`));
+  // 今日 can show another day (‹ › / calendar / history); null follows the real today.
+  const [viewDay, setViewDay] = useState<string | null>(null);
+  const shownDay = viewDay && viewDay < localDay ? viewDay : localDay;
+  const dateScope = homeDateKey(homeTab, libraryView === TRASH_VIEW, new Date(`${shownDay}T12:00:00`));
+  const [todayLayout, setTodayLayout] = useState<"feed" | "grid">("feed");
+  const [todayCalendarVisible, setTodayCalendarVisible] = useState(false);
+  const [historyDayKeys, setHistoryDayKeys] = useState<HistoryDay[]>([]);
+  useEffect(() => {
+    if (homeTab !== "today") return;
+    let active = true;
+    const targets = historyDays(localDay);
+    // One request covers every "this day in history" chip: keep the days that have cards.
+    void getCardDateKeys(targets[targets.length - 1]!.dateKey, targets[0]!.dateKey)
+      .then((keys) => { if (active) setHistoryDayKeys(targets.filter((target) => keys.includes(target.dateKey))); })
+      .catch(() => undefined);
+    return () => { active = false; };
+  }, [homeTab, localDay]);
   // ⋯ filters (2026-11): photo / video presence and learning progress.
   const [mediaFilter, setMediaFilter] = useState<"all" | "with" | "without">("all");
   const [practiceFilter, setPracticeFilter] = useState<"all" | CardPracticeFilter>("all");
@@ -186,8 +204,9 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
     const [selectingRecords, setSelectingRecords] = useState(false);
   // 今日 is a single-column feed (big photo, then words — like Threads / 朋友圈);
   // 回忆 keeps the two-column masonry.
-  const todayFeed = homeTab === "today" && libraryView !== TRASH_VIEW;
-  const gridLayout = homeLayout === "grid" && libraryView !== TRASH_VIEW && !todayFeed;
+  // 今日 defaults to the single-column feed; ⋯ can switch it to the waterfall grid.
+  const todayFeed = homeTab === "today" && libraryView !== TRASH_VIEW && todayLayout === "feed";
+  const gridLayout = libraryView !== TRASH_VIEW && (homeTab === "today" ? todayLayout === "grid" : homeLayout === "grid");
   const [selectedRecordIds, setSelectedRecordIds] = useState<Set<string>>(new Set());
   const [batchMoveVisible, setBatchMoveVisible] = useState(false);
   const [cardCapabilities, setCardCapabilities] = useState<CardCapabilities>(DEFAULT_CARD_CAPABILITIES);
@@ -1728,7 +1747,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
           : libraryView === TRASH_VIEW
             ? <View style={styles.homeSectionTabs}><Text numberOfLines={1} style={styles.homeHeaderTitle}>{headerTitle}</Text></View>
             : <View style={styles.homeSectionTabs} accessibilityRole="tablist">
-              {MEMORY_HOME_TABS.map((tab) => <Pressable key={tab} accessibilityRole="tab" accessibilityState={{ selected: homeTab === tab }} hitSlop={6} style={styles.memoryTab} onPress={() => { if (homeTab !== tab) haptic.select(); setHomeTab(tab); }}><Text style={[styles.memoryTabText, homeTab === tab && styles.memoryTabSelected]}>{homeCopy[tab]}</Text>{homeTab === tab ? <TabUnderline key={tab} width={28} style={styles.memoryTabUnderline} /> : <View style={styles.memoryTabUnderlineSpace} />}</Pressable>)}
+              {MEMORY_HOME_TABS.map((tab) => <Pressable key={tab} accessibilityRole="tab" accessibilityState={{ selected: homeTab === tab }} hitSlop={6} style={styles.memoryTab} onPress={() => { if (homeTab !== tab) haptic.select(); setHomeTab(tab); }}><Text style={[styles.memoryTabText, homeTab === tab && styles.memoryTabSelected]}>{tab === "today" ? relativeDayLabel(shownDay, localDay, getLanguage()) : homeCopy[tab]}</Text>{homeTab === tab ? <TabUnderline key={tab} width={28} style={styles.memoryTabUnderline} /> : <View style={styles.memoryTabUnderlineSpace} />}</Pressable>)}
             </View>}
         <View style={styles.headerActions}>
           {!selectingRecords ? <Pressable accessibilityRole="button" accessibilityLabel={t("contact.curious_companion.name")} hitSlop={8} style={styles.headerCharacter} onPressIn={() => headerMascot.current?.hop()} onPress={() => { haptic.light(); void openAssistant(); }}><OioMascot ref={headerMascot} size={29} /></Pressable> : null}
@@ -1751,7 +1770,14 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
       {homeTab === "podcast" && libraryView !== TRASH_VIEW && !selectingRecords ? <PodcastHome collections={collections} bottomInset={screenInsets.bottom} onOpenPlayer={() => setPodcastPlayerVisible(true)} /> : homeTab === "blind" && libraryView !== TRASH_VIEW && !selectingRecords ? <ScrollView style={{ flex: 1, minHeight: 0 }} contentContainerStyle={styles.memoryLanding}>
         <MemoryArchiveDeck key={`${libraryView}:${sortMode}`} records={recordsScope === queryScope ? records : []} loading={loading || loadingMore} hasMore={recordsScope === queryScope && Boolean(nextCursor)} onThumbnailError={recoverFailedThumbnail} onLoadMore={() => void loadMore()} onOpen={(ids, first, handlers) => onOpenCard(first, "review", undefined, { browseRecordIds: blindBoxOrder(ids, first), practice: "sentence", onBrowseSetFinished: handlers.onFinished, onBrowseClosed: handlers.onClosed, closeOnBrowseFinish: true })} />
       </ScrollView> : <>
-      {!selectingRecords && libraryView !== TRASH_VIEW && homeTab === "today" ? <View style={styles.memoryToolbar}><Text style={styles.memoryTodayDate}>{localDay}</Text></View> : null}
+      {!selectingRecords && libraryView !== TRASH_VIEW && homeTab === "today" ? <TodayDayBar
+        day={shownDay}
+        today={localDay}
+        history={historyDayKeys}
+        onChangeDay={(day) => setViewDay(day >= localDay ? null : day)}
+        onOpenCalendar={() => setTodayCalendarVisible(true)}
+        onOpenMenu={chooseLibraryAction}
+      /> : null}
 
       <FlashList
         key={`${gridLayout ? "grid" : "list"}:${dateScope ?? "all"}`}
@@ -1776,7 +1802,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
           <View style={styles.emptyCard}>
             {libraryView !== TRASH_VIEW ? <OioMascot size={84} style={styles.emptyMascot} /> : null}
             {libraryView === "all" || homeTab === "today" ? <>
-              <Text style={styles.emptyTitle}>{homeTab === "today" ? homeCopy.todayEmpty : t("quick_note.empty_cards")}</Text>
+              <Text style={styles.emptyTitle}>{homeTab === "today" ? (shownDay === localDay ? homeCopy.todayEmpty : homeCopy.dayEmpty) : t("quick_note.empty_cards")}</Text>
               <Text style={styles.emptyText}>{homeTab === "today" ? homeCopy.todayHint : t("quick_note.empty_cards_hint")}</Text>
             </> : null}
             {libraryView === TRASH_VIEW ? <Text style={styles.emptyText}>{t("library.trash_empty")}</Text> : homeTab !== "today" ? <PressableSurface radius={22} fill={theme.colors.accent} feedback="medium" accessibilityRole="button" style={styles.emptyAction} contentStyle={styles.emptyActionInner} onPress={openCardComposer}>
@@ -1821,17 +1847,22 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
             <Pressable onPress={() => undefined} style={styles.displayMenuInner}>
               <Text style={styles.displayMenuLabel}>{t("library.layout")}</Text>
               <View style={styles.displayMenuSegment}>
-                {(["grid", "list"] as const).map((layout) => <Pressable key={layout} accessibilityRole="radio" accessibilityState={{ checked: homeLayout === layout }} style={[styles.displayMenuOption, homeLayout === layout && styles.displayMenuOptionOn]} onPress={() => { haptic.select(); setHomeLayout(layout); }}>
+                {homeTab === "today"
+                  ? (["feed", "grid"] as const).map((layout) => <Pressable key={layout} accessibilityRole="radio" accessibilityState={{ checked: todayLayout === layout }} style={[styles.displayMenuOption, todayLayout === layout && styles.displayMenuOptionOn]} onPress={() => { haptic.select(); setTodayLayout(layout); }}>
+                    <Icon name={layout === "grid" ? "grid-outline" : "list-outline"} size={17} color={todayLayout === layout ? theme.colors.onAccent : theme.colors.text} />
+                    <Text style={[styles.displayMenuOptionText, todayLayout === layout && styles.displayMenuOptionTextOn]}>{t(layout === "grid" ? "today.layout_waterfall" : "today.layout_feed")}</Text>
+                  </Pressable>)
+                  : (["grid", "list"] as const).map((layout) => <Pressable key={layout} accessibilityRole="radio" accessibilityState={{ checked: homeLayout === layout }} style={[styles.displayMenuOption, homeLayout === layout && styles.displayMenuOptionOn]} onPress={() => { haptic.select(); setHomeLayout(layout); }}>
                   <Icon name={layout === "grid" ? "grid-outline" : "list-outline"} size={17} color={homeLayout === layout ? theme.colors.onAccent : theme.colors.text} />
                   <Text style={[styles.displayMenuOptionText, homeLayout === layout && styles.displayMenuOptionTextOn]}>{t(layout === "grid" ? "library.layout_grid" : "library.layout_list")}</Text>
                 </Pressable>)}
               </View>
-              <Text style={styles.displayMenuLabel}>{t("library.order")}</Text>
+              {homeTab === "today" ? null : <><Text style={styles.displayMenuLabel}>{t("library.order")}</Text>
               <View style={styles.displayMenuSegment}>
                 {(["shuffle", "newest", "oldest"] as const).map((mode) => <Pressable key={mode} accessibilityRole="radio" accessibilityState={{ checked: sortMode === mode }} style={[styles.displayMenuOption, sortMode === mode && styles.displayMenuOptionOn]} onPress={() => { haptic.select(); selectLibrarySort(mode); }}>
                   <Text style={[styles.displayMenuOptionText, sortMode === mode && styles.displayMenuOptionTextOn]}>{t(mode === "shuffle" ? "library.order_shuffle" : mode === "newest" ? "library.order_newest" : "library.order_oldest")}</Text>
                 </Pressable>)}
-              </View>
+              </View></>}
               <Text style={styles.displayMenuLabel}>{t("library.filter_media")}</Text>
               <View style={styles.displayMenuSegment}>
                 {(["all", "with", "without"] as const).map((value) => <Pressable key={value} accessibilityRole="radio" accessibilityState={{ checked: mediaFilter === value }} style={[styles.displayMenuOption, mediaFilter === value && styles.displayMenuOptionOn]} onPress={() => { haptic.select(); setMediaFilter(value); }}>
@@ -1964,6 +1995,8 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
         }}
       />
       <CardCalendarScreen visible={calendarVisible} onClose={() => setCalendarVisible(false)} onOpenCard={(recordId) => onOpenCard(recordId)} />
+      {/* 今日: tapping the date picks any day from the calendar. */}
+      <CardCalendarScreen visible={todayCalendarVisible} onClose={() => setTodayCalendarVisible(false)} onSelectDate={(dateKey) => { setTodayCalendarVisible(false); setViewDay(dateKey >= localDay ? null : dateKey); }} />
     </SafeAreaView>
   );
 }
@@ -3422,7 +3455,8 @@ function formatCardDateLabel(dateKey: string): string {
 
 function formatTime(value: string): string {
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? "" : date.toLocaleTimeString(getLanguage(), { hour: "2-digit", minute: "2-digit" });
+  // Hermes lacks CJK Intl data (came out as "9:48 PM"); 24-hour by hand.
+  return Number.isNaN(date.getTime()) ? "" : `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
 }
 
 const editorialFont = Platform.select({ ios: "STSongti-SC-Regular", android: "serif", default: "serif" });
