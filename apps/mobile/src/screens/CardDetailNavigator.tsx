@@ -53,10 +53,12 @@ export type CardDetailRequest = {
   closeOnBrowseFinish?: boolean;
   /** Called once when the reader closes, with the card shown last. */
   onBrowseClosed?: (recordId: string) => void;
+  /** 盲盒: each card shows one sentence, practiced in choice mode. */
+  practice?: "sentence";
   /** Endless browsing (回忆 / 今日): more card ids to append near the end; [] when none. */
   onBrowseNeedMore?: (currentIds: string[]) => Promise<string[]>;
 };
-export type CardBrowseOptions = Pick<CardDetailRequest, "returnLabel" | "browseRecordIds" | "onBrowseSetFinished" | "closeOnBrowseFinish" | "onBrowseClosed" | "onBrowseNeedMore">;
+export type CardBrowseOptions = Pick<CardDetailRequest, "returnLabel" | "browseRecordIds" | "onBrowseSetFinished" | "closeOnBrowseFinish" | "onBrowseClosed" | "onBrowseNeedMore" | "practice">;
 
 type DetailImage = NonNullable<CardRecordDetail["images"]>[number];
 type CachedCardDetail = {
@@ -523,6 +525,7 @@ export function CardDetailNavigator({
       canGoBack={false}
       canGoForward={false}
       recallPosition={browsePosition ? { ...browsePosition, kind: "browse" } : undefined}
+      sentencePractice={request.practice === "sentence"}
       recallPreviousDetail={browseNeighbors.previous}
       recallNextDetail={browseNeighbors.next}
       onRecallPrevious={browsePosition?.previous && onBrowseRecord ? () => { void browseTo(browsePosition.previous!); } : undefined}

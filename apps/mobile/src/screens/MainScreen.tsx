@@ -27,6 +27,7 @@ import OioCharacter from "../../assets/app/oio-character.svg";
 import { Camera, ClockCounterClockwise, Eye, Gift, ImagesSquare, SunHorizon, TrayArrowDown } from "phosphor-react-native";
 import { ProgressRing } from "../components/ProgressRing";
 import { cardProgressRing } from "../domain/practice/cardProgressRing";
+import { blindBoxOrder } from "../domain/blindBox/pickSentence";
 import Sortable from "react-native-sortables";
 import { FlashList } from "@shopify/flash-list";
 import {
@@ -1748,7 +1749,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
       <View style={{ flex: 1 }} {...homeTabsResponder.panHandlers}>
       {!selectingRecords && editorialHome ? <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 4 }}><View style={{ flex: 1, minWidth: 0 }}><MemoryCollectionFilters editorial={editorialHome} collections={collections} selected={libraryView} onSelect={selectLibraryView} onTouching={value => { touchingCollectionFilters.current = value; }} /></View><Pressable accessibilityRole="button" accessibilityLabel={t("library.display_options")} hitSlop={6} style={[styles.headerIconButton, { marginRight: 10 }]} onPress={chooseLibraryAction}><Icon name="ellipsis-horizontal" size={21} color={theme.colors.textSecondary} /></Pressable></View> : null}
       {homeTab === "podcast" && libraryView !== TRASH_VIEW && !selectingRecords ? <PodcastHome collections={collections} bottomInset={screenInsets.bottom} onOpenPlayer={() => setPodcastPlayerVisible(true)} /> : homeTab === "blind" && libraryView !== TRASH_VIEW && !selectingRecords ? <ScrollView style={{ flex: 1, minHeight: 0 }} contentContainerStyle={styles.memoryLanding}>
-        <MemoryArchiveDeck key={`${libraryView}:${sortMode}`} records={recordsScope === queryScope ? records : []} loading={loading || loadingMore} hasMore={recordsScope === queryScope && Boolean(nextCursor)} onThumbnailError={recoverFailedThumbnail} onLoadMore={() => void loadMore()} onOpen={(ids, first, handlers) => onOpenCard(first, "review", undefined, { browseRecordIds: ids, onBrowseSetFinished: handlers.onFinished, onBrowseClosed: handlers.onClosed, closeOnBrowseFinish: true })} />
+        <MemoryArchiveDeck key={`${libraryView}:${sortMode}`} records={recordsScope === queryScope ? records : []} loading={loading || loadingMore} hasMore={recordsScope === queryScope && Boolean(nextCursor)} onThumbnailError={recoverFailedThumbnail} onLoadMore={() => void loadMore()} onOpen={(ids, first, handlers) => onOpenCard(first, "review", undefined, { browseRecordIds: blindBoxOrder(ids, first), practice: "sentence", onBrowseSetFinished: handlers.onFinished, onBrowseClosed: handlers.onClosed, closeOnBrowseFinish: true })} />
       </ScrollView> : <>
       {!selectingRecords && libraryView !== TRASH_VIEW && homeTab === "today" ? <View style={styles.memoryToolbar}><Text style={styles.memoryTodayDate}>{localDay}</Text></View> : null}
 
