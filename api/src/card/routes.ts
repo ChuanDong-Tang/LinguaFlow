@@ -876,10 +876,14 @@ export function registerCardRoutes(app: FastifyInstance, deps: CardRouteDeps): v
       shuffleSeed?: unknown;
       tutorial?: unknown;
       favorites?: unknown;
+      media?: unknown;
+      practice?: unknown;
     };
     try {
       const data = await deps.cardService.listLibraryPage(userId, {
         favoritesOnly: query.favorites === "true",
+        media: query.media === "with" || query.media === "without" ? query.media : undefined,
+        practice: query.practice === "unclozed" || query.practice === "unanswered" || query.practice === "mistakes" || query.practice === "perfect" ? query.practice : undefined,
         collectionId: query.unclassified === "true" ? null : typeof query.collectionId === "string" ? query.collectionId : undefined,
         dateKey: typeof query.dateKey === "string" && query.dateKey ? query.dateKey : undefined,
         fromDateKey: typeof query.fromDateKey === "string" && query.fromDateKey ? query.fromDateKey : undefined,

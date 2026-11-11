@@ -4,10 +4,13 @@ export function homeLibraryView(tab: MemoryHomeTab, rememberedView: string): str
   return tab === "memory" || rememberedView === "trash" ? rememberedView : "all";
 }
 
+/** Header order (2026-11 feedback): 盲盒 / 回忆 / 今日 / 播客 — 今日 grows widest, so it sits right. */
+export const MEMORY_HOME_TABS: readonly MemoryHomeTab[] = ["blind", "memory", "today", "podcast"];
+
 export function swipedMemoryTab(tab: MemoryHomeTab, dx: number, dy: number): MemoryHomeTab {
   if (Math.abs(dx) < 60 || Math.abs(dx) <= Math.abs(dy) * 1.8) return tab;
-  const tabs: MemoryHomeTab[] = ["memory", "today", "blind", "podcast"];
-  return tabs[Math.max(0, Math.min(tabs.length - 1, tabs.indexOf(tab) + (dx < 0 ? 1 : -1)))];
+  const tabs = MEMORY_HOME_TABS;
+  return tabs[Math.max(0, Math.min(tabs.length - 1, tabs.indexOf(tab) + (dx < 0 ? 1 : -1)))]!;
 }
 
 export function shiftMemoryDay(day: string, direction: -1 | 1, today: string): string {
@@ -37,10 +40,10 @@ export function memoryHomeCopy(locale: string) {
     "ja-JP": { dayEmpty: "この日の思い出はまだありません", dayHint: "この日の写真を見てみましょう。", create: "思い出を残す" },
   };
   const entries = {
-    "zh-CN": { todayPhotos: "今日图", randomPhotos: "盲盒", grid: "图文卡片", camera: "拍照", photos: "图片", recentPhotos: "近期", recentPhotosHint: "最近三天的照片", randomPhotosHint: "从整个相册随机翻" },
-    "zh-TW": { todayPhotos: "今日圖", randomPhotos: "盲盒", grid: "圖文卡片", camera: "拍照", photos: "圖片", recentPhotos: "近期", recentPhotosHint: "最近三天的照片", randomPhotosHint: "從整個相簿隨機翻" },
-    "en-US": { todayPhotos: "Today's photos", randomPhotos: "Surprise", grid: "Photo stories", camera: "Camera", photos: "Photos", recentPhotos: "Recent", recentPhotosHint: "Last three days", randomPhotosHint: "Random from your library" },
-    "ja-JP": { todayPhotos: "今日の写真", randomPhotos: "ランダム", grid: "写真カード", camera: "撮影", photos: "写真", recentPhotos: "最近", recentPhotosHint: "最近 3 日間の写真", randomPhotosHint: "ライブラリからランダムに" },
+    "zh-CN": { todayPhotos: "今日图", randomPhotos: "盲盒", grid: "图文卡片", camera: "拍照", photos: "灵感", recentPhotos: "近期", recentPhotosHint: "最近三天的照片", randomPhotosHint: "从整个相册随机翻" },
+    "zh-TW": { todayPhotos: "今日圖", randomPhotos: "盲盒", grid: "圖文卡片", camera: "拍照", photos: "靈感", recentPhotos: "近期", recentPhotosHint: "最近三天的照片", randomPhotosHint: "從整個相簿隨機翻" },
+    "en-US": { todayPhotos: "Today's photos", randomPhotos: "Surprise", grid: "Photo stories", camera: "Camera", photos: "Ideas", recentPhotos: "Recent", recentPhotosHint: "Last three days", randomPhotosHint: "Random from your library" },
+    "ja-JP": { todayPhotos: "今日の写真", randomPhotos: "ランダム", grid: "写真カード", camera: "撮影", photos: "ひらめき", recentPhotos: "最近", recentPhotosHint: "最近 3 日間の写真", randomPhotosHint: "ライブラリからランダムに" },
   };
   return { ...(copy[locale as keyof typeof copy] ?? copy["en-US"]), ...(empty[locale as keyof typeof empty] ?? empty["en-US"]), ...(entries[locale as keyof typeof entries] ?? entries["en-US"]) };
 }

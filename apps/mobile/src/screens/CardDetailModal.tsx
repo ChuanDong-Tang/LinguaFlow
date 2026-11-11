@@ -1,6 +1,5 @@
 import { resolveCardPlaybackProgress } from "../services/tts/cardPlaybackProgress";
 import { canSwipeMemoryCard } from "./home/memoryBrowse";
-import { MemoryBrowseControl } from "./home/MemoryBrowseControl";
 import { memoryReaderCopy, memoryReaderExpanded, shouldExpandMemorySwipe } from "./home/memoryReader";
 import { saveTutorialPractice } from "../services/card/tutorialPracticeStorage";
 import { resolveCardSecondaryContent } from "../services/card/cardSecondaryContent";
@@ -727,8 +726,9 @@ export function CardDetailModal({ detail, loading, imageAdding = false, transiti
             {tab === "review" && (onUpdateContent || onEditCard) ? <Pressable accessibilityLabel="卡片操作" style={styles.iconHeaderButton} onPress={() => setDetailActionMenuVisible(true)}><Icon name="ellipsis-horizontal" size={23} color={theme.colors.text} /></Pressable> : null}
           </View>
         </View>
+        {/* Browsing (回忆 / 今日 / 盲盒) has no 1/10 bar: just keep swiping. */}
         {recallPosition && tab === "review" ? recallPosition.kind === "browse"
-          ? <MemoryBrowseControl hasNextSet={Boolean(onRecallFinish)} index={recallPosition.index} total={recallPosition.total} disabled={editing || imageAdding || recallInteractionLocked || playbackMode} onPrevious={onRecallPrevious ? () => { if (!loading) leaveCard(onRecallPrevious, false); } : undefined} onNext={onRecallNext ? () => { if (!loading) leaveCard(onRecallNext, false); } : undefined} onExit={() => leaveCard(onRecallFinish ?? onClose, false)} />
+          ? null
           : <Text numberOfLines={1} style={[styles.recallContextLabel, !recallContextLabel && styles.recallContextLabelHidden]}>{recallContextLabel ?? " "}</Text> : null}
         {detailActionMenuVisible ? <View style={styles.detailActionLayer}><Pressable style={StyleSheet.absoluteFill} onPress={() => setDetailActionMenuVisible(false)} /><View style={styles.detailMenu}>
           {detail?.rewrittenText && detail.mode !== "corpus" && onUpdateMetadata ? <Pressable style={styles.detailActionItem} onPress={() => void openRewriteEditor()}><Icon name="create-outline" size={17} color={theme.colors.textSecondary} /><Text style={styles.detailActionText}>{t("card_detail.edit_rewrite")}</Text></Pressable> : null}
@@ -890,10 +890,13 @@ function RecallAdjacentCard({ detail, position, contextLabel, canUseDictation, b
           <View style={styles.cardModeOption}><Text style={[styles.cardModeOptionText, styles.cardModeOptionTextActive]}>{t("card_detail.mode.read")}</Text></View>
           <View style={styles.cardModeOption}><Text style={styles.cardModeOptionText}>{t("card_detail.mode.play")}</Text></View>
         </View>
-        <View style={styles.headerEnd}><View style={styles.iconHeaderButton}><Icon name="ellipsis-horizontal" size={23} color={theme.colors.text} /></View></View>
+        {/* Same header as the live page (🔑 when it has blanks), so nothing jumps when it becomes the real page. */}
+        <View style={styles.headerEnd}>
+          {detail.contentBlocks.some((block) => ((block.practice?.clozeState as { blanks?: unknown[] } | null | undefined)?.blanks?.length ?? 0) > 0)
+            ? <View style={styles.iconHeaderButton}><Key size={21} color={theme.colors.text} /></View> : null}
+          <View style={styles.iconHeaderButton}><Icon name="ellipsis-horizontal" size={23} color={theme.colors.text} /></View>
+        </View>
       </View>
-      {/* Same look as the live control (the preview is not touchable), so nothing changes when it becomes the real page. */}
-      <MemoryBrowseControl index={position.index} total={position.total} disabled={false} onPrevious={position.index > 0 ? () => undefined : undefined} onNext={() => undefined} onExit={() => undefined} />
     </> : <>
       <View style={styles.header}><View style={styles.historyButtons}><View style={styles.historyButton} /></View><Text style={styles.title}>{position.index + 1} / {position.total}</Text><View style={styles.headerEnd}><View style={styles.iconHeaderButton}><Icon name="close" size={23} color={theme.colors.text} /></View></View></View>
       <Text numberOfLines={1} style={[styles.recallContextLabel, !contextLabel && styles.recallContextLabelHidden]}>{contextLabel ?? " "}</Text>

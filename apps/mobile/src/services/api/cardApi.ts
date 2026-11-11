@@ -56,6 +56,9 @@ export type CardRecordSummary = {
   createdAt: string;
 };
 
+/** ⋯ filter: 没挖空 / 没作答 / 有错题 / 全对. */
+export type CardPracticeFilter = "unclozed" | "unanswered" | "mistakes" | "perfect";
+
 /** Where a card is in the learning loop (badge on home cards). */
 export type CardLearningStatus = "image_only" | "recorded" | "clozed" | "completed";
 
@@ -422,6 +425,8 @@ export async function getCardRecordPage(input?: {
   sort?: "newest" | "oldest";
   shuffleSeed?: string;
   favorites?: boolean;
+  media?: "with" | "without";
+  practice?: CardPracticeFilter;
 }): Promise<CardRecordPage> {
   const params = new URLSearchParams();
   params.set("tutorial", "v1");
@@ -433,6 +438,8 @@ export async function getCardRecordPage(input?: {
   if (input?.sort) params.set("sort", input.sort);
   if (input?.shuffleSeed) params.set("shuffleSeed", input.shuffleSeed);
   if (input?.favorites) params.set("favorites", "true");
+  if (input?.media) params.set("media", input.media);
+  if (input?.practice) params.set("practice", input.practice);
   params.set("limit", String(input?.limit ?? 50));
   return request(`/cards/page?${params.toString()}`);
 }

@@ -387,6 +387,7 @@ export interface CardRepository {
     shuffleSeed?: string;
     includeLegacySamples?: boolean;
     favoritesOnly?: boolean;
+    media?: "with" | "without";
     limit: number;
     cursor?: { createdAt: Date; id: string };
   }): Promise<CardEntryEntity[]>;

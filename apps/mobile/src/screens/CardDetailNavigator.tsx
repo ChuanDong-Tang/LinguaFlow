@@ -53,8 +53,10 @@ export type CardDetailRequest = {
   closeOnBrowseFinish?: boolean;
   /** Called once when the reader closes, with the card shown last. */
   onBrowseClosed?: (recordId: string) => void;
+  /** Endless browsing (回忆 / 今日): more card ids to append near the end; [] when none. */
+  onBrowseNeedMore?: (currentIds: string[]) => Promise<string[]>;
 };
-export type CardBrowseOptions = Pick<CardDetailRequest, "returnLabel" | "browseRecordIds" | "onBrowseSetFinished" | "closeOnBrowseFinish" | "onBrowseClosed">;
+export type CardBrowseOptions = Pick<CardDetailRequest, "returnLabel" | "browseRecordIds" | "onBrowseSetFinished" | "closeOnBrowseFinish" | "onBrowseClosed" | "onBrowseNeedMore">;
 
 type DetailImage = NonNullable<CardRecordDetail["images"]>[number];
 type CachedCardDetail = {
@@ -116,12 +118,15 @@ export function CardDetailNavigator({
   onClose,
   onChanged,
   onBrowseRecord,
+  onExtendBrowse,
 }: {
   request: CardDetailRequest | null;
   prefetchRecordId?: string | null;
   onClose: () => void;
   onChanged: () => void;
   onBrowseRecord?: (recordId: string) => void;
+  /** Append ids to the open browse list (endless browsing). */
+  onExtendBrowse?: (recordIds: string[]) => void;
 }) {
   const [detail, setDetail] = useState<CardRecordDetail | null>(null);
   const [activeRequestKey, setActiveRequestKey] = useState<number | null>(null);
@@ -154,7 +159,22 @@ export function CardDetailNavigator({
       }).catch(() => undefined);
     }
     return () => { active = false; };
-  }, [request?.key, request?.recordId]);
+  }, [request?.key, request?.recordId, request?.browseRecordIds?.length]);
+
+  // Endless browsing: two cards before the end, ask the opener for more ids.
+  const extendingBrowseRef = useRef(false);
+  useEffect(() => {
+    const ids = request?.browseRecordIds;
+    const needMore = request?.onBrowseNeedMore;
+    if (!request || !ids?.length || !needMore || !onExtendBrowse || extendingBrowseRef.current) return;
+    const index = ids.indexOf(request.recordId);
+    if (index < 0 || index < ids.length - 2) return;
+    extendingBrowseRef.current = true;
+    void needMore(ids)
+      .then((more) => { const fresh = more.filter((id) => !ids.includes(id)); if (fresh.length) onExtendBrowse(fresh); })
+      .catch(() => undefined)
+      .finally(() => { extendingBrowseRef.current = false; });
+  }, [request?.key, request?.recordId, request?.browseRecordIds?.length]);
 
   // Opening a card (directly or by swiping through a set) is one encounter.
   useEffect(() => {

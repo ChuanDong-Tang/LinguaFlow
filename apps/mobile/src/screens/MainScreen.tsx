@@ -41,6 +41,7 @@ import {
   permanentlyDeleteCardRecord,
   getCardCollections,
   getCardRecordPage,
+  getCardDateKeys,
   getCardTaskStatus,
   getCardRecord,
   getCardCapabilities,
@@ -65,6 +66,7 @@ import {
   type CardCapabilities,
   type RecallCandidate,
   type CardLearningContentType,
+  type CardPracticeFilter,
 } from "../services/api/cardApi";
 import {
   loadCardDraft,
@@ -100,7 +102,7 @@ import { RealtimeSttButton } from "../components/RealtimeSttButton";
 import { extractTargetLanguageCorpus } from "@lf/core/text/corpusText";
 import { dictionaryLookupErrorKey, lookupDictionary, type DictionaryLookupResult } from "../services/api/dictionaryApi";
 import { DictionarySearchResultCard } from "./search/DictionarySearchResultCard";
-import { homeDateKey, homeLibraryView, memoryHomeCopy, swipedMemoryTab, type MemoryHomeTab } from "./home/memoryHome";
+import { homeDateKey, homeLibraryView, MEMORY_HOME_TABS, memoryHomeCopy, swipedMemoryTab, type MemoryHomeTab } from "./home/memoryHome";
 import { memoryBrowseIds, memoryBrowseRound } from "./home/memoryBrowse";
 
 type MainScreenProps = {
@@ -168,11 +170,17 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
   const [rememberedLibraryView, setLibraryView] = useState<LibraryView>("all");
   const libraryView = homeLibraryView(homeTab, rememberedLibraryView);
   const dateScope = homeDateKey(homeTab, libraryView === TRASH_VIEW, new Date(`${localDay}T12:00:00`));
-  const queryScope = JSON.stringify([libraryView, dateScope]);
+  // ⋯ filters (2026-11): photo / video presence and learning progress.
+  const [mediaFilter, setMediaFilter] = useState<"all" | "with" | "without">("all");
+  const [practiceFilter, setPracticeFilter] = useState<"all" | CardPracticeFilter>("all");
+  const queryScope = JSON.stringify([libraryView, dateScope, mediaFilter, practiceFilter]);
   const [recordsScope, setRecordsScope] = useState(queryScope);
   const previousDateScopeRef = useRef(dateScope);
   const [sortMode, setSortMode] = useState<"shuffle" | "newest" | "oldest">("shuffle");
   const shuffleSeed = useRef(Crypto.randomUUID());
+  // Cards just made here stay first (a shuffle refresh used to move them away)
+  // until the user reshuffles or switches folder.
+  const pinnedRecordIdsRef = useRef<string[]>([]);
   const [libraryMenuVisible, setLibraryMenuVisible] = useState(false);
     const [selectingRecords, setSelectingRecords] = useState(false);
   // 今日 is a single-column feed (big photo, then words — like Threads / 朋友圈);
@@ -396,6 +404,8 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
           collectionId,
           unclassified: libraryView === UNCLASSIFIED_VIEW,
           favorites: libraryView === FAVORITES_VIEW,
+          media: mediaFilter === "all" ? undefined : mediaFilter,
+          practice: practiceFilter === "all" ? undefined : practiceFilter,
           limit: LIBRARY_PAGE_SIZE,
           sort: sortMode === "oldest" ? "oldest" : "newest",
           shuffleSeed: dateScope || sortMode !== "shuffle" ? undefined : requestedShuffleSeed,
@@ -409,7 +419,9 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
       // Commit the round with its cards/cursor, never before a request succeeds.
       // A failed refresh must leave the previous page usable for load-more.
       shuffleSeed.current = requestedShuffleSeed;
-      setRecords(stableRecords);
+      // Pin only in the unfiltered 回忆 grid; elsewhere a pinned card may not belong.
+      const pinScope = libraryView === "all" && !dateScope && mediaFilter === "all" && practiceFilter === "all";
+      setRecords(pinScope ? pinNewRecords(stableRecords, recordsRef.current, pinnedRecordIdsRef.current) : stableRecords);
       setRecordsScope(queryScope);
       setCollections(collectionResult.collections);
       setNextCursor(rows.nextCursor);
@@ -424,7 +436,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
     } finally {
       if (sequence === refreshSequenceRef.current) setLoading(false);
     }
-  }, [libraryView, sortMode, dateScope, queryScope]);
+  }, [libraryView, sortMode, dateScope, queryScope, mediaFilter, practiceFilter]);
 
   useEffect(() => {
     if (previousDateScopeRef.current === dateScope) return;
@@ -497,6 +509,8 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
         collectionId,
         unclassified: libraryView === UNCLASSIFIED_VIEW,
         favorites: libraryView === FAVORITES_VIEW,
+        media: mediaFilter === "all" ? undefined : mediaFilter,
+        practice: practiceFilter === "all" ? undefined : practiceFilter,
         limit: LIBRARY_PAGE_SIZE,
         cursor: nextCursor,
         sort: sortMode === "oldest" ? "oldest" : "newest",
@@ -518,7 +532,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
         setLoadingMore(false);
       }
     }
-  }, [libraryView, loading, nextCursor, searchResults, sortMode, dateScope, recordsScope, queryScope]);
+  }, [libraryView, loading, nextCursor, searchResults, sortMode, dateScope, recordsScope, queryScope, mediaFilter, practiceFilter]);
 
   useEffect(() => {
     let cancelled = false;
@@ -552,7 +566,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
     observedSortModeRef.current = sortMode;
     const stale = Date.now() - lastRefreshAtRef.current >= BACKGROUND_REFRESH_INTERVAL_MS;
     if (!hasLoadedRef.current || revisionChanged || libraryChanged || sortChanged || (becameActive && stale)) void refresh();
-  }, [isActive, libraryView, refresh, refreshRevision, sortMode]);
+  }, [isActive, libraryView, refresh, refreshRevision, sortMode, mediaFilter, practiceFilter]);
 
   useEffect(() => {
     const subscription = AppState.addEventListener("change", (state) => {
@@ -998,6 +1012,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
         }
       }
       persistedRecordId = created.id;
+      pinnedRecordIdsRef.current = [created.id, ...pinnedRecordIdsRef.current.filter((id) => id !== created.id)].slice(0, 12);
       await commitDraft({ ...submitting, recordId: persistedRecordId });
 
       await setCardGenerationState(created.id, { pendingTargets: trackedTargets, failedTargets: [] });
@@ -1320,21 +1335,26 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
     }
     if (searchVisible) { onOpenCard(record.id, "review", origin); return; }
     const pool = memoryBrowseIds(records, dateScope);
-    // Today follows the loaded day's order, without random rounds or a redeal action.
-    if (homeTab === "today") {
-      onOpenCard(record.id, "review", origin, { browseRecordIds: pool });
+    // Today follows the day's order, then keeps going into earlier days with cards.
+    if (homeTab === "today" && dateScope) {
+      let reachedDay = dateScope;
+      onOpenCard(record.id, "review", origin, { browseRecordIds: pool, onBrowseNeedMore: async () => {
+        const earlier = await previousDayWithCards(reachedDay);
+        if (!earlier) return [];
+        reachedDay = earlier;
+        const page = await getCardRecordPage({ dateKey: earlier, limit: LIBRARY_PAGE_SIZE });
+        return memoryBrowseIds(page.items, earlier);
+      } });
       return;
     }
-    function openRound(first: string, openingOrigin?: CardDetailRequest["origin"], candidates = pool) {
-      const ids = memoryBrowseRound(candidates, first);
-      onOpenCard(first, "review", openingOrigin, { browseRecordIds: ids, onBrowseSetFinished: () => {
-            const unseen = pool.filter(id => !ids.includes(id));
-            const available = unseen.length >= Math.min(10, pool.length) ? unseen : pool;
-            const next = available[Math.floor(Math.random() * available.length)];
-            if (next) openRound(next, undefined, available);
-      } });
-    }
-    openRound(record.id, origin);
+    // 回忆: no 1/10 sets any more — swipe on endlessly; each batch prefers unseen cards.
+    const first = memoryBrowseRound(pool, record.id);
+    onOpenCard(record.id, "review", origin, { browseRecordIds: first, onBrowseNeedMore: async (seen) => {
+      const unseen = pool.filter((id) => !seen.includes(id));
+      const source = unseen.length ? unseen : pool.filter((id) => id !== seen[seen.length - 1]);
+      const start = source[Math.floor(Math.random() * source.length)];
+      return start ? memoryBrowseRound(source, start) : [];
+    } });
   }
 
   async function submitSearch(): Promise<void> {
@@ -1582,6 +1602,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
   }
 
   function selectLibrarySort(mode: "shuffle" | "newest" | "oldest"): void {
+    pinnedRecordIdsRef.current = [];
     if (mode === "shuffle" && sortMode === "shuffle") shuffleSeed.current = Crypto.randomUUID();
     setSortMode(mode);
   }
@@ -1706,7 +1727,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
           : libraryView === TRASH_VIEW
             ? <View style={styles.homeSectionTabs}><Text numberOfLines={1} style={styles.homeHeaderTitle}>{headerTitle}</Text></View>
             : <View style={styles.homeSectionTabs} accessibilityRole="tablist">
-              {(["memory", "today", "blind", "podcast"] as const).map((tab) => <Pressable key={tab} accessibilityRole="tab" accessibilityState={{ selected: homeTab === tab }} hitSlop={6} style={styles.memoryTab} onPress={() => { if (homeTab !== tab) haptic.select(); setHomeTab(tab); }}><Text style={[styles.memoryTabText, homeTab === tab && styles.memoryTabSelected]}>{homeCopy[tab]}</Text>{homeTab === tab ? <TabUnderline key={tab} width={28} style={styles.memoryTabUnderline} /> : <View style={styles.memoryTabUnderlineSpace} />}</Pressable>)}
+              {MEMORY_HOME_TABS.map((tab) => <Pressable key={tab} accessibilityRole="tab" accessibilityState={{ selected: homeTab === tab }} hitSlop={6} style={styles.memoryTab} onPress={() => { if (homeTab !== tab) haptic.select(); setHomeTab(tab); }}><Text style={[styles.memoryTabText, homeTab === tab && styles.memoryTabSelected]}>{homeCopy[tab]}</Text>{homeTab === tab ? <TabUnderline key={tab} width={28} style={styles.memoryTabUnderline} /> : <View style={styles.memoryTabUnderlineSpace} />}</Pressable>)}
             </View>}
         <View style={styles.headerActions}>
           {!selectingRecords ? <Pressable accessibilityRole="button" accessibilityLabel={t("contact.curious_companion.name")} hitSlop={8} style={styles.headerCharacter} onPressIn={() => headerMascot.current?.hop()} onPress={() => { haptic.light(); void openAssistant(); }}><OioMascot ref={headerMascot} size={29} /></Pressable> : null}
@@ -1810,10 +1831,23 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
                   <Text style={[styles.displayMenuOptionText, sortMode === mode && styles.displayMenuOptionTextOn]}>{t(mode === "shuffle" ? "library.order_shuffle" : mode === "newest" ? "library.order_newest" : "library.order_oldest")}</Text>
                 </Pressable>)}
               </View>
+              <Text style={styles.displayMenuLabel}>{t("library.filter_media")}</Text>
+              <View style={styles.displayMenuSegment}>
+                {(["all", "with", "without"] as const).map((value) => <Pressable key={value} accessibilityRole="radio" accessibilityState={{ checked: mediaFilter === value }} style={[styles.displayMenuOption, mediaFilter === value && styles.displayMenuOptionOn]} onPress={() => { haptic.select(); setMediaFilter(value); }}>
+                  <Text style={[styles.displayMenuOptionText, mediaFilter === value && styles.displayMenuOptionTextOn]}>{t(`library.filter_media_${value}`)}</Text>
+                </Pressable>)}
+              </View>
+              <Text style={styles.displayMenuLabel}>{t("library.filter_practice")}</Text>
+              <View style={[styles.displayMenuSegment, styles.displayMenuWrap]}>
+                {(["all", "unclozed", "unanswered", "mistakes", "perfect"] as const).map((value) => <Pressable key={value} accessibilityRole="radio" accessibilityState={{ checked: practiceFilter === value }} style={[styles.displayMenuOption, styles.displayMenuChip, practiceFilter === value && styles.displayMenuOptionOn]} onPress={() => { haptic.select(); setPracticeFilter(value); }}>
+                  <Text style={[styles.displayMenuOptionText, practiceFilter === value && styles.displayMenuOptionTextOn]}>{t(`library.filter_practice_${value}`)}</Text>
+                </Pressable>)}
+              </View>
               <View style={styles.libraryMenuDivider} />
-              <Pressable style={styles.libraryMenuRow} onPress={enterRecordSelection}>
-                <View style={styles.libraryMenuLeadingIcon}><Icon name="checkmark-circle-outline" size={22} color={theme.colors.text} /></View>
-                <View style={styles.libraryMenuTextBlock}><Text style={styles.libraryMenuTitle}>{t("library.multi_select")}</Text></View>
+              {/* Same size as the options above (it used the old sidebar row style). */}
+              <Pressable accessibilityRole="button" style={styles.displayMenuOption} onPress={enterRecordSelection}>
+                <Icon name="checkmark-circle-outline" size={17} color={theme.colors.text} />
+                <Text style={styles.displayMenuOptionText}>{t("library.multi_select")}</Text>
               </Pressable>
             </Pressable>
           </Surface>
@@ -3151,7 +3185,14 @@ function CardCard({ record, grid = false, feed = false, enterIndex, collectionNa
   const content = (
       <View style={[styles.cardContent, grid && styles.memoryGridContent]}>
         {selecting ? <View style={[styles.cardSelectionIcon, grid && { position: "absolute", top: 8, right: 8, zIndex: 2, borderRadius: 18, backgroundColor: theme.colors.surface, padding: 3 }]}><Icon name={selected ? "checkmark-circle" : "ellipse-outline"} size={23} color={selected ? theme.colors.text : theme.colors.textMuted} /></View> : null}
-        {record.thumbnail ? <View ref={thumbnailRef} collapsable={false} style={grid ? [styles.memoryGridCover, { aspectRatio: Math.max(0.75, Math.min(1.25, record.thumbnail.width / Math.max(1, record.thumbnail.height))) }] : styles.thumbnailFrame}>{grid ? <Image source={{ uri: record.thumbnail.url }} style={StyleSheet.absoluteFill} resizeMode="cover" onError={onThumbnailError} /> : <FocusedCardThumbnail thumbnail={record.thumbnail} onError={onThumbnailError} />}</View> : grid ? <View style={[styles.memoryGridCover, styles.memoryTextCover, { backgroundColor: coverFillFor(record.id) }]}><Text style={styles.memoryTextCoverTitle} numberOfLines={5}>{record.displayTitle.trim() || record.originalPreview}</Text></View> : null}
+        {record.thumbnail ? <View ref={thumbnailRef} collapsable={false} style={grid ? [styles.memoryGridCover, { aspectRatio: Math.max(0.75, Math.min(1.25, record.thumbnail.width / Math.max(1, record.thumbnail.height))) }] : styles.thumbnailFrame}>{grid ? <Image source={{ uri: record.thumbnail.url }} style={StyleSheet.absoluteFill} resizeMode="cover" onError={onThumbnailError} /> : <FocusedCardThumbnail thumbnail={record.thumbnail} onError={onThumbnailError} />}</View> : grid ? <View style={[styles.memoryGridCover, styles.memoryTextCover, { backgroundColor: coverFillFor(record.id) }]}>
+          {/* Text-only memory: title, a short rule, then a taste of the English rewrite. */}
+          <Text style={styles.memoryTextCoverTitle} numberOfLines={3}>{record.displayTitle.trim() || record.originalPreview}</Text>
+          {(record.rewrittenPreview ?? "").trim() ? <>
+            <View style={styles.memoryTextCoverRule} />
+            <Text style={styles.memoryTextCoverPreview} numberOfLines={3}>{record.rewrittenPreview}</Text>
+          </> : null}
+        </View> : null}
         {grid && !selecting && !record.isSample && record.practiceSummary?.status && record.practiceSummary.status !== "image_only" ? <CardStatusBadge summary={record.practiceSummary} /> : null}
         <View style={styles.cardTextColumn}>
           {processing ? (
@@ -3420,8 +3461,10 @@ const styles = createStyles(() => ({
   memoryGridContent: { flexDirection: "column", alignItems: "stretch", gap: 0 },
   memoryGridCover: { width: "100%", aspectRatio: 0.85, borderTopLeftRadius: theme.radius.card, borderTopRightRadius: theme.radius.card, overflow: "hidden", backgroundColor: theme.colors.surfaceMuted },
   memoryGridTitle: { fontSize: 14, lineHeight: 20, fontWeight: "500", marginTop: 8, paddingHorizontal: 10, color: theme.colors.text },
-  memoryTextCover: { justifyContent: "center", alignItems: "center", paddingHorizontal: 16, paddingVertical: 20 },
-  memoryTextCoverTitle: { fontSize: 17, lineHeight: 25, color: theme.colors.text, fontWeight: "600", textAlign: "center" },
+  memoryTextCover: { justifyContent: "center", alignItems: "flex-start", paddingHorizontal: 16, paddingVertical: 20, gap: 10 },
+  memoryTextCoverTitle: { fontSize: 17, lineHeight: 24, color: theme.colors.text, fontWeight: "700" },
+  memoryTextCoverRule: { width: 24, height: 2, borderRadius: 1, backgroundColor: theme.colors.textFaint },
+  memoryTextCoverPreview: { fontSize: 13, lineHeight: 19, color: theme.colors.textSecondary },
   memoryGridFooter: { flexWrap: "nowrap", gap: 4, marginTop: 6, minHeight: 20, paddingHorizontal: 10, paddingBottom: 10 },
   memoryGridDate: { color: theme.colors.textMuted, fontSize: 12 },
   memoryLanding: { flexGrow: 1, alignItems: "center", justifyContent: "flex-start", gap: 20, padding: 16, paddingBottom: 140, backgroundColor: theme.colors.feed },
@@ -3452,6 +3495,8 @@ const styles = createStyles(() => ({
   displayMenuOptionOn: { backgroundColor: theme.colors.accent },
   displayMenuOptionText: { color: theme.colors.text, fontSize: 14 },
   displayMenuOptionTextOn: { color: theme.colors.onAccent, fontWeight: "600" },
+  displayMenuWrap: { flexWrap: "wrap" },
+  displayMenuChip: { flex: 0, flexGrow: 1, minWidth: 64, paddingHorizontal: 10 },
   libraryMenuRow: { minHeight: 76, paddingHorizontal: 20, flexDirection: "row", alignItems: "center", gap: 10 },
   libraryMenuLeadingIcon: { width: 28, alignItems: "center" },
   libraryMenuTextBlock: { flex: 1 },
@@ -3706,3 +3751,26 @@ const styles = createStyles(() => ({
   sidebarCreateInput: { flex: 1, minHeight: 42, paddingVertical: 0, color: theme.colors.text, fontSize: 15 },
   sidebarEmpty: { paddingHorizontal: 14, paddingVertical: 12, color: theme.colors.textMuted, fontSize: 13, lineHeight: 20 },
 }));
+
+/** Put cards created this session first, keeping the fetched order for the rest. */
+function pinNewRecords(incoming: CardRecordSummary[], previous: CardRecordSummary[], pinnedIds: string[]): CardRecordSummary[] {
+  if (!pinnedIds.length) return incoming;
+  const byId = new Map([...previous, ...incoming].map((record) => [record.id, record]));
+  const fetched = new Map(incoming.map((record) => [record.id, record]));
+  const pinned = pinnedIds.flatMap((id) => {
+    const record = fetched.get(id) ?? byId.get(id);
+    return record ? [record] : [];
+  });
+  const pinnedSet = new Set(pinned.map((record) => record.id));
+  return [...pinned, ...incoming.filter((record) => !pinnedSet.has(record.id))];
+}
+
+/** The closest earlier day (within ~6 months) that has cards, for endless 今日 browsing. */
+async function previousDayWithCards(dateKey: string): Promise<string | null> {
+  const day = new Date(`${dateKey}T12:00:00`);
+  const before = new Date(day); before.setDate(before.getDate() - 1);
+  const from = new Date(day); from.setDate(from.getDate() - 180);
+  const key = (value: Date) => `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
+  const keys = await getCardDateKeys(key(from), key(before)).catch(() => [] as string[]);
+  return [...keys].sort().pop() ?? null;
+}

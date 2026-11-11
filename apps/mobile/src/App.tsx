@@ -1051,6 +1051,9 @@ export default function App() {
         {overlay ? <View style={styles.overlayScreen}>{overlay}</View> : null}
         <CardDetailNavigator
           request={cardDetailRequest}
+          onExtendBrowse={(recordIds) => setCardDetailRequest((current) => current?.browseRecordIds
+            ? { ...current, browseRecordIds: [...current.browseRecordIds, ...recordIds.filter((id) => !current.browseRecordIds!.includes(id))] }
+            : current)}
           onBrowseRecord={(recordId) => {
             if (!cardDetailRequest?.browseRecordIds?.includes(recordId)) return;
             // Intra-round navigation changes content, not the reader session.

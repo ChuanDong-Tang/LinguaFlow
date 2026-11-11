@@ -188,6 +188,8 @@ export class PrismaCardRepository implements CardRepository {
     shuffleSeed?: string;
     includeLegacySamples?: boolean;
     favoritesOnly?: boolean;
+    /** Only cards with (or without) a photo / video. */
+    media?: "with" | "without";
     limit: number;
     cursor?: { createdAt: Date; id: string };
   }): Promise<CardEntryEntity[]> {
@@ -228,10 +230,13 @@ export class PrismaCardRepository implements CardRepository {
           AND ($7::text IS NULL OR "dateKey" >= $7)
           AND ($8::text IS NULL OR (md5($2 || id), id) > (md5($2 || $8), $8))
           AND ($10::boolean = false OR "favoritedAt" IS NOT NULL)
+          AND ($11::text IS NULL
+            OR ($11 = 'with' AND EXISTS (SELECT 1 FROM card_image_assets img WHERE img."entryId" = cards.id))
+            OR ($11 = 'without' AND NOT EXISTS (SELECT 1 FROM card_image_assets img WHERE img."entryId" = cards.id)))
         ORDER BY md5($2 || id), id LIMIT $9`,
         input.userId, input.shuffleSeed, Boolean(input.includeLegacySamples),
         input.collectionId === null, collectionIds, input.dateKey ?? null,
-        input.fromDateKey ?? null, input.cursor?.id ?? null, input.limit, Boolean(input.favoritesOnly));
+        input.fromDateKey ?? null, input.cursor?.id ?? null, input.limit, Boolean(input.favoritesOnly), input.media ?? null);
       const rows = await this.prisma.card.findMany({
         where: { userId: input.userId, deletedAt: null, id: { in: ids.map(row => row.id) } }, include: includeSegments,
       });
@@ -246,6 +251,7 @@ export class PrismaCardRepository implements CardRepository {
         status: { notIn: ["failed", "deleted"] },
         ...collectionWhere,
         ...(input.favoritesOnly ? { favoritedAt: { not: null } } : {}),
+        ...(input.media === "with" ? { images: { some: {} } } : input.media === "without" ? { images: { none: {} } } : {}),
         ...(input.dateKey ? { dateKey: input.dateKey } : input.fromDateKey ? { dateKey: { gte: input.fromDateKey } } : {}),
         ...(input.cursor ? {
           OR: [

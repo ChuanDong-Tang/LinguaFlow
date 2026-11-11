@@ -37,7 +37,7 @@ test("shuffle query binds user, seed, descendant filter and cursor without fetch
   assert.equal(calls.length, 1);
   assert.match(calls[0].sql, /ORDER BY md5\(\$2 \|\| id\), id LIMIT \$9/);
   assert.ok(!calls[0].sql.includes("user-a"));
-  assert.deepEqual(calls[0].values, ["user-a", "round-a", false, false, ["parent", "child"], null, null, "last-card", 41, false]);
+  assert.deepEqual(calls[0].values, ["user-a", "round-a", false, false, ["parent", "child"], null, null, "last-card", 41, false, null]);
 });
 
 test("unclassified/date scope is preserved in random paging", async () => {
@@ -47,5 +47,5 @@ test("unclassified/date scope is preserved in random paging", async () => {
     $queryRawUnsafe: async (_sql: string, ...parameters: unknown[]) => { values = parameters; return []; },
   } as never);
   await repository.listPageByUser({ userId: "user-b", collectionId: null, dateKey: "2026-10-24", shuffleSeed: "round-b", limit: 6 });
-  assert.deepEqual(values, ["user-b", "round-b", false, true, null, "2026-10-24", null, null, 6, false]);
+  assert.deepEqual(values, ["user-b", "round-b", false, true, null, "2026-10-24", null, null, 6, false, null]);
 });

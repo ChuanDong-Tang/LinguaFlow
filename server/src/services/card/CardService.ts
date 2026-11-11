@@ -1661,6 +1661,9 @@ export class CardService {
     shuffleSeed?: string;
     tutorial?: boolean;
     favoritesOnly?: boolean;
+    media?: "with" | "without";
+    /** Learning-progress filter (see cardMatchesPracticeFilter). */
+    practice?: CardPracticeFilter;
   }) {
     if (input.shuffleSeed && !/^[a-zA-Z0-9-]{1,64}$/.test(input.shuffleSeed)) throw new CardValidationError("Invalid shuffle seed");
     if (input.dateKey) assertDateKey(input.dateKey);
@@ -1669,27 +1672,52 @@ export class CardService {
     const configuredMax = Math.max(1, Math.min(50, Math.floor(this.listPageSizeMax)));
     const requestedLimit = Number.isFinite(input.limit) ? Math.floor(input.limit!) : configuredMax;
     const limit = Math.max(1, Math.min(configuredMax, requestedLimit));
-    const tutorial = input.tutorial && !input.cursor && input.collectionId === undefined && !input.dateKey && !input.fromDateKey && !input.favoritesOnly
+    const filtered = Boolean(input.favoritesOnly || input.media || input.practice);
+    const tutorial = input.tutorial && !input.cursor && input.collectionId === undefined && !input.dateKey && !input.fromDateKey && !filtered
       ? await this.bootstrap(userId, true) : [];
     const cursor = input.cursor ? decodeCardCursor(input.cursor) : undefined;
     if (cursor && cursor.shuffleSeed !== input.shuffleSeed) throw new CardValidationError("Card cursor belongs to a different shuffle round");
-    const entries = await this.repository.listPageByUser({
+    const query = {
       userId,
       collectionId: input.collectionId,
       dateKey: input.dateKey,
       fromDateKey: input.fromDateKey,
-      sortDirection: input.sort === "oldest" ? "asc" : "desc",
+      sortDirection: input.sort === "oldest" ? "asc" as const : "desc" as const,
       shuffleSeed: input.shuffleSeed,
       includeLegacySamples: !input.tutorial,
       favoritesOnly: input.favoritesOnly,
-      limit: limit + 1,
-      cursor,
+      media: input.media,
+    };
+    const toPage = async (pageEntries: CardEntryEntity[], last: CardEntryEntity | undefined) => ({
+      items: [...tutorial, ...await Promise.all(pageEntries.map((entry) => this.summaryWithImage(entry)))],
+      nextCursor: last ? encodeCardCursor(last.recordedAt, last.id, input.shuffleSeed) : null,
+      shuffleSeed: input.shuffleSeed ?? null,
     });
-    const hasMore = entries.length > limit;
-    const pageEntries = entries.slice(0, limit);
-    const items = await Promise.all(pageEntries.map((entry) => this.summaryWithImage(entry)));
-    const last = hasMore ? pageEntries[pageEntries.length - 1] : undefined;
-    return { items: [...tutorial, ...items], nextCursor: last ? encodeCardCursor(last.recordedAt, last.id, input.shuffleSeed) : null, shuffleSeed: input.shuffleSeed ?? null };
+    if (!input.practice) {
+      const entries = await this.repository.listPageByUser({ ...query, limit: limit + 1, cursor });
+      const hasMore = entries.length > limit;
+      const pageEntries = entries.slice(0, limit);
+      return toPage(pageEntries, hasMore ? pageEntries[pageEntries.length - 1] : undefined);
+    }
+    // Progress lives in practice JSON, so filter in the service: scan a few
+    // bounded batches, then hand back a cursor after the last row examined.
+    const practice = input.practice;
+    const matches: CardEntryEntity[] = [];
+    let scanCursor = cursor;
+    let lastScanned: CardEntryEntity | undefined;
+    let exhausted = false;
+    for (let round = 0; round < 4 && matches.length <= limit; round += 1) {
+      const batch = await this.repository.listPageByUser({ ...query, limit: PRACTICE_FILTER_BATCH, cursor: scanCursor });
+      for (const entry of batch) {
+        lastScanned = entry;
+        if (cardMatchesPracticeFilter(cardPracticeSummary(entry), practice)) matches.push(entry);
+        if (matches.length > limit) break;
+      }
+      if (batch.length < PRACTICE_FILTER_BATCH && matches.length <= limit) { exhausted = true; break; }
+      if (lastScanned) scanCursor = { createdAt: lastScanned.recordedAt, id: lastScanned.id, shuffleSeed: input.shuffleSeed };
+    }
+    if (matches.length > limit) return toPage(matches.slice(0, limit), matches[limit - 1]);
+    return toPage(matches, exhausted ? undefined : lastScanned);
   }
 
   async listDateKeys(userId: string, fromDateKey: string, toDateKey: string): Promise<string[]> {
@@ -3147,4 +3175,18 @@ function decodeCardCursor(value: string): { createdAt: Date; id: string; shuffle
   } catch {
     throw new CardValidationError("Invalid Card cursor");
   }
+}
+
+export type CardPracticeFilter = "unclozed" | "unanswered" | "mistakes" | "perfect";
+const PRACTICE_FILTER_BATCH = 50;
+
+/** 没挖空 / 没作答 / 有错题 / 全对 — by the card's primary learning content. */
+export function cardMatchesPracticeFilter(summary: CardRecordSummaryView["practiceSummary"], filter: CardPracticeFilter): boolean {
+  const total = summary?.totalBlanks ?? 0;
+  const answered = summary?.answeredBlanks ?? 0;
+  const accuracy = summary?.accuracy ?? null;
+  if (filter === "unclozed") return total === 0;
+  if (filter === "unanswered") return total > 0 && answered === 0;
+  if (filter === "mistakes") return answered > 0 && accuracy !== null && accuracy < 100;
+  return total > 0 && answered === total && accuracy === 100;
 }
