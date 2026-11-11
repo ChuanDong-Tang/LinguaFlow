@@ -218,6 +218,8 @@ model Card {
   topic                             String?
   topicEditedAt                     DateTime?
   headline                          String?
+  /// Short life-theme keyword shown by 相关回忆 (topic prompt v4; new cards only).
+  themeKeyword                      String?
   encounterCount                    Int       @default(0)
   lastEncounteredAt                 DateTime?
   favoritedAt                       DateTime?

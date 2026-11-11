@@ -40,6 +40,8 @@ export type CardRecordSummary = {
   title: string | null;
   displayTitle: string;
   topic?: string | null;
+  /** Short theme keyword for 相关回忆 (new cards only). */
+  themeKeyword?: string | null;
   collectionId?: string | null;
   source: "card";
   dateKey: string;

@@ -114,7 +114,7 @@ export interface CardEnrichmentRepository {
   ): Promise<boolean>;
   claimNextTopicJob(workerId: string, leaseExpiresAt: Date): Promise<CardEnrichmentJobEntity | null>;
   loadTopicSource(job: CardEnrichmentJobEntity): Promise<CardTopicSource | null>;
-  completeTopicJob(job: CardEnrichmentJobEntity, topic: string, headline?: string | null): Promise<boolean>;
+  completeTopicJob(job: CardEnrichmentJobEntity, topic: string, headline?: string | null, themeKeyword?: string | null): Promise<boolean>;
   claimNextEmbeddingJob(workerId: string, leaseExpiresAt: Date): Promise<CardEnrichmentJobEntity | null>;
   loadEmbeddingSource(job: CardEnrichmentJobEntity): Promise<CardEmbeddingSource | null>;
   completeEmbeddingJob(job: CardEnrichmentJobEntity, result: EmbeddingResult): Promise<boolean>;

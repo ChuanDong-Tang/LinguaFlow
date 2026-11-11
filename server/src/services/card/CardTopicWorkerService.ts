@@ -81,8 +81,8 @@ export class CardTopicWorkerService {
         usage: tokenUsage,
         provider: this.aiProvider,
       });
-      const { topic, headline } = parseCardTitlesOutput(output, topicMaxChars);
-      const titles = headline ? `${topic}\n${headline}` : topic;
+      const { topic, headline, keyword } = parseCardTitlesOutput(output, topicMaxChars);
+      const titles = [topic, headline, keyword].filter(Boolean).join("\n");
       this.contentSafetyService?.assertAllowed(titles, "output");
       await this.contentSafetyService?.assertAllowedRemote({
         text: titles,
@@ -90,7 +90,7 @@ export class CardTopicWorkerService {
         requestId: `card_topic_${job.id}`,
         userId: source.userId,
       });
-      if (!await this.repository.completeTopicJob(job, topic, headline)) return;
+      if (!await this.repository.completeTopicJob(job, topic, headline, keyword)) return;
       await this.log(job, "success", null, {
         durationMs: Date.now() - startedAt,
         inputChars: source.originalText.length,

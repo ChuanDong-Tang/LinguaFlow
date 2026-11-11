@@ -131,6 +131,8 @@ export interface CardRecordSummaryView {
   title: string | null;
   displayTitle: string;
   topic: string | null;
+  /** Short life-theme keyword shown by 相关回忆 (topic prompt v4). */
+  themeKeyword?: string | null;
   collectionId: string | null;
   source: CardRecordSource;
   dateKey: string;

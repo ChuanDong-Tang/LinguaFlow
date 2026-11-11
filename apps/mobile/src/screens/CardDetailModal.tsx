@@ -3849,18 +3849,27 @@ function Review({ practiceCommand, reviewCommand, onLanguageControlChange, hideP
                 ? <PendingGenerationSection target="expression" />
                 : <FailedGenerationSection target="expression" retrying={retryingGenerationTarget === "expression"} onRetry={onRetryGeneration} />}
           </View> : null}
-          {detail.replyText && replyBlock && displayMode !== "auxiliary" ? <View style={styles.replyBubbleRow}>
-            <OioMascot size={30} idle={false} />
-            <View style={styles.replyBubble}>{renderLearningBlock(replyBlock)}</View>
+          {detail.replyText && replyBlock && displayMode !== "auxiliary" ? <View style={styles.replyBubble}>
+            {/* Avatar on its own row inside the bubble; the reply gets the full width below. */}
+            <OioMascot size={26} idle={false} />
+            {renderLearningBlock(replyBlock)}
           </View> : null}
           {!detail.isSample ? <View style={styles.readingMeta}>
-            <Pressable disabled={!onUpdateMetadata || metadataSaving} accessibilityRole="button" style={({ pressed }) => [styles.readingTag, pressed && styles.metadataPressed]} onPress={() => setCollectionPickerVisible(true)}>
-              <Text numberOfLines={1} style={styles.readingTagText}># {collectionLabel}</Text>
-            </Pressable>
+            <View style={styles.readingTagRow}>
+              <Pressable disabled={!onUpdateMetadata || metadataSaving} accessibilityRole="button" style={({ pressed }) => [styles.readingTag, pressed && styles.metadataPressed]} onPress={() => setCollectionPickerVisible(true)}>
+                <Text numberOfLines={1} style={styles.readingTagText}># {collectionLabel}</Text>
+              </Pressable>
+              {/* No reply yet: tap OIO to get one. */}
+              {!detail.replyText && detail.originalText.trim() ? <Pressable accessibilityRole="button" accessibilityLabel={t(replyFailed ? "common.retry" : "chat.settings.generate_reply")} hitSlop={8} disabled={!onRetryGeneration || replyGenerating || retryingGenerationTarget !== null} style={({ pressed }) => [styles.replyAsk, pressed && styles.metadataPressed]} onPress={() => { haptic.light(); onRetryGeneration?.("reply"); }}>
+                {replyGenerating ? <ActivityIndicator size="small" color={theme.colors.textSecondary} /> : <Text style={styles.replyAskHint}>{t(replyFailed ? "common.retry" : "card_detail.ask_oio_reply")}</Text>}
+                <OioMascot size={28} idle={!replyGenerating} />
+              </Pressable> : null}
+            </View>
             {detail.topic?.trim() ? <Pressable accessibilityRole="button" style={({ pressed }) => [styles.relatedRow, pressed && styles.metadataPressed]} onPress={() => { haptic.light(); setRelatedFeedVisible(true); }}>
               <Icon name="search-outline" size={16} color={theme.colors.textSecondary} />
               <Text style={styles.relatedLabel}>{t("card_detail.related_memories")}</Text>
-              <Text numberOfLines={1} style={styles.relatedKeyword}>{detail.topic.trim()}</Text>
+              {/* A short theme keyword, not the title (old cards have none: label only). */}
+              <Text numberOfLines={1} style={styles.relatedKeyword}>{detail.themeKeyword?.trim() ?? ""}</Text>
               <Icon name="chevron-forward" size={15} color={theme.colors.textMuted} />
             </Pressable> : null}
           </View> : null}
@@ -3871,9 +3880,6 @@ function Review({ practiceCommand, reviewCommand, onLanguageControlChange, hideP
             <View style={styles.readingFooterActions}>
               {primaryText.trim() ? <Pressable accessibilityRole="button" accessibilityLabel={t("card_detail.copy")} hitSlop={6} style={styles.footerIcon} onPress={() => void copySection(primaryText)}>
                 <Icon name="copy-outline" size={19} color={theme.colors.textSecondary} />
-              </Pressable> : null}
-              {!detail.replyText && !detail.isSample && detail.originalText.trim() ? <Pressable accessibilityRole="button" accessibilityLabel={t(replyFailed ? "common.retry" : "chat.settings.generate_reply")} hitSlop={6} disabled={!onRetryGeneration || replyGenerating || retryingGenerationTarget !== null} style={styles.footerIcon} onPress={() => { haptic.light(); onRetryGeneration?.("reply"); }}>
-                {replyGenerating ? <ActivityIndicator size="small" color={theme.colors.textSecondary} /> : <Icon name={replyFailed ? "refresh-outline" : "chatbubble-ellipses-outline"} size={19} color={theme.colors.textSecondary} />}
               </Pressable> : null}
               {!detail.isSample ? <Pressable accessibilityRole="button" accessibilityLabel={t(favorited ? "card_detail.unfavorite" : "card_detail.favorite")} accessibilityState={{ selected: favorited }} hitSlop={6} style={styles.footerIcon} onPress={toggleFavorite}>
                 <Star size={20} color={favorited ? theme.colors.text : theme.colors.textSecondary} weight={favorited ? "fill" : "regular"} />
@@ -5552,8 +5558,18 @@ function Dictation({ detail, contentBinding }: { detail: CardRecordDetail; conte
 function normalizeAnswer(value: string): string {
   return value.normalize("NFKC").toLocaleLowerCase().replace(/[\s\p{P}\p{S}]+/gu, "");
 }
-function formatDate(value: string): string { const [year, month, day] = value.split("-").map(Number); return new Intl.DateTimeFormat(getLanguage(), { year: "numeric", month: "long", day: "numeric" }).format(new Date(year, month - 1, day)); }
-function formatTime(value: string): string { const date = new Date(value); return Number.isNaN(date.getTime()) ? "" : date.toLocaleTimeString(getLanguage(), { hour: "2-digit", minute: "2-digit" }); }
+// Hermes ships without CJK Intl data (dates came out in English); format by hand.
+function formatDate(value: string): string {
+  const [year, month, day] = value.split("-").map(Number);
+  if (!year || !month || !day) return value;
+  const language = getLanguage();
+  if (language.startsWith("zh") || language.startsWith("ja")) return `${year}年${month}月${day}日`;
+  return `${year}.${month}.${day}`;
+}
+function formatTime(value: string): string {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "" : `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+}
 
 const styles = createStyles(() => ({
   draftLinkChip: { marginTop: 10, minHeight: 36, paddingHorizontal: 12, borderRadius: 18, backgroundColor: theme.colors.fill1, flexDirection: "row", alignItems: "center", gap: 8, alignSelf: "flex-start", maxWidth: "100%" },
@@ -5584,11 +5600,13 @@ const styles = createStyles(() => ({
   readingTitle: { flex: 1, color: theme.colors.text, fontSize: 21, lineHeight: 29, fontWeight: "700" },
   flipButton: { width: 34, height: 34, marginTop: -2, borderRadius: 17, backgroundColor: theme.colors.fill2, alignItems: "center", justifyContent: "center" },
   flipButtonOn: { backgroundColor: theme.colors.accent },
-  readingBody: { marginTop: 12 },
-  replyBubbleRow: { marginTop: 22, flexDirection: "row", alignItems: "flex-start", gap: 10 },
-  replyBubble: { flex: 1, padding: 12, borderRadius: 14, borderTopLeftRadius: 4, backgroundColor: theme.colors.fill1 },
+  readingBody: { marginTop: 6 },
+  replyBubble: { marginTop: 22, padding: 12, borderRadius: 14, backgroundColor: theme.colors.fill1, gap: 6 },
   readingMeta: { marginTop: 26, gap: 10 },
-  readingTag: { alignSelf: "flex-start", maxWidth: "100%", paddingVertical: 4 },
+  readingTagRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
+  readingTag: { flexShrink: 1, paddingVertical: 4 },
+  replyAsk: { flexDirection: "row", alignItems: "center", gap: 6 },
+  replyAskHint: { color: theme.colors.textMuted, fontSize: 12 },
   readingTagText: { color: theme.colors.link, fontSize: 14, fontWeight: "500" },
   relatedRow: { minHeight: 44, paddingHorizontal: 12, borderRadius: 10, backgroundColor: theme.colors.fill1, flexDirection: "row", alignItems: "center", gap: 8 },
   relatedLabel: { color: theme.colors.textSecondary, fontSize: 13 },

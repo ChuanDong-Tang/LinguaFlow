@@ -2925,6 +2925,7 @@ export function toSummary(entry: CardEntryEntity, topicMaxChars = CARD_TOPIC_MAX
     title: entry.title,
     displayTitle: effectiveCardTitle(entry, topicMaxChars),
     topic: entry.topic,
+    themeKeyword: entry.themeKeyword ?? null,
     collectionId: entry.collectionId,
     source: "card",
     dateKey: entry.dateKey,

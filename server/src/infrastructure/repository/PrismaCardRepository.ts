@@ -2744,6 +2744,7 @@ function toEntry(row: any): CardEntryEntity {
     topic: row.topic ?? null,
     topicEditedAt: row.topicEditedAt ?? null,
     headline: row.headline ?? null,
+    themeKeyword: row.themeKeyword ?? null,
     encounterCount: typeof row.encounterCount === "number" ? row.encounterCount : 0,
     lastEncounteredAt: row.lastEncounteredAt ?? null,
     favoritedAt: row.favoritedAt ?? null,
