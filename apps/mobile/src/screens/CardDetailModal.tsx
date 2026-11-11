@@ -8,6 +8,7 @@ import React, { useCallback, useContext, useEffect, useLayoutEffect, useMemo, us
 import { ClozeToneContext } from "./cardDetail/clozeToneContext";
 import { pickBlindBoxSentence } from "../domain/blindBox/pickSentence";
 import { ClozeSummarySheet } from "../components/ClozeSummarySheet";
+import { FolderQuickMenu } from "../components/FolderQuickMenu";
 import { ActivityIndicator, Alert, Animated, Easing, FlatList, Image, Keyboard, Modal, PanResponder, Platform, Pressable, ScrollView, StyleSheet, useWindowDimensions, View, Linking } from "react-native";
 import { Text, TextInput } from "../components/Typography";
 import { useFontSize } from "../services/preferences/fontSizePreference";
@@ -1329,7 +1330,8 @@ function DraftCard({ draft, sending, imageAdding, safeArea, limits, collections,
             {Platform.OS === "ios" && photoRailVisible ? <RecentPhotoLayer assets={recentPhotos} loading={photosLoading} maxSelection={Math.min(8, Math.max(0, limits.imagesPerCard - draft.images.length))} onDismiss={() => setPhotoRailVisible(false)} onSelect={(assets) => void selectRecentPhotos(assets)} onTakePhoto={() => { setPhotoRailVisible(false); onTakePhoto?.(); }} onOpenAll={() => { setPhotoRailVisible(false); onChooseImage?.(); }} /> : null}
             </>
             {linkInputOpen ? <LinkInputModal onClose={() => setLinkInputOpen(false)} onSubmit={async (raw) => { if (await attachLink(raw)) setLinkInputOpen(false); }} /> : null}
-            <CollectionPickerModal visible={collectionPickerOpen} title={t("card_detail.choose_collection")} collections={collections} value={draft.collectionId} onClose={() => setCollectionPickerOpen(false)} onSelect={(collectionId) => onCollectionChange?.(collectionId ?? null)} onCreateCollection={onCreateCollection} onRenameCollection={onRenameCollection} onDeleteCollection={onDeleteCollection} />
+            {/* # opens a light menu above the toolbar (new folder first), not the full 选择生活集 page. */}
+            <FolderQuickMenu visible={collectionPickerOpen} collections={collections} value={draft.collectionId} bottomOffset={Math.max(safeArea?.bottom ?? 0, 10) + 60} onClose={() => setCollectionPickerOpen(false)} onSelect={(collectionId) => onCollectionChange?.(collectionId)} onCreateCollection={onCreateCollection} />
             <DraftComposerToolbar
               collectionLabel={draftCollection ? draftCollection.name : null}
               hasLink={Boolean(draft.link)}

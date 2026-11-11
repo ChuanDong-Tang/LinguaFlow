@@ -18,7 +18,9 @@ import { getLanguage, t } from "../../i18n";
 import { theme } from "../../theme";
 import { createStyles } from "../../styles";
 import { canReadMemoryPhoto, readMemoryPhotoPage, requestMemoryPhotoPermission } from "../../services/device/memoryPhotoLibrary";
-import { getLinkedPhotoCards } from "../../services/api/cardApi";
+import { getLinkedPhotoCards, type CardCollection } from "../../services/api/cardApi";
+import { loadPhotoFlowPosition, savePhotoFlowPosition } from "../../services/device/photoFlowPosition";
+import { FolderQuickMenu } from "../../components/FolderQuickMenu";
 import { createMemoryPhotoPager, type PhotoPagerState } from "../../services/device/memoryPhotoPager";
 import { isRecentPhoto, nextPhotoSet, photoBatch, photoTakenTime, relativePhotoDay } from "../../services/device/memoryPhotoPolicy";
 import { memoryPhotoCopy } from "./memoryPhotoCopy";
@@ -33,15 +35,19 @@ const SET_SIZES = [5, 15, 30] as const;
  * about; after the set, optionally practice the memories you just made.
  * Photos are uploaded only when the user taps 改写 for that photo.
  */
-export function MemoryPhotoBrowser({ random = false, hidden = false, onClose, onConfirm, onPracticeSet, onOpenCard, maxTextLength }: {
+export function MemoryPhotoBrowser({ random = false, hidden = false, onClose, onConfirm, onPracticeSet, onOpenCard, maxTextLength, collections = [], defaultCollectionId = null, onCreateCollection }: {
   random?: boolean;
+  /** Folders for the composer's # menu. */
+  collections?: CardCollection[];
+  defaultCollectionId?: string | null;
+  onCreateCollection?: (name: string, parentId: string | null) => Promise<CardCollection>;
   /** Kept mounted (position and state intact) while a linked card is open on top. */
   hidden?: boolean;
   onClose: () => void;
   /** Open the card a photo already became, instead of making a second one. */
   onOpenCard: (recordId: string) => void;
   /** Create a memory from this photo; resolves with the new card id, null on failure, "refused" when the upload allowance is used up. */
-  onConfirm: (asset: Asset, text: string, title: string) => Promise<string | null | "refused">;
+  onConfirm: (asset: Asset, text: string, title: string, collectionId: string | null) => Promise<string | null | "refused">;
   onPracticeSet: (recordIds: string[]) => void;
   maxTextLength: number;
 }) {
@@ -66,6 +72,11 @@ export function MemoryPhotoBrowser({ random = false, hidden = false, onClose, on
     }).catch(() => { ids.forEach((id) => checkedAssets.current.delete(id)); });
   }, []);
   const [composerOpen, setComposerOpen] = useState(false);
+  const [folderId, setFolderId] = useState<string | null>(defaultCollectionId);
+  // The composer covers from 34% of the page down; the shrunk photo must fit above it.
+  const [stageTop, setStageTop] = useState(60);
+  const [pageHeight, setPageHeight] = useState(height);
+  const composerTop = Math.max(120, pageHeight * 0.34 - stageTop);
   const [dayPickerFor, setDayPickerFor] = useState<Asset | null>(null);
   const [permissionBusy, setPermissionBusy] = useState(false);
   const listRef = useRef<FlatList<Asset | "end">>(null);
@@ -85,19 +96,53 @@ export function MemoryPhotoBrowser({ random = false, hidden = false, onClose, on
   // 近期: keep loading (bounded) until the three-day window is covered.
   const recentLoads = useRef(0);
   useEffect(() => {
-    if (random || state.loading || !state.hasNextPage || recentLoads.current >= 4) return;
+    if (random || state.loading || !state.hasNextPage || recentLoads.current >= 12) return;
     const last = state.assets[state.assets.length - 1];
-    if (last && isRecentPhoto(last, now) && state.assets.filter((asset) => isRecentPhoto(asset, now)).length < count) {
+    // 近期 has no set size: load until the three-day window is covered.
+    if (last && isRecentPhoto(last, now)) {
       recentLoads.current += 1;
       void pagerRef.current?.loadMore();
     }
   }, [count, now, random, state.assets, state.hasNextPage, state.loading]);
 
   const pool = useMemo(() => random ? state.assets : state.assets.filter((asset) => isRecentPhoto(asset, now)), [now, random, state.assets]);
+  // Resume where the user left off (近期: that photo; 盲盒: that set and position).
+  const [restored, setRestored] = useState<Awaited<ReturnType<typeof loadPhotoFlowPosition>> | undefined>(undefined);
+  const [startIndex, setStartIndex] = useState(0);
+  useEffect(() => { void loadPhotoFlowPosition(random ? "random" : "recent").then((value) => { if (alive.current) setRestored(value); }); }, [random]);
   useEffect(() => {
-    if (state.access !== "all" && state.access !== "limited") return;
-    setDeck((current) => current.length ? current : random ? photoBatch(pool, count) : pool.slice(0, count));
-  }, [count, pool, random, state.access]);
+    if (state.access !== "all" && state.access !== "limited" || restored === undefined) return;
+    if (!random) {
+      // 近期 shows every photo of the last three days, no set size.
+      setDeck(pool);
+      return;
+    }
+    setDeck((current) => {
+      if (current.length) return current;
+      if (restored?.mode === "random") {
+        const position = Math.min(restored.index, restored.deck.length);
+        setStartIndex(position);
+        setIndex(position);
+        return restored.deck;
+      }
+      return photoBatch(pool, count);
+    });
+  }, [count, pool, random, restored, state.access]);
+  const recentResumed = useRef(false);
+  useEffect(() => {
+    if (random || recentResumed.current || restored === undefined || !deck.length) return;
+    recentResumed.current = true;
+    const position = restored?.mode === "recent" ? deck.findIndex((asset) => asset.id === restored.assetId) : -1;
+    if (position > 0) {
+      setIndex(position);
+      requestAnimationFrame(() => listRef.current?.scrollToIndex({ index: position, animated: false }));
+    }
+  }, [deck, random, restored]);
+  useEffect(() => {
+    if (!deck.length || restored === undefined) return;
+    if (random) savePhotoFlowPosition({ mode: "random", deck, index: Math.min(index, deck.length) });
+    else if (deck[index]) savePhotoFlowPosition({ mode: "recent", assetId: deck[index]!.id });
+  }, [deck, index, random, restored]);
 
   function deal(nextCount = count) {
     haptic.select();
@@ -150,8 +195,20 @@ export function MemoryPhotoBrowser({ random = false, hidden = false, onClose, on
     const first = viewableItems[0];
     if (first?.index !== null && first?.index !== undefined) setIndex(first.index);
   }).current;
+  // Leaving with memories made this round lands on the set summary first
+  // (现在挖空吗?), like finishing the set; from there back closes.
+  const leave = () => {
+    const made = deck.some((asset) => generated[asset.id]);
+    if (made && index < deck.length) {
+      haptic.light();
+      setIndex(deck.length);
+      listRef.current?.scrollToIndex({ index: deck.length, animated: true });
+      return;
+    }
+    onClose();
+  };
   // Inside a Modal, Android back goes to onRequestClose: close inner layers first.
-  const handleBack = () => { if (dayPickerFor) setDayPickerFor(null); else if (composerOpen) setComposerOpen(false); else onClose(); };
+  const handleBack = () => { if (dayPickerFor) setDayPickerFor(null); else if (composerOpen) setComposerOpen(false); else leave(); };
 
   // Swipe up on a photo → write about it. Gesture-handler pan runs alongside
   // the horizontal pager (Android's native pager eats JS responders).
@@ -175,13 +232,13 @@ export function MemoryPhotoBrowser({ random = false, hidden = false, onClose, on
   return <Modal visible={!hidden} animationType="slide" onRequestClose={handleBack}>
     <GestureHandlerRootView style={{ flex: 1 }}>
     <SafeAreaProvider>
-      <SafeAreaView style={styles.page} edges={["top", "bottom"]}>
+      <SafeAreaView style={styles.page} edges={["top", "bottom"]} onLayout={(event) => setPageHeight(event.nativeEvent.layout.height)}>
         <View style={styles.header}>
-          <Pressable accessibilityRole="button" accessibilityLabel={t("common.cancel")} hitSlop={8} style={styles.headerButton} onPress={onClose}><Icon name="chevron-back" size={24} /></Pressable>
+          <Pressable accessibilityRole="button" accessibilityLabel={t("common.cancel")} hitSlop={8} style={styles.headerButton} onPress={leave}><Icon name="chevron-back" size={24} /></Pressable>
           <View style={styles.progress}>{deck.map((asset, slot) => <View key={asset.id} style={[styles.progressSegment, slot <= index && styles.progressSegmentOn, generated[asset.id] ? styles.progressSegmentDone : null]} />)}</View>
-          <Pressable accessibilityRole="button" accessibilityLabel={copy("每组数量", "Photos per set")} hitSlop={8} style={styles.countChip} onPress={() => deal(SET_SIZES[(SET_SIZES.indexOf(count as typeof SET_SIZES[number]) + 1) % SET_SIZES.length])}>
+          {random ? <Pressable accessibilityRole="button" accessibilityLabel={copy("每组数量", "Photos per set")} hitSlop={8} style={styles.countChip} onPress={() => deal(SET_SIZES[(SET_SIZES.indexOf(count as typeof SET_SIZES[number]) + 1) % SET_SIZES.length])}>
             <Text style={styles.countText}>{count}</Text><Icon name="chevron-down" size={13} />
-          </Pressable>
+          </Pressable> : <Text style={styles.countText}>{Math.min(index + 1, deck.length)}/{deck.length}</Text>}
         </View>
         {denied ? <View style={styles.center}>
           <Text style={styles.title}>{copy("从照片里，找回生活", "Find a moment in your photos")}</Text>
@@ -189,7 +246,7 @@ export function MemoryPhotoBrowser({ random = false, hidden = false, onClose, on
           {!state.loading ? <View><PressableSurface radius={22} fill={theme.colors.accent} style={styles.primary} contentStyle={styles.primaryInner} onPress={() => void permissionAction(false)}><Text style={styles.primaryText}>{copy(state.canAskAgain ? "选择可访问的照片" : "前往设置", state.canAskAgain ? "Allow photo access" : "Open settings")}</Text></PressableSurface></View> : null}
         </View> : !deck.length ? <View style={styles.center}>
           {state.loading ? <ActivityIndicator color={theme.colors.textSecondary} /> : <Text style={styles.explanation}>{random ? copy("这里还没有可浏览的照片", "No accessible photos here yet") : copy("最近三天还没有照片", "No photos from the last three days")}</Text>}
-        </View> : <GestureDetector gesture={swipeUp}><View style={styles.stage}>
+        </View> : <GestureDetector gesture={swipeUp}><View style={styles.stage} onLayout={(event) => setStageTop(event.nativeEvent.layout.y)}>
           <FlatList
             key={round}
             ref={listRef}
@@ -202,10 +259,11 @@ export function MemoryPhotoBrowser({ random = false, hidden = false, onClose, on
             onViewableItemsChanged={onViewable}
             viewabilityConfig={{ itemVisiblePercentThreshold: 60 }}
             getItemLayout={(_data, slot) => ({ length: width, offset: width * slot, index: slot })}
+            initialScrollIndex={startIndex > 0 && startIndex <= deck.length ? startIndex : undefined}
             renderItem={({ item, index: slot }) => item === "end"
               ? <SetEnd width={width} generatedIds={generatedIds} generatedAssets={deck.filter((asset) => generated[asset.id])} onPractice={() => onPracticeSet(generatedIds)} onNext={() => void nextSet()} />
               : <Reanimated.View entering={slot === 0 ? ZoomIn.springify().damping(14).stiffness(140) : undefined} style={[styles.photoPage, { width }]}>
-                <PhotoStage asset={item} shrink={composerOpen && slot === index} maxHeight={height} framed={Boolean(cardFor(item))} />
+                <PhotoStage asset={item} shrink={composerOpen && slot === index} shrinkHeight={composerTop - 12} framed={Boolean(cardFor(item))} />
                 {generated[item.id] ? <Reanimated.View entering={ZoomIn.duration(motion.duration.enter)} style={styles.generatedBadge}><CheckMark size={16} /><Text style={styles.generatedText}>{copy("已生成", "Saved")}</Text></Reanimated.View>
                   : linked[item.id] ? <Reanimated.View entering={FadeIn.duration(motion.duration.enter)} style={styles.generatedBadge}>
                     <Pressable accessibilityRole="button" accessibilityLabel={copy("已有卡片，查看", "Has a card · open")} hitSlop={8} style={styles.linkedBadgeInner} onPress={() => openLinked(linked[item.id]!)}>
@@ -229,9 +287,13 @@ export function MemoryPhotoBrowser({ random = false, hidden = false, onClose, on
         {composerOpen && current && !linked[current.id] ? <PhotoComposer
           asset={current}
           maxLength={maxTextLength}
+          collections={collections}
+          collectionId={folderId}
+          onCollectionChange={setFolderId}
+          onCreateCollection={onCreateCollection}
           onClose={() => setComposerOpen(false)}
           onSubmit={async (text, title) => {
-            const recordId = await onConfirm(current, text, title);
+            const recordId = await onConfirm(current, text, title, folderId);
             // Refused on quota: the recharge / refresh dialog explains it; keep the words, no error line.
             if (recordId === "refused") return "refused";
             if (!recordId || !alive.current) return false;
@@ -267,24 +329,38 @@ function formatPhotoDate(date: Date): string {
 }
 
 /** The photo fills the stage; when writing it shrinks to the top third. */
-function PhotoStage({ asset, shrink, maxHeight, framed = false }: { asset: Asset; shrink: boolean; maxHeight: number; framed?: boolean }) {
+function PhotoStage({ asset, shrink, shrinkHeight, framed = false }: { asset: Asset; shrink: boolean; shrinkHeight: number; framed?: boolean }) {
   const scale = useSharedValue(1);
-  const [box, setBox] = useState<{ width: number; height: number } | null>(null);
-  useEffect(() => { scale.value = shrink ? withSpring(0.36, motion.spring.land) : withSpring(1, motion.spring.land); }, [scale, shrink]);
-  const style = useAnimatedStyle(() => ({ transform: [{ translateY: (1 - scale.value) * -maxHeight * 0.34 }, { scale: scale.value }] }));
+  const lift = useSharedValue(0);
+  const [box, setBox] = useState<{ width: number; height: number; y: number } | null>(null);
+  useEffect(() => {
+    // Shrink the whole letterboxed photo so it sits fully above the composer.
+    const fittedHeight = box && asset.width > 0 && asset.height > 0
+      ? Math.min(box.height, box.width * asset.height / asset.width) : box?.height ?? 0;
+    const target = box && fittedHeight > 0 ? Math.max(0.2, Math.min(1, (shrinkHeight - box.y) / fittedHeight)) : 0.36;
+    // Scaling keeps the center; move it so the photo's top lands at the frame top.
+    const offset = box ? -((box.height * (1 - target)) / 2) - ((box.height - fittedHeight) / 2) * target : 0;
+    scale.value = withSpring(shrink ? target : 1, motion.spring.land);
+    lift.value = withSpring(shrink ? offset : 0, motion.spring.land);
+  }, [asset.height, asset.width, box, lift, scale, shrink, shrinkHeight]);
+  const style = useAnimatedStyle(() => ({ transform: [{ translateY: lift.value }, { scale: scale.value }] }));
   // The photo is letterboxed (contain); draw the "has a card" frame around the photo itself.
   const fitted = box && asset.width > 0 && asset.height > 0
     ? (() => { const ratio = Math.min(box.width / asset.width, box.height / asset.height); return { width: asset.width * ratio, height: asset.height * ratio }; })()
     : null;
-  return <Reanimated.View style={[styles.photoFrame, style]} onLayout={(event) => { const { width, height } = event.nativeEvent.layout; setBox({ width, height }); }}>
+  return <Reanimated.View style={[styles.photoFrame, style]} onLayout={(event) => { const { width, height, y } = event.nativeEvent.layout; setBox({ width, height, y }); }}>
     <MemoryPhotoPreview asset={asset} style={styles.photo} />
     {framed && fitted ? <View pointerEvents="none" style={[styles.linkedFrame, { width: fitted.width + 6, height: fitted.height + 6, left: (box!.width - fitted.width) / 2 - 3, top: (box!.height - fitted.height) / 2 - 3 }]} /> : null}
   </Reanimated.View>;
 }
 
-function PhotoComposer({ asset, maxLength, onClose, onSubmit }: {
+function PhotoComposer({ asset, maxLength, collections, collectionId, onCollectionChange, onCreateCollection, onClose, onSubmit }: {
   asset: Asset;
   maxLength: number;
+  collections: CardCollection[];
+  collectionId: string | null;
+  onCollectionChange: (collectionId: string | null) => void;
+  onCreateCollection?: (name: string, parentId: string | null) => Promise<CardCollection>;
   onClose: () => void;
   onSubmit: (text: string, title: string) => Promise<boolean | "refused">;
 }) {
@@ -293,6 +369,8 @@ function PhotoComposer({ asset, maxLength, onClose, onSubmit }: {
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
+  const [folderMenuOpen, setFolderMenuOpen] = useState(false);
+  const folder = collections.find((collection) => collection.id === collectionId);
   const input = useRef<TextInput>(null);
   const speech = useRealtimeSttInput({ value: text, onChangeText: (value) => setText(value.slice(0, maxLength)), disabled: busy, languageCode: getLanguage(), postRefinement: true });
   const translate = useSharedValue(40);
@@ -318,6 +396,10 @@ function PhotoComposer({ asset, maxLength, onClose, onSubmit }: {
       {failed ? <Text style={styles.composerError}>{t("photo_flow.create_failed")}</Text> : null}
       <View style={styles.composerToolbar}>
         <RealtimeSttButton status={speech.status} audioLevel={speech.audioLevel} disabled={busy} onPress={() => { Keyboard.dismiss(); input.current?.blur(); void speech.toggle(); }} />
+        {/* Folder for this memory (same light menu as the full editor). */}
+        <Pressable accessibilityRole="button" accessibilityLabel={t("card_detail.a11y.choose_collection")} disabled={busy} hitSlop={6} style={({ pressed }) => [styles.folderTag, folder && styles.folderTagOn, pressed && { opacity: 0.7 }]} onPress={() => { haptic.light(); setFolderMenuOpen(true); }}>
+          <Text numberOfLines={1} style={[styles.folderTagText, folder && styles.folderTagTextOn]}>#{folder ? ` ${folder.name}` : ""}</Text>
+        </Pressable>
         <View style={{ flex: 1 }} />
         <Text style={styles.composerCount}>{text.length}/{maxLength}</Text>
         <PressableSurface radius={20} fill={ready ? theme.colors.accent : theme.colors.surface} disabled={!ready} feedback="medium" contentStyle={styles.composerSubmit} onPress={() => void submit()}>
@@ -325,6 +407,7 @@ function PhotoComposer({ asset, maxLength, onClose, onSubmit }: {
         </PressableSurface>
       </View>
     </Reanimated.View>
+    <FolderQuickMenu visible={folderMenuOpen} collections={collections} value={collectionId} bottomOffset={Math.max(insets.bottom, 12) + 64} onClose={() => setFolderMenuOpen(false)} onSelect={onCollectionChange} onCreateCollection={onCreateCollection} />
   </KeyboardAvoidingView>;
 }
 
@@ -428,6 +511,10 @@ const styles = createStyles(() => ({
   composerInput: { flex: 1, minHeight: 90, color: theme.colors.text, fontSize: 17, lineHeight: 26 },
   composerError: { color: theme.colors.danger, fontSize: 13 },
   composerToolbar: { minHeight: 52, flexDirection: "row", alignItems: "center", gap: 10 },
+  folderTag: { maxWidth: 140, minHeight: 34, paddingHorizontal: 12, borderRadius: 17, backgroundColor: theme.colors.fill2, justifyContent: "center" },
+  folderTagOn: { backgroundColor: theme.colors.accentSoft },
+  folderTagText: { color: theme.colors.textSecondary, fontSize: 15, fontWeight: "700" },
+  folderTagTextOn: { color: theme.colors.accent, fontSize: 13 },
   composerCount: { color: theme.colors.textMuted, fontSize: 12, fontVariant: ["tabular-nums"] },
   composerSubmit: { minHeight: 42, minWidth: 92, paddingHorizontal: 18, alignItems: "center", justifyContent: "center" },
   composerSubmitText: { color: theme.colors.textMuted, fontSize: 15, fontWeight: "700" },

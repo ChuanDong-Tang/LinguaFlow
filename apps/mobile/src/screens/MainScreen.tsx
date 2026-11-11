@@ -1246,7 +1246,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
    * browser. Resolves with the new card id once it exists (generation keeps
    * running in the background), or null when it could not be created.
    */
-  async function confirmMemoryPhoto(asset: MediaLibrary.Asset, text: string, title = ""): Promise<string | null | "refused"> {
+  async function confirmMemoryPhoto(asset: MediaLibrary.Asset, text: string, title = "", collectionId?: string | null): Promise<string | null | "refused"> {
     if (photoConfirmLock.current) return null;
     const current = draftRef.current;
     const revision = draftRevisionRef.current;
@@ -1270,7 +1270,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
         removePersistentDraftImage(prepared.localUri);
         return "refused";
       }
-      await commitDraft({ ...EMPTY_DRAFT, collectionId: current.collectionId, title, text, generateImageDescription: true, images: [prepared] });
+      await commitDraft({ ...EMPTY_DRAFT, collectionId: collectionId === undefined ? current.collectionId : collectionId, title, text, generateImageDescription: true, images: [prepared] });
       try {
         const ready = await uploadCardDraftImage(prepared, persistDraftImage);
         await updateCommittedDraft((value) => ({ ...value, images: [ready] }));
@@ -1902,7 +1902,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
         />
       </AnimatedSearchOverlay>
 
-      {photoBrowser ? <MemoryPhotoBrowser random={photoBrowser === "random"} hidden={photoBrowserHidden} maxTextLength={cardLimits.contentChars} onClose={() => setPhotoBrowser(null)} onConfirm={confirmMemoryPhoto} onOpenCard={(recordId) => {
+      {photoBrowser ? <MemoryPhotoBrowser random={photoBrowser === "random"} hidden={photoBrowserHidden} maxTextLength={cardLimits.contentChars} collections={collections} defaultCollectionId={draft.collectionId} onCreateCollection={async (name, parentId) => { const created = await createCardCollection(name, parentId); setCollections((value) => [...value, created]); return created; }} onClose={() => setPhotoBrowser(null)} onConfirm={confirmMemoryPhoto} onOpenCard={(recordId) => {
         // Step out of the photo flow to the card, then come back to the same photo.
         setPhotoBrowserHidden(true);
         onOpenCard(recordId, "review", undefined, { onBrowseClosed: () => setPhotoBrowserHidden(false) });
