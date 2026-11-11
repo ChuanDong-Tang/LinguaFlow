@@ -391,7 +391,7 @@ class ChatSelectableTextView(context: Context) : AppCompatTextView(context) {
     parseRanges(highlightRangesJson).forEach { range ->
       val isCorrect = correctRanges.any { correct -> correct.start == range.start && correct.end == range.end }
       // Black-and-white style: the text color at low opacity (works in dark mode).
-      backgroundPaint.color = withAlpha(currentTextColor, if (isCorrect) 0.18f else 0.10f)
+      backgroundPaint.color = range.color?.let { parseRgba(it) } ?: withAlpha(currentTextColor, if (isCorrect) 0.18f else 0.10f)
       drawRangeLines(textLayout, textLength, range) { left, top, right, bottom ->
         canvas.drawRect(left, top, right, bottom, backgroundPaint)
       }
@@ -438,7 +438,7 @@ class ChatSelectableTextView(context: Context) : AppCompatTextView(context) {
     val clipLeft = minOf(left, right)
     val clipRight = maxOf(left, right)
     if (clipRight <= clipLeft) return
-    answerPaint.color = if (range.incorrect) withAlpha(currentTextColor, 0.45f) else currentTextColor
+    answerPaint.color = range.color?.let { parseRgba(it) } ?: if (range.incorrect) withAlpha(currentTextColor, 0.45f) else currentTextColor
     val checkpoint = canvas.save()
     canvas.clipRect(clipLeft, textLayout.getLineTop(line).toFloat(), clipRight, textLayout.getLineBottom(line).toFloat())
     canvas.drawText(range.text, left, extendedPaddingTop - scrollY + textLayout.getLineBaseline(line).toFloat(), answerPaint)
@@ -847,7 +847,7 @@ class ChatSelectableTextView(context: Context) : AppCompatTextView(context) {
         val start = item.optInt("start", 0)
         val end = item.optInt("end", start)
         val groupIndex = item.optInt("groupIndex", index)
-        if (start < end) Range(start, end, groupIndex) else null
+        if (start < end) Range(start, end, groupIndex, item.optString("color", "").ifEmpty { null }) else null
       }
     } catch (_: Exception) {
       emptyList()
@@ -862,7 +862,7 @@ class ChatSelectableTextView(context: Context) : AppCompatTextView(context) {
         val start = item.optInt("start", 0)
         val end = item.optInt("end", start)
         val answer = item.optString("text", "")
-        if (start < end && answer.isNotEmpty()) AnswerRange(start, end, answer, item.optBoolean("incorrect", false)) else null
+        if (start < end && answer.isNotEmpty()) AnswerRange(start, end, answer, item.optBoolean("incorrect", false), item.optString("color", "").ifEmpty { null }) else null
       }
     } catch (_: Exception) {
       emptyList()
@@ -880,6 +880,21 @@ class ChatSelectableTextView(context: Context) : AppCompatTextView(context) {
     }
   }
 
-  private data class Range(val start: Int, val end: Int, val groupIndex: Int)
-  private data class AnswerRange(val start: Int, val end: Int, val text: String, val incorrect: Boolean)
+  /** "#RRGGBB" or "#RRGGBBAA" (same order as iOS); null when malformed. */
+  private fun parseRgba(value: String): Int? {
+    val hex = value.removePrefix("#")
+    return try {
+      when (hex.length) {
+        6 -> Color.parseColor("#$hex")
+        8 -> Color.parseColor("#${hex.substring(6)}${hex.substring(0, 6)}")
+        else -> null
+      }
+    } catch (_: Exception) {
+      null
+    }
+  }
+
+  // color: optional per-range tone (green / yellow cloze results).
+  private data class Range(val start: Int, val end: Int, val groupIndex: Int, val color: String? = null)
+  private data class AnswerRange(val start: Int, val end: Int, val text: String, val incorrect: Boolean, val color: String? = null)
 }

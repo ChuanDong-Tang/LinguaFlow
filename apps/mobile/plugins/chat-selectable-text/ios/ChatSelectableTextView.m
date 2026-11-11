@@ -399,7 +399,7 @@
         break;
       }
     }
-    UIColor *rangeHighlightColor = isCorrect ? correctHighlightColor : highlightColor;
+    UIColor *rangeHighlightColor = [self colorFromString:range[@"color"] fallback:(isCorrect ? correctHighlightColor : highlightColor)];
     NSRange glyphRange = [layoutManager glyphRangeForCharacterRange:characterRange actualCharacterRange:nil];
     [layoutManager enumerateLineFragmentsForGlyphRange:glyphRange
                                              usingBlock:^(CGRect lineFragmentRect, CGRect usedRect, NSTextContainer *lineTextContainer, NSRange lineGlyphRange, BOOL *stop) {
@@ -501,9 +501,9 @@
     rect.origin.x += textView.textContainerInset.left;
     rect.origin.y += textView.textContainerInset.top;
     if (!CGRectIntersectsRect(rect, dirtyRect)) continue;
-    UIColor *color = [item[@"incorrect"] boolValue]
+    UIColor *color = [self colorFromString:item[@"color"] fallback:([item[@"incorrect"] boolValue]
       ? [self.currentTextColor colorWithAlphaComponent:0.45]
-      : self.currentTextColor;
+      : self.currentTextColor)];
     NSMutableDictionary *attributes = [baseAttributes mutableCopy];
     attributes[NSForegroundColorAttributeName] = color;
     CGContextRef context = UIGraphicsGetCurrentContext();
@@ -855,7 +855,10 @@
     NSInteger end = [item[@"end"] integerValue];
     NSInteger groupIndex = item[@"groupIndex"] ? [item[@"groupIndex"] integerValue] : index;
     if (start < end) {
-      [ranges addObject:@{ @"start": @(start), @"end": @(end), @"groupIndex": @(groupIndex) }];
+      NSMutableDictionary *range = [@{ @"start": @(start), @"end": @(end), @"groupIndex": @(groupIndex) } mutableCopy];
+      // Optional per-range tone color (#RRGGBB or #RRGGBBAA), e.g. green / yellow cloze results.
+      if ([item[@"color"] isKindOfClass:NSString.class]) range[@"color"] = item[@"color"];
+      [ranges addObject:range];
     }
     index += 1;
   }
@@ -878,10 +881,16 @@
 {
   if (![value isKindOfClass:NSString.class] || ![value hasPrefix:@"#"]) return fallback;
   NSString *hex = [value substringFromIndex:1];
-  if (hex.length != 6) return fallback;
+  if (hex.length != 6 && hex.length != 8) return fallback;
   unsigned int rgb = 0;
   NSScanner *scanner = [NSScanner scannerWithString:hex];
   if (![scanner scanHexInt:&rgb]) return fallback;
+  if (hex.length == 8) {
+    return [UIColor colorWithRed:((rgb >> 24) & 0xFF) / 255.0
+                           green:((rgb >> 16) & 0xFF) / 255.0
+                            blue:((rgb >> 8) & 0xFF) / 255.0
+                           alpha:(rgb & 0xFF) / 255.0];
+  }
   return [UIColor colorWithRed:((rgb >> 16) & 0xFF) / 255.0
                          green:((rgb >> 8) & 0xFF) / 255.0
                           blue:(rgb & 0xFF) / 255.0

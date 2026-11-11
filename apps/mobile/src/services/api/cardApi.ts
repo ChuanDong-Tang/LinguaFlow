@@ -64,6 +64,10 @@ export type CardPracticeSummary = {
   status?: CardLearningStatus;
   encounterCount?: number;
   favorited?: boolean;
+  totalBlanks?: number;
+  answeredBlanks?: number;
+  /** 0–100 over answered blanks; null before any answer. */
+  accuracy?: number | null;
 };
 
 export type CardRecordDetail = CardRecordSummary & {
@@ -215,6 +219,10 @@ export type CardClozeBlank = {
   endUtf16: number;
   answer: string;
   mastered?: boolean;
+  /** Latest answer to this blank: green (correct) / yellow (incorrect) next time. */
+  lastResult?: "correct" | "incorrect";
+  attempts?: number;
+  correctCount?: number;
 };
 
 export type CardClozeState = { schemaVersion: 1; blanks: CardClozeBlank[] };
@@ -782,6 +790,7 @@ export async function saveCardClozeUpdate(
       | { type: "remove"; blankId: string }
       | { type: "master"; blankId: string }
       | { type: "memory_result"; blankIds: string[] }
+      | { type: "attempt"; blankId: string; correct: boolean }
       | { type: "result" };
     result?: "correct" | "incorrect" | "revealed";
   },

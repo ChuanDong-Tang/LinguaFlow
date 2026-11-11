@@ -1,4 +1,5 @@
 import { deriveCardLearningStatus } from "@lf/core/text/cardLearningStatus.js";
+import { clozeProgress, recordClozeAttempt } from "@lf/core/text/clozeProgress.js";
 import { parseVideoUrl } from "@lf/core/text/videoLink.js";
 import { TUTORIAL_CLIENT_ID, tutorialPractice } from "./cardTutorial.js";
 import { countGraphemes, isUtf16GraphemeBoundary, truncateGraphemes } from "@lf/core/text/grapheme.js";
@@ -2114,6 +2115,8 @@ export class CardService {
       } else if (input.operation.type === "remove") {
         const blankId = input.operation.blankId;
         state.blanks = state.blanks.filter((blank) => blank.id !== blankId);
+      } else if (input.operation.type === "attempt") {
+        recordClozeAttempt(state.blanks, input.operation.blankId, input.operation.correct);
       } else if (input.operation.type === "add") {
         throw new CardValidationError("Use the preset tutorial blank");
       }
@@ -2178,6 +2181,8 @@ export class CardService {
       blank.mastered = true;
     } else if (operation.type === "memory_result") {
       markMemoryResultBlanks(state, operation.blankIds);
+    } else if (operation.type === "attempt") {
+      if (!recordClozeAttempt(state.blanks, operation.blankId, operation.correct)) throw new CardValidationError("Cloze blank does not exist");
     }
     const practicedAt = input.result ? new Date() : null;
     const correctStreak = input.result === "correct" ? (current?.clozeCorrectStreak ?? 0) + 1 : 0;
@@ -2258,6 +2263,8 @@ export class CardService {
       blank.mastered = true;
     } else if (operation.type === "memory_result") {
       markMemoryResultBlanks(state, operation.blankIds);
+    } else if (operation.type === "attempt") {
+      if (!recordClozeAttempt(state.blanks, operation.blankId, operation.correct)) throw new CardValidationError("Cloze blank does not exist");
     }
     const practicedAt = input.result ? new Date() : null;
     const correctStreak = input.result === "correct" ? (current?.clozeCorrectStreak ?? 0) + 1 : 0;
@@ -2751,6 +2758,7 @@ function isClozeOperation(value: unknown): value is UpdateCardClozeInput["operat
   if (value.type === "result") return true;
   if (value.type === "master") return "blankId" in value && typeof value.blankId === "string" && Boolean(value.blankId.trim());
   if (value.type === "remove") return "blankId" in value && typeof value.blankId === "string" && Boolean(value.blankId.trim());
+  if (value.type === "attempt") return "blankId" in value && typeof value.blankId === "string" && Boolean(value.blankId.trim()) && "correct" in value && typeof value.correct === "boolean";
   if (value.type === "memory_result") return "blankIds" in value && Array.isArray(value.blankIds) && value.blankIds.length > 0 && value.blankIds.length <= 100 && value.blankIds.every((blankId) => typeof blankId === "string" && Boolean(blankId.trim()));
   return value.type === "add" &&
     "segmentId" in value && typeof value.segmentId === "string" && Boolean(value.segmentId.trim()) &&
@@ -2941,11 +2949,15 @@ function cardPracticeSummary(entry: CardEntryEntity): CardRecordSummaryView["pra
     clozeState: snapshot?.clozeState ?? null,
     clozeLastResult: snapshot?.clozeLastResult ?? null,
   });
+  const progress = clozeProgress(snapshot?.clozeState ?? null);
   return {
     hasCloze: status === "clozed" || status === "completed",
     dictationCompleted: false,
     nextReviewAt: null,
     status,
+    totalBlanks: progress.totalBlanks,
+    answeredBlanks: progress.answeredBlanks,
+    accuracy: progress.accuracy,
     encounterCount: entry.encounterCount ?? 0,
     favorited: Boolean(entry.favoritedAt),
   };

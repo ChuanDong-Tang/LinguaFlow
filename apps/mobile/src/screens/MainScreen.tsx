@@ -24,7 +24,9 @@ import { OioMascot, type OioMascotHandle } from "../components/sketch/OioMascot"
 import { haptic } from "../feedback/haptics";
 import { motion } from "../motion";
 import OioCharacter from "../../assets/app/oio-character.svg";
-import { Camera, ClockCounterClockwise, Eye, Gift, ImageSquare, ImagesSquare, PencilSimpleLine, SealCheck, SunHorizon, TextUnderline, TrayArrowDown } from "phosphor-react-native";
+import { Camera, ClockCounterClockwise, Eye, Gift, ImagesSquare, SunHorizon, TrayArrowDown } from "phosphor-react-native";
+import { ProgressRing } from "../components/ProgressRing";
+import { cardProgressRing } from "../domain/practice/cardProgressRing";
 import Sortable from "react-native-sortables";
 import { FlashList } from "@shopify/flash-list";
 import {
@@ -3150,7 +3152,7 @@ function CardCard({ record, grid = false, feed = false, enterIndex, collectionNa
       <View style={[styles.cardContent, grid && styles.memoryGridContent]}>
         {selecting ? <View style={[styles.cardSelectionIcon, grid && { position: "absolute", top: 8, right: 8, zIndex: 2, borderRadius: 18, backgroundColor: theme.colors.surface, padding: 3 }]}><Icon name={selected ? "checkmark-circle" : "ellipse-outline"} size={23} color={selected ? theme.colors.text : theme.colors.textMuted} /></View> : null}
         {record.thumbnail ? <View ref={thumbnailRef} collapsable={false} style={grid ? [styles.memoryGridCover, { aspectRatio: Math.max(0.75, Math.min(1.25, record.thumbnail.width / Math.max(1, record.thumbnail.height))) }] : styles.thumbnailFrame}>{grid ? <Image source={{ uri: record.thumbnail.url }} style={StyleSheet.absoluteFill} resizeMode="cover" onError={onThumbnailError} /> : <FocusedCardThumbnail thumbnail={record.thumbnail} onError={onThumbnailError} />}</View> : grid ? <View style={[styles.memoryGridCover, styles.memoryTextCover, { backgroundColor: coverFillFor(record.id) }]}><Text style={styles.memoryTextCoverTitle} numberOfLines={5}>{record.displayTitle.trim() || record.originalPreview}</Text></View> : null}
-        {grid && !selecting && !record.isSample && record.practiceSummary?.status ? <CardStatusBadge status={record.practiceSummary.status} /> : null}
+        {grid && !selecting && !record.isSample && record.practiceSummary?.status && record.practiceSummary.status !== "image_only" ? <CardStatusBadge summary={record.practiceSummary} /> : null}
         <View style={styles.cardTextColumn}>
           {processing ? (
             <>
@@ -3276,13 +3278,11 @@ function RecordActionSheet({ record, trash, bottomInset, onClose, onRestore, onM
   </Modal>;
 }
 
-const STATUS_ICONS = { image_only: ImageSquare, recorded: PencilSimpleLine, clozed: TextUnderline, completed: SealCheck } as const;
-
-/** Where the card is in the learning loop: photo only / recorded / has blanks / done. */
-function CardStatusBadge({ status }: { status: keyof typeof STATUS_ICONS }) {
-  const Glyph = STATUS_ICONS[status];
-  return <View style={styles.cardStatusBadge} accessibilityLabel={t(`library.status.${status}`)}>
-    <Glyph size={14} color={theme.colors.text} weight={status === "completed" ? "fill" : "regular"} />
+/** Completion ring: blanks answered and how many right (replaces the old status icons). */
+function CardStatusBadge({ summary }: { summary: CardRecordSummary["practiceSummary"] }) {
+  const ring = cardProgressRing(summary);
+  return <View style={styles.cardStatusBadge} accessibilityLabel={ring.tone === "empty" ? t("library.status.recorded") : ring.label}>
+    <ProgressRing ring={ring} size={20} />
   </View>;
 }
 

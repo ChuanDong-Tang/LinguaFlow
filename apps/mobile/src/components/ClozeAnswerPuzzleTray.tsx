@@ -2,6 +2,7 @@ import React, { useEffect, useRef } from "react";
 import { Pressable, View } from "react-native";
 import Reanimated, { FadeIn, FadeInDown } from "react-native-reanimated";
 import { Text } from "./Typography";
+import { Icon } from "./Icon";
 import {
   EMPTY_SLOT,
   isClozeAnswerPuzzleComplete,
@@ -19,6 +20,7 @@ import { theme } from "../theme";
 import { createStyles } from "../styles";
 
 export type ClozeChoiceFeedback = { correct: boolean; answer: string };
+export type ClozeLookupAnchor = { pageX: number; pageY: number; width: number; height: number };
 
 /**
  * Choice practice for one blank (skills/linguaflow-interaction-feel, "Memory
@@ -33,6 +35,7 @@ export function ClozeAnswerPuzzleTray({
   onChange,
   onCheck,
   onProceed,
+  onLookup,
 }: {
   puzzle: ClozeAnswerPuzzle;
   selectedIds: string[];
@@ -42,7 +45,15 @@ export function ClozeAnswerPuzzleTray({
   onChange: (selectedIds: string[]) => void;
   onCheck?: () => void;
   onProceed?: () => void;
+  /** Tap the shown spelling to look the answer up (default English, Chinese on tap). */
+  onLookup?: (answer: string, anchor: ClozeLookupAnchor) => void;
 }) {
+  const answerRef = useRef<View>(null);
+  const lookup = () => {
+    if (!feedback || !onLookup) return;
+    haptic.light();
+    answerRef.current?.measureInWindow((pageX, pageY, width, height) => onLookup(feedback.answer, { pageX, pageY, width, height }));
+  };
   const byId = new Map(puzzle.target.map((token) => [token.id, token]));
   const placed = new Set(selectedIds.filter((id) => id !== EMPTY_SLOT));
   const available = puzzle.shuffled.filter((token) => !placed.has(token.id));
@@ -96,11 +107,13 @@ export function ClozeAnswerPuzzleTray({
       <OioMascot ref={mascot} size={34} idle={false} />
       <View style={styles.feedbackText}>
         {feedback.correct
-          ? <View style={styles.feedbackTitleRow}><CheckMark size={22} /><Text style={styles.feedbackTitle}>{t("cloze.feedback.correct")}</Text></View>
-          : <>
-            <Text style={styles.feedbackLabel}>{t("cloze.feedback.correct_answer")}</Text>
-            <Text style={styles.feedbackAnswer}>{feedback.answer}</Text>
-          </>}
+          ? <View style={styles.feedbackTitleRow}><CheckMark size={20} /><Text style={[styles.feedbackTitle, { color: theme.colors.accent }]}>{t("cloze.feedback.correct")}</Text></View>
+          : <Text style={[styles.feedbackLabel, { color: theme.colors.warning }]}>{t("cloze.feedback.correct_answer")}</Text>}
+        {/* The right spelling, right or wrong; tap anywhere on it to look it up. */}
+        <Pressable ref={answerRef} accessibilityRole="button" accessibilityHint={t("cloze.lookup_hint")} disabled={!onLookup} hitSlop={6} style={({ pressed }) => [styles.feedbackAnswerRow, pressed && { opacity: 0.7 }]} onPress={lookup}>
+          <Text style={styles.feedbackAnswer}>{feedback.answer}</Text>
+          {onLookup ? <Icon name="search-outline" size={15} color={theme.colors.textSecondary} /> : null}
+        </Pressable>
       </View>
     </Reanimated.View> : null}
     <View style={styles.actions}>
@@ -111,7 +124,7 @@ export function ClozeAnswerPuzzleTray({
       </Reanimated.View> : <View />}
       {onCheck && onProceed ? <PressableSurface
         radius={22}
-        fill={answered || complete ? theme.colors.accent : theme.colors.fill2}
+        fill={answered ? (feedback?.correct ? theme.colors.accent : theme.colors.warning) : complete ? theme.colors.accent : theme.colors.fill2}
         feedback={null}
         disabled={disabled || (!answered && !complete)}
         accessibilityRole="button"
@@ -119,7 +132,7 @@ export function ClozeAnswerPuzzleTray({
         contentStyle={styles.primaryInner}
         onPress={() => (answered ? onProceed() : onCheck())}
       >
-        <Text style={[styles.primaryText, (answered || complete) && styles.primaryTextOn]}>
+        <Text style={[styles.primaryText, (answered || complete) && styles.primaryTextOn, answered && !feedback?.correct && { color: theme.colors.onWarning }]}>
           {t(answered ? (feedback?.correct ? "cloze.continue" : "cloze.got_it") : "cloze.check")}
         </Text>
       </PressableSurface> : null}
@@ -147,8 +160,9 @@ const styles = createStyles(() => ({
   tileText: { color: theme.colors.text, fontSize: 18, fontWeight: "600" },
   pressed: { opacity: 0.7, transform: [{ scale: 0.96 }] },
   feedback: { flexDirection: "row", alignItems: "center", gap: 12, padding: 12, borderRadius: 12 },
-  feedbackCorrect: { backgroundColor: theme.colors.accentSoft },
-  feedbackIncorrect: { backgroundColor: theme.colors.fill2 },
+  feedbackCorrect: { backgroundColor: theme.colors.accentSoft, borderWidth: 1.5, borderColor: theme.colors.accent },
+  feedbackIncorrect: { backgroundColor: theme.colors.warningSoft, borderWidth: 1.5, borderColor: theme.colors.warning },
+  feedbackAnswerRow: { flexDirection: "row", alignItems: "center", gap: 6, alignSelf: "flex-start" },
   feedbackText: { flex: 1, gap: 2 },
   feedbackTitleRow: { flexDirection: "row", alignItems: "center", gap: 6 },
   feedbackTitle: { color: theme.colors.text, fontSize: 17, fontWeight: "700" },

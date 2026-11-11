@@ -1,3 +1,5 @@
+import { clozeBlankTone } from "./clozeProgress.js";
+
 // Where a card is in the learning loop, shown as a badge on home cards.
 // image_only: photo saved without words yet; recorded: words, no blanks;
 // clozed: has blanks; completed: every blank mastered or last cloze correct.
@@ -11,7 +13,8 @@ export function deriveCardLearningStatus(input: {
   if (!input.hasText) return "image_only";
   const blanks = clozeBlanks(input.clozeState);
   if (!blanks.length) return "recorded";
-  if (input.clozeLastResult === "correct" || blanks.every((blank) => blank.mastered === true)) return "completed";
+  // Completed once every blank's latest answer is right (legacy mastered counts).
+  if (blanks.every((blank) => clozeBlankTone({ id: "", ...blank }) === "correct")) return "completed";
   return "clozed";
 }
 

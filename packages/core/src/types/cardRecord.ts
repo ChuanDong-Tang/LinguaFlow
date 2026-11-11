@@ -18,6 +18,10 @@ export interface CardClozeBlank {
   endUtf16: number;
   answer: string;
   mastered?: boolean;
+  /** Result of the latest answer to this blank; absent until it is answered. */
+  lastResult?: "correct" | "incorrect";
+  attempts?: number;
+  correctCount?: number;
 }
 
 export interface CardClozeState {
@@ -107,6 +111,11 @@ export interface CardPracticeSummaryView {
   /** How many times the user has opened ("met") this card. */
   encounterCount?: number;
   favorited?: boolean;
+  /** Blanks on the card's primary learning content, and how many were answered. */
+  totalBlanks?: number;
+  answeredBlanks?: number;
+  /** 0–100 over answered blanks (latest answer per blank); null before any answer. */
+  accuracy?: number | null;
 }
 
 export interface CardPracticeView extends CardPracticeSummaryView {
@@ -207,6 +216,8 @@ export type UpdateCardClozeInput = {
     | { type: "remove"; blankId: string }
     | { type: "master"; blankId: string }
     | { type: "memory_result"; blankIds: string[] }
+    /** One graded answer to one blank (right or wrong); remembered per blank. */
+    | { type: "attempt"; blankId: string; correct: boolean }
     | { type: "result" };
   result?: CardPracticeResult;
 };

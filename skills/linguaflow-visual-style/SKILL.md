@@ -32,6 +32,10 @@ Never write hex literals in screens; add a token to both palettes instead.
 | Brand (OIO green) | `colors.accent` | `#20904E` | `#6CCB7E` |
 | Text on brand | `colors.onAccent` | `#FFFFFF` | `#0E1A12` |
 | Brand tint (selected / correct background) | `colors.accentSoft` | `#E8F5EC` | `#18301F` |
+| Wrong answer (yellow) | `colors.warning` | `#D19A00` | `#F2C14E` |
+| Wrong-answer tint | `colors.warningSoft` | `#FFF6D6` | `#352C17` |
+| Text on solid yellow | `colors.onWarning` | `#2B2200` | `#2B2200` |
+| Native cloze highlight (#RRGGBBAA) | `colors.clozeCorrectFill` / `clozeIncorrectFill` | brand / yellow at ~25–30% | same |
 | Hashtag / link | `colors.link` | `#133667` | `#8AB4F8` |
 | Danger (delete, real errors) | `colors.danger` | `#E5484D` | `#FF6B6B` |
 
@@ -39,6 +43,7 @@ Pure black is never used for text. The mascot keeps its own colors.
 
 ### Color discipline
 - Brand green only for: the primary action on a screen, the active tab underline, progress / done / correct, and the ＋ create button. Nothing decorative.
+- Cloze grading (2026-11): **green = answered right, yellow = answered wrong, gray = never answered.** Blanks keep their latest color on re-encounter. The 答对了 box/button is green, the 正确答案 box/button is yellow (`onWarning` text). Yellow is used only for wrong answers and the completion ring of a card with mistakes — never as decoration or as a warning banner color elsewhere.
 - Secondary buttons: `fill2` background with `text` color, no border.
 - Selected chips/segments: brand fill with `onAccent` text (or bold text only for text tabs).
 - Photos are untouched and are the most colorful thing on screen.

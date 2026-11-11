@@ -35,6 +35,8 @@ export type NativeClozeHighlightRange = {
   start: number;
   end: number;
   groupIndex?: number;
+  /** Optional tone fill (#RRGGBB / #RRGGBBAA), e.g. green / yellow cloze results. */
+  color?: string;
 };
 
 export type NativeClozeBlankRange = {
@@ -45,6 +47,8 @@ export type NativeClozeBlankRange = {
 export type NativeClozeAnswerRange = NativeClozeBlankRange & {
   text: string;
   incorrect?: boolean;
+  /** Optional answer text color (#RRGGBB / #RRGGBBAA). */
+  color?: string;
 };
 
 export type SelectableMessageTextRef = {
@@ -106,7 +110,9 @@ function clampRange(range: NativeClozeHighlightRange, textLength: number): Nativ
   return { start, end, groupIndex: range.groupIndex };
 }
 
-function normalizeBlockedRanges(text: string, ranges?: NativeClozeHighlightRange[], preserveOrder = false): Required<NativeClozeHighlightRange>[] {
+type NormalizedHighlightRange = Required<Omit<NativeClozeHighlightRange, "color">> & { color?: string };
+
+function normalizeBlockedRanges(text: string, ranges?: NativeClozeHighlightRange[], preserveOrder = false): NormalizedHighlightRange[] {
   const normalized = (ranges ?? [])
     .map((range, index) => {
       const clamped = clampRange(range, text.length);
@@ -115,12 +121,13 @@ function normalizeBlockedRanges(text: string, ranges?: NativeClozeHighlightRange
         start: clamped.start,
         end: clamped.end,
         groupIndex: clamped.groupIndex ?? index,
+        ...(range.color ? { color: range.color } : {}),
       };
     })
-    .filter((range): range is Required<NativeClozeHighlightRange> => !!range);
+    .filter((range): range is NormalizedHighlightRange => !!range);
   if (preserveOrder) return normalized;
   return normalized.sort((a, b) => a.start - b.start || a.end - b.end)
-    .reduce<Required<NativeClozeHighlightRange>[]>((kept, range) => {
+    .reduce<NormalizedHighlightRange[]>((kept, range) => {
       const previous = kept[kept.length - 1];
       if (previous && range.start < previous.end) return kept;
       kept.push(range);
@@ -173,7 +180,7 @@ function expandSelectionToWord(text: string, start: number, end: number): Native
 }
 
 function findContainingHighlightRange(
-  ranges: Required<NativeClozeHighlightRange>[],
+  ranges: NormalizedHighlightRange[],
   start: number,
   end: number,
 ): NativeClozeBlankRange | null {
