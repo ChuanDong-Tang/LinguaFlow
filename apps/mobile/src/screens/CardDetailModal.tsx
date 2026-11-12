@@ -117,8 +117,8 @@ function initialClozeInteractionMode(autoStart: boolean, blankCount: number, pre
   if (!autoStart || blankCount === 0) return "edit";
   return preferred;
 }
-type ClozeChoiceTrayState = { puzzle: ClozeAnswerPuzzle; selectedIds: string[]; incorrect: boolean; feedback: ClozeChoiceFeedback | null };
-type ChoiceTrayAction = { type: "change"; ids: string[] } | { type: "check" } | { type: "proceed" };
+type ClozeChoiceTrayState = { puzzle: ClozeAnswerPuzzle; selectedIds: string[]; incorrect: boolean; feedback: ClozeChoiceFeedback | null; remembered?: boolean };
+type ChoiceTrayAction = { type: "change"; ids: string[] } | { type: "check" } | { type: "proceed" } | { type: "mastered" };
 type ClozeKeyboardTrayState = { ownerKey: string; blankId: string; value: string; incorrect: boolean; anchor?: CardBlankActionAnchor };
 type ClozeKeyboardCheckResult = { correct: boolean };
 type ClozeKeyboardHandler = {
@@ -2734,9 +2734,6 @@ function Review({ sentencePractice = false, onSentenceDone, practiceCommand, rev
   const [videoOpen, setVideoOpen] = useState(false);
   const answeredThisVisitRef = useRef(false);
   useEffect(() => { setRedoBlankIds(new Set()); setClozeSummary(null); answeredThisVisitRef.current = false; }, [detail.id]);
-  const rememberedRight = useMemo(() => new Set(wholeCardBlanks
-    .filter((blank) => cardClozeBlankTone(blank, {}, redoBlankIds) === "correct")
-    .map((blank) => blank.id)), [redoBlankIds, wholeCardBlanks]);
   const clozeToneValue = useMemo(() => ({
     redoBlankIds,
     onRedoBlank: (blankId: string) => {
@@ -2796,7 +2793,7 @@ function Review({ sentencePractice = false, onSentenceDone, practiceCommand, rev
     // 继续 / 知道了 jumps straight to the next unanswered blank; remembered-green ones are skipped.
     const position = practiceBlankQueue.findIndex((item) => item.ownerKey === ownerKey && item.blankId === blankId);
     const ordered = [...practiceBlankQueue.slice(position + 1), ...practiceBlankQueue.slice(0, Math.max(0, position))];
-    const next = ordered.find((item) => item.blankId !== blankId && !completedChoiceBlankKeysRef.current.has(`${item.ownerKey}:${item.blankId}`) && (focusSegmentId !== null || !rememberedRight.has(item.blankId)));
+    const next = ordered.find((item) => item.blankId !== blankId && !completedChoiceBlankKeysRef.current.has(`${item.ownerKey}:${item.blankId}`));
     if (next) {
       activeChoiceOwnerKeyRef.current = next.ownerKey;
       setActiveChoiceOwnerKey(next.ownerKey);
@@ -2825,7 +2822,7 @@ function Review({ sentencePractice = false, onSentenceDone, practiceCommand, rev
   const completeKeyboardBlank = (ownerKey: string, blankId: string) => {
     completedKeyboardBlankKeysRef.current.add(`${ownerKey}:${blankId}`);
     answeredThisVisitRef.current = true;
-    const hasRemaining = practiceBlankQueue.some((item) => !completedKeyboardBlankKeysRef.current.has(`${item.ownerKey}:${item.blankId}`) && !rememberedRight.has(item.blankId));
+    const hasRemaining = practiceBlankQueue.some((item) => !completedKeyboardBlankKeysRef.current.has(`${item.ownerKey}:${item.blankId}`));
     if (hasRemaining) {
       setActiveKeyboardOwnerKey(null);
       setKeyboardTray(null);
@@ -3948,6 +3945,7 @@ function Review({ sentencePractice = false, onSentenceDone, practiceCommand, rev
         onChange={(ids) => { if (activeChoiceOwnerKey) choiceAnswerHandlersRef.current.get(activeChoiceOwnerKey)?.({ type: "change", ids }); }}
         onCheck={() => { if (activeChoiceOwnerKey) choiceAnswerHandlersRef.current.get(activeChoiceOwnerKey)?.({ type: "check" }); }}
         onProceed={() => { if (activeChoiceOwnerKey) choiceAnswerHandlersRef.current.get(activeChoiceOwnerKey)?.({ type: "proceed" }); }}
+        onMastered={choiceTrayState.remembered ? () => { if (activeChoiceOwnerKey) choiceAnswerHandlersRef.current.get(activeChoiceOwnerKey)?.({ type: "mastered" }); } : undefined}
         onLookup={lookupChoiceAnswer}
       />
     </View> : null}
@@ -4579,7 +4577,7 @@ function Cloze({ onlySegmentIds, detail, contentBinding, clozeState, clozeVersio
     }),
   ), [alignedOriginalGroups]);
   const { showNotice } = useFloatingNotice();
-  const { redoBlankIds, onRedoBlank } = useContext(ClozeToneContext);
+  const { redoBlankIds } = useContext(ClozeToneContext);
   const onlySegmentKey = onlySegmentIds?.join(",") ?? "";
   const sentenceRows = useMemo(() => {
     const rows = buildCardClozeSentenceRows(detail, clozeState, embedded);
@@ -4916,6 +4914,26 @@ function Cloze({ onlySegmentIds, detail, contentBinding, clozeState, clozeVersio
   checkChoiceRef.current = checkChoiceSelection;
   const proceedChoiceRef = useRef(proceedChoice);
   proceedChoiceRef.current = proceedChoice;
+  // 已掌握: a blank answered right last time is shown and skipped — no check, no popup.
+  function masterChoice(): void {
+    const blankIndex = effectiveActiveChoiceBlankIndex;
+    const blank = blankIndex === null ? undefined : clozeState.blanks[blankIndex];
+    if (!blank || saving) return;
+    haptic.light();
+    setAnswers((current) => ({ ...current, [blank.id]: blank.answer }));
+    setCheckedAnswers((current) => ({ ...current, [blank.id]: "correct" }));
+    setSessionAnswers((current) => ({ ...current, [blank.id]: blank.answer }));
+    setSessionCheckedAnswers((current) => ({ ...current, [blank.id]: "correct" }));
+    setChoiceFeedback(null);
+    if (onChoiceAnswered) onChoiceAnswered(blank.id);
+    else {
+      const ordered = sentenceRows.flatMap((row) => row.blanks.map((item) => item.blankIndex));
+      const position = ordered.indexOf(blankIndex!);
+      setActiveChoiceBlankIndex(position >= 0 ? ordered[position + 1] ?? null : null);
+    }
+  }
+  const masterChoiceRef = useRef(masterChoice);
+  masterChoiceRef.current = masterChoice;
   const keyboardHandlerRef = useRef<ClozeKeyboardHandler>({ change: () => undefined, check: () => null });
   keyboardHandlerRef.current = {
     change: (blankId, value) => {
@@ -4941,6 +4959,7 @@ function Cloze({ onlySegmentIds, detail, contentBinding, clozeState, clozeVersio
       selectedIds: choiceSelectedTokenIds[activeBlankId] ?? [],
       incorrect: checkedAnswers[activeBlankId] === "incorrect",
       feedback: choiceFeedback?.blankId === activeBlankId ? { correct: choiceFeedback.correct, answer: choiceFeedback.answer } : null,
+      remembered: (() => { const blank = clozeState.blanks.find((candidate) => candidate.id === activeBlankId); return Boolean(blank) && !checkedAnswers[activeBlankId] && cardClozeBlankTone(blank!, {}, redoBlankIds) === "correct"; })(),
     };
   }, [checkedAnswers, choiceFeedback, choicePuzzle, choiceSelectedTokenIds, clozeState.blanks, effectiveActiveChoiceBlankIndex, fillMode, inputMode]);
   useEffect(() => {
@@ -4950,6 +4969,7 @@ function Cloze({ onlySegmentIds, detail, contentBinding, clozeState, clozeVersio
     onChoiceAnswerHandlerChangeRef.current?.((action) => {
       if (action.type === "change") changeChoiceSelectionRef.current(action.ids);
       else if (action.type === "check") checkChoiceRef.current();
+      else if (action.type === "mastered") masterChoiceRef.current();
       else proceedChoiceRef.current();
     });
     return () => onChoiceAnswerHandlerChangeRef.current?.(null);
@@ -5056,14 +5076,6 @@ function Cloze({ onlySegmentIds, detail, contentBinding, clozeState, clozeVersio
                   onTextSelectionStart={onTextSelectionStart}
                   onTextSelectionEnd={onTextSelectionEnd}
                   onActivateChoiceBlank={(blankIndex) => {
-                    const tapped = clozeState.blanks[blankIndex];
-                    // Tapping a green (remembered right) blank answers it again.
-                    if (tapped && cardClozeBlankTone(tapped, checkedAnswers, redoBlankIds) === "correct") {
-                      onRedoBlank(tapped.id);
-                      setCheckedAnswers((current) => { const next = { ...current }; delete next[tapped.id]; return next; });
-                      setAnswers((current) => { const next = { ...current }; delete next[tapped.id]; return next; });
-                      setChoiceSelectedTokenIds((current) => { const next = { ...current }; delete next[tapped.id]; return next; });
-                    }
                     setActiveChoiceBlankIndex(blankIndex);
                     const blank = clozeState.blanks[blankIndex];
                     if (blank) onSelectChoiceBlank?.(blank.id);
@@ -5100,7 +5112,7 @@ function Cloze({ onlySegmentIds, detail, contentBinding, clozeState, clozeVersio
             </View>;
           })}
           {!onChoiceTrayChange && fillMode && inputMode === "choice" && externalChoiceTray ? <View style={styles.clozeChoiceTray}>
-            <ClozeAnswerPuzzleTray puzzle={externalChoiceTray.puzzle} selectedIds={externalChoiceTray.selectedIds} incorrect={externalChoiceTray.incorrect} feedback={externalChoiceTray.feedback} disabled={saving} onChange={changeChoiceSelection} onCheck={checkChoiceSelection} onProceed={proceedChoice} onLookup={(answer, anchor) => {
+            <ClozeAnswerPuzzleTray puzzle={externalChoiceTray.puzzle} selectedIds={externalChoiceTray.selectedIds} incorrect={externalChoiceTray.incorrect} feedback={externalChoiceTray.feedback} disabled={saving} onChange={changeChoiceSelection} onCheck={checkChoiceSelection} onProceed={proceedChoice} onMastered={externalChoiceTray.remembered ? masterChoice : undefined} onLookup={(answer, anchor) => {
               const blank = effectiveActiveChoiceBlankIndex === null ? undefined : clozeState.blanks[effectiveActiveChoiceBlankIndex];
               const row = blank ? sentenceRows.find((candidate) => candidate.blanks.some((item) => item.blank.id === blank.id)) : undefined;
               if (row && blank) lookupInSentence(row, answer, blank.startUtf16, blank.endUtf16, anchor);
@@ -5277,9 +5289,11 @@ function CardBlankSentenceFlow({ row, answers, checkedAnswers, revealed, saving,
   const blankIsCorrect = ({ blank }: typeof row.blanks[number]) => toneOf(blank) === "correct";
   // Green blanks show their answer; a missed blank shows the right answer once
   // revealed (知道了); everything else stays masked for recall.
+  // Remembered green stays masked (still a recall chance); only this visit's
+  // right answer, 已掌握, or a revealed miss shows the text.
   const blankIsShown = ({ blank }: typeof row.blanks[number]) => revealed
-    || toneOf(blank) === "correct"
-    || (toneOf(blank) === "incorrect" && answers[blank.id] === blank.answer);
+    || checkedAnswers[blank.id] === "correct"
+    || (checkedAnswers[blank.id] === "incorrect" && answers[blank.id] === blank.answer);
   const hiddenRanges = row.blanks
     .filter((item) => !blankIsShown(item))
     .map(({ blank }) => ({

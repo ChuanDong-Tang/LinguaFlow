@@ -36,6 +36,7 @@ export function ClozeAnswerPuzzleTray({
   onCheck,
   onProceed,
   onLookup,
+  onMastered,
 }: {
   puzzle: ClozeAnswerPuzzle;
   selectedIds: string[];
@@ -47,6 +48,8 @@ export function ClozeAnswerPuzzleTray({
   onProceed?: () => void;
   /** Tap the shown spelling to look the answer up (default English, Chinese on tap). */
   onLookup?: (answer: string, anchor: ClozeLookupAnchor) => void;
+  /** Shown for a blank answered right last time: 已掌握 reveals it and moves on. */
+  onMastered?: () => void;
 }) {
   const answerRef = useRef<View>(null);
   const lookup = () => {
@@ -122,6 +125,11 @@ export function ClozeAnswerPuzzleTray({
           <Text style={styles.resetText}>{t("cloze.reset")}</Text>
         </Pressable>
       </Reanimated.View> : <View />}
+      <View style={styles.actionsRight}>
+      {!answered && onMastered ? <Pressable accessibilityRole="button" hitSlop={6} style={({ pressed }) => [styles.mastered, pressed && styles.pressed]} onPress={onMastered}>
+        <CheckMark size={14} />
+        <Text style={styles.masteredText}>{t("cloze.mastered")}</Text>
+      </Pressable> : null}
       {onCheck && onProceed ? <PressableSurface
         radius={22}
         fill={answered ? (feedback?.correct ? theme.colors.accent : theme.colors.warning) : complete ? theme.colors.accent : theme.colors.fill2}
@@ -136,6 +144,7 @@ export function ClozeAnswerPuzzleTray({
           {t(answered ? (feedback?.correct ? "cloze.continue" : "cloze.got_it") : "cloze.check")}
         </Text>
       </PressableSurface> : null}
+      </View>
     </View>
   </View>;
 }
@@ -169,6 +178,9 @@ const styles = createStyles(() => ({
   feedbackLabel: { color: theme.colors.textSecondary, fontSize: 12, fontWeight: "600" },
   feedbackAnswer: { color: theme.colors.text, fontSize: 18, fontWeight: "700" },
   actions: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
+  actionsRight: { flexDirection: "row", alignItems: "center", gap: 10 },
+  mastered: { minHeight: 46, paddingHorizontal: 16, borderRadius: 23, borderWidth: 1.5, borderColor: theme.colors.accent, backgroundColor: theme.colors.accentSoft, flexDirection: "row", alignItems: "center", gap: 5 },
+  masteredText: { color: theme.colors.accent, fontSize: 15, fontWeight: "700" },
   resetButton: { minHeight: 44, paddingHorizontal: 6, justifyContent: "center" },
   resetText: { color: theme.colors.textSecondary, fontSize: 14, fontWeight: "600" },
   primary: { flexGrow: 0 },
