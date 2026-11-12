@@ -7,6 +7,7 @@ import { alignCardSpeechMarks } from "@lf/core/text/cardSpeechText";
 import React, { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ClozeToneContext } from "./cardDetail/clozeToneContext";
 import { pickBlindBoxSentence } from "../domain/blindBox/pickSentence";
+import { homeCoverAspect } from "../domain/card/coverAspect";
 import { ClozeSummarySheet } from "../components/ClozeSummarySheet";
 import { FolderQuickMenu } from "../components/FolderQuickMenu";
 import { VideoPlayerModal } from "../components/VideoPlayerModal";
@@ -1776,9 +1777,11 @@ function PreviewCoverCropOverlay({ image, width, height, onCommit }: {
   // The preview item is explicitly top-aligned (`justifyContent: flex-start`).
   // Keep the crop geometry in that same coordinate system.
   const displayY = 0;
-  const frameHeightFromWidth = displayWidth / CARD_IMAGE_ASPECT_RATIO;
-  const frameWidth = frameHeightFromWidth <= displayHeight ? displayWidth : displayHeight * CARD_IMAGE_ASPECT_RATIO;
-  const frameHeight = frameWidth / CARD_IMAGE_ASPECT_RATIO;
+  // Same frame shape as the home grid cover, so the picked window is what shows there.
+  const coverAspect = homeCoverAspect(sourceWidth, sourceHeight);
+  const frameHeightFromWidth = displayWidth / coverAspect;
+  const frameWidth = frameHeightFromWidth <= displayHeight ? displayWidth : displayHeight * coverAspect;
+  const frameHeight = frameWidth / coverAspect;
   const frameX = displayX + (displayWidth - frameWidth) / 2;
   const travel = Math.max(0, displayHeight - frameHeight);
   const [focusY, setFocusY] = useState(clampUnit(image.focusY ?? 0.5));

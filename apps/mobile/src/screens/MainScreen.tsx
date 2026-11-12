@@ -28,10 +28,11 @@ import { Camera, ClockCounterClockwise, Eye, Gift, ImagesSquare, SunHorizon, Tra
 import { ProgressRing } from "../components/ProgressRing";
 import { cardProgressRing } from "../domain/practice/cardProgressRing";
 import { blindBoxOrder } from "../domain/blindBox/pickSentence";
+import { focusedCoverRect, homeCoverAspect } from "../domain/card/coverAspect";
 import { TodayDayBar } from "./home/TodayDayBar";
 import { historyDays, relativeDayLabel, type HistoryDay } from "./home/todayDays";
 import Sortable from "react-native-sortables";
-import { FlashList } from "@shopify/flash-list";
+import { FlashList, type FlashListRef } from "@shopify/flash-list";
 import {
   createCardEntry,
   bootstrapCard,
@@ -200,6 +201,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
   // Cards just made here stay first (a shuffle refresh used to move them away)
   // until the user reshuffles or switches folder.
   const pinnedRecordIdsRef = useRef<string[]>([]);
+  const homeListRef = useRef<FlashListRef<CardRecordSummary>>(null);
   const [libraryMenuVisible, setLibraryMenuVisible] = useState(false);
     const [selectingRecords, setSelectingRecords] = useState(false);
   // 今日 is a single-column feed (big photo, then words — like Threads / 朋友圈);
@@ -574,6 +576,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
     return () => { cancelled = true; };
   }, []);
 
+  const observedFilterRef = useRef(`${mediaFilter}:${practiceFilter}`);
   useEffect(() => {
     const becameActive = isActive && !previousActiveRef.current;
     previousActiveRef.current = isActive;
@@ -581,11 +584,15 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
     const revisionChanged = observedRevisionRef.current !== refreshRevision;
     const libraryChanged = observedLibraryViewRef.current !== libraryView;
     const sortChanged = observedSortModeRef.current !== sortMode;
+    // ⋯ filters change the query too (they used to leave the list empty).
+    const filterKey = `${mediaFilter}:${practiceFilter}`;
+    const filterChanged = observedFilterRef.current !== filterKey;
+    observedFilterRef.current = filterKey;
     observedRevisionRef.current = refreshRevision;
     observedLibraryViewRef.current = libraryView;
     observedSortModeRef.current = sortMode;
     const stale = Date.now() - lastRefreshAtRef.current >= BACKGROUND_REFRESH_INTERVAL_MS;
-    if (!hasLoadedRef.current || revisionChanged || libraryChanged || sortChanged || (becameActive && stale)) void refresh();
+    if (!hasLoadedRef.current || revisionChanged || libraryChanged || sortChanged || filterChanged || (becameActive && stale)) void refresh();
   }, [isActive, libraryView, refresh, refreshRevision, sortMode, mediaFilter, practiceFilter]);
 
   useEffect(() => {
@@ -1047,6 +1054,8 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
         refreshSequenceRef.current += 1;
         setLoading(false);
         setRecords((current) => [optimisticRecord, ...current.filter((row) => row.id !== created.id)]);
+        // Show the new memory: it lands first, so bring the list back to the top.
+        setTimeout(() => homeListRef.current?.scrollToOffset({ offset: 0, animated: true }), 350);
       } else {
         setLibraryView("all");
       }
@@ -1780,6 +1789,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
       /> : null}
 
       <FlashList
+        ref={homeListRef}
         key={`${gridLayout ? "grid" : "list"}:${dateScope ?? "all"}`}
         numColumns={gridLayout ? 2 : 1}
         masonry={gridLayout}
@@ -3191,6 +3201,7 @@ function CardCard({ record, grid = false, feed = false, enterIndex, collectionNa
   onThumbnailError: () => void;
   onHideTutorial?: () => void;
 }) {
+  const [coverFrame, setCoverFrame] = useState<{ width: number; height: number } | null>(null);
   const processing = record.status !== "completed";
   const previewText = record.rewrittenPreview?.trim() || record.originalPreview;
   const thumbnailRef = useRef<View>(null);
@@ -3219,7 +3230,10 @@ function CardCard({ record, grid = false, feed = false, enterIndex, collectionNa
   const content = (
       <View style={[styles.cardContent, grid && styles.memoryGridContent]}>
         {selecting ? <View style={[styles.cardSelectionIcon, grid && { position: "absolute", top: 8, right: 8, zIndex: 2, borderRadius: 18, backgroundColor: theme.colors.surface, padding: 3 }]}><Icon name={selected ? "checkmark-circle" : "ellipse-outline"} size={23} color={selected ? theme.colors.text : theme.colors.textMuted} /></View> : null}
-        {record.thumbnail ? <View ref={thumbnailRef} collapsable={false} style={grid ? [styles.memoryGridCover, { aspectRatio: Math.max(0.75, Math.min(1.25, record.thumbnail.width / Math.max(1, record.thumbnail.height))) }] : styles.thumbnailFrame}>{grid ? <Image source={{ uri: record.thumbnail.url }} style={StyleSheet.absoluteFill} resizeMode="cover" onError={onThumbnailError} /> : <FocusedCardThumbnail thumbnail={record.thumbnail} onError={onThumbnailError} />}</View> : grid ? <View style={[styles.memoryGridCover, styles.memoryTextCover, { backgroundColor: coverFillFor(record.id) }]}>
+        {record.thumbnail ? <View ref={thumbnailRef} collapsable={false} style={grid ? [styles.memoryGridCover, { aspectRatio: homeCoverAspect(record.thumbnail.width, record.thumbnail.height) }] : styles.thumbnailFrame} onLayout={grid ? (event) => setCoverFrame({ width: event.nativeEvent.layout.width, height: event.nativeEvent.layout.height }) : undefined}>{grid
+          // Honor the cover position picked in the editor (was always center-cropped).
+          ? coverFrame ? <Image source={{ uri: record.thumbnail.url }} resizeMode="stretch" style={{ position: "absolute", ...focusedCoverRect(record.thumbnail, coverFrame, { x: record.thumbnail.focusX, y: record.thumbnail.focusY }) }} onError={onThumbnailError} /> : null
+          : <FocusedCardThumbnail thumbnail={record.thumbnail} onError={onThumbnailError} />}</View> : grid ? <View style={[styles.memoryGridCover, styles.memoryTextCover, { backgroundColor: coverFillFor(record.id) }]}>
           {/* Text-only memory: title, a short rule, then a taste of the English rewrite. */}
           <Text style={styles.memoryTextCoverTitle} numberOfLines={3}>{record.displayTitle.trim() || record.originalPreview}</Text>
           {(record.rewrittenPreview ?? "").trim() ? <>

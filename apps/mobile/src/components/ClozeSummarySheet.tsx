@@ -1,5 +1,5 @@
 import React from "react";
-import { Modal, Pressable, ScrollView, View } from "react-native";
+import { Modal, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import Reanimated, { ZoomIn } from "react-native-reanimated";
 import { Text } from "./Typography";
 import { haptic } from "../feedback/haptics";
@@ -16,21 +16,21 @@ export function ClozeSummarySheet({ summary, onClose }: { summary: CardClozeSess
   if (!summary) return null;
   const perfect = summary.incorrect.length === 0;
   return <Modal visible transparent animationType="fade" statusBarTranslucent onRequestClose={onClose}>
-    <Pressable style={styles.backdrop} onPress={onClose}>
+    <View style={styles.backdrop}>
+      {/* Tap outside closes; the panel is a sibling so its lists can scroll. */}
+      <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
       <Reanimated.View entering={ZoomIn.springify().damping(16).stiffness(180)} style={styles.panel}>
-        <Pressable onPress={() => undefined}>
-          <Text style={[styles.accuracy, { color: perfect ? theme.colors.accent : theme.colors.text }]}>{summary.accuracy}%</Text>
-          <Text style={styles.caption}>{t("cloze.summary.accuracy")}</Text>
-          <View style={styles.columns}>
-            <Column title={t("cloze.summary.missed")} tone="incorrect" items={summary.incorrect.map((item) => item.answer)} />
-            <Column title={t("cloze.summary.right")} tone="correct" items={summary.correct.map((item) => item.answer)} />
-          </View>
-          <Pressable accessibilityRole="button" style={({ pressed }) => [styles.button, pressed && { opacity: 0.85 }]} onPress={() => { haptic.light(); onClose(); }}>
-            <Text style={styles.buttonText}>{t("cloze.summary.done")}</Text>
-          </Pressable>
+        <Text style={[styles.accuracy, { color: perfect ? theme.colors.accent : theme.colors.text }]}>{summary.accuracy}%</Text>
+        <Text style={styles.caption}>{t("cloze.summary.accuracy")}</Text>
+        <View style={styles.columns}>
+          <Column title={t("cloze.summary.missed")} tone="incorrect" items={summary.incorrect.map((item) => item.answer)} />
+          <Column title={t("cloze.summary.right")} tone="correct" items={summary.correct.map((item) => item.answer)} />
+        </View>
+        <Pressable accessibilityRole="button" style={({ pressed }) => [styles.button, pressed && { opacity: 0.85 }]} onPress={() => { haptic.light(); onClose(); }}>
+          <Text style={styles.buttonText}>{t("cloze.summary.done")}</Text>
         </Pressable>
       </Reanimated.View>
-    </Pressable>
+    </View>
   </Modal>;
 }
 
@@ -39,7 +39,7 @@ function Column({ title, tone, items }: { title: string; tone: "correct" | "inco
   const fill = tone === "correct" ? theme.colors.accentSoft : theme.colors.warningSoft;
   return <View style={styles.column}>
     <Text style={[styles.columnTitle, { color }]}>{title} · {items.length}</Text>
-    <ScrollView style={styles.columnList} contentContainerStyle={{ gap: 6 }}>
+    <ScrollView style={styles.columnList} contentContainerStyle={{ gap: 6 }} nestedScrollEnabled showsVerticalScrollIndicator>
       {items.length ? items.map((item, index) => <View key={`${item}-${index}`} style={[styles.chip, { backgroundColor: fill }]}>
         <Text numberOfLines={2} style={styles.chipText}>{item}</Text>
       </View>) : <Text style={styles.empty}>—</Text>}

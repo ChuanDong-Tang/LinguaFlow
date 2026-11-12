@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { ActivityIndicator, Linking, Modal, Pressable, useWindowDimensions, View } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import { WebView } from "react-native-webview";
 import { videoEmbedUrl } from "@lf/core/text/videoLink";
 import { Text } from "./Typography";
@@ -28,6 +28,7 @@ export function VideoPlayerModal({ link, onClose }: {
   const openOutside = () => { haptic.light(); void Linking.openURL(link.url).catch(() => undefined); };
   const playerHeight = Math.round(width * 9 / 16);
   return <Modal visible animationType="slide" presentationStyle="fullScreen" statusBarTranslucent onRequestClose={onClose}>
+    <SafeAreaProvider>
     <SafeAreaView style={styles.page} edges={["top", "bottom"]}>
       <View style={styles.header}>
         <Pressable accessibilityRole="button" accessibilityLabel={t("common.cancel")} hitSlop={8} style={styles.close} onPress={onClose}>
@@ -65,6 +66,7 @@ export function VideoPlayerModal({ link, onClose }: {
         <Text style={styles.outsideText}>{t(link.provider === "bilibili" ? "video.open_bilibili" : "video.open_youtube")}</Text>
       </Pressable>
     </SafeAreaView>
+    </SafeAreaProvider>
   </Modal>;
 }
 

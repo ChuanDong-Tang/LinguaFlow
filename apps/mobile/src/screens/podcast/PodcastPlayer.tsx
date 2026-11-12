@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { ActivityIndicator, Image, Modal, Pressable, ScrollView, View } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import { Moon, Repeat, RepeatOnce, Shuffle, SkipBack, SkipForward, Star } from "phosphor-react-native";
 import { Text } from "../../components/Typography";
 import { Icon } from "../../components/Icon";
@@ -93,8 +93,11 @@ export function PodcastPlayer({ visible, onClose }: { visible: boolean; onClose:
   const sentenceMode = podcast.mode === "sentence";
   const sleepLabel = !podcast.sleep ? null : "afterCard" in podcast.sleep ? t("podcast.sleep_after_card") : formatMs(podcast.sleep.endsAt - Date.now());
 
+  // A Modal is a separate native root: give it its own SafeAreaProvider, or iOS
+  // reports zero insets and the header slides under the status bar.
   return <Modal visible={visible} animationType="slide" presentationStyle="fullScreen" onRequestClose={onClose}>
-    <SafeAreaView style={styles.page}>
+    <SafeAreaProvider>
+    <SafeAreaView style={styles.page} edges={["top", "bottom"]}>
       <View style={styles.header}>
         <Pressable accessibilityRole="button" accessibilityLabel={t("card_detail.a11y.close")} hitSlop={8} style={styles.headerButton} onPress={onClose}><Icon name="chevron-down" size={26} /></Pressable>
         <View style={styles.headerTitleBlock}>
@@ -175,6 +178,7 @@ export function PodcastPlayer({ visible, onClose }: { visible: boolean; onClose:
         </View>
       </Pressable> : null}
     </SafeAreaView>
+    </SafeAreaProvider>
   </Modal>;
 }
 
