@@ -25,8 +25,16 @@ export function playSelectionFeedbackSound(): Promise<void> {
   return play("cloze-tap-v3.wav", createPopWav, 0.32, 160);
 }
 
-async function play(fileName: string, create: () => Uint8Array, volume: number, holdMs: number): Promise<void> {
-  await setAudioModeAsync({ playsInSilentMode: true, interruptionMode: "mixWithOthers" });
+/**
+ * Podcast: moving on to the next card — one soft, low "tock". Keeps the
+ * current audio mode (podcast background / lock-screen playback depends on it).
+ */
+export function playCardTransitionSound(): Promise<void> {
+  return play("podcast-next-card-v1.wav", createTransitionWav, 0.35, 450, false);
+}
+
+async function play(fileName: string, create: () => Uint8Array, volume: number, holdMs: number, setMode = true): Promise<void> {
+  if (setMode) await setAudioModeAsync({ playsInSilentMode: true, interruptionMode: "mixWithOthers" });
   const file = new File(Paths.cache, fileName);
   if (!file.exists) file.write(create());
   cleanupPlayer();
@@ -51,6 +59,10 @@ function bell(time: number, start: number, frequency: number, decay: number, gai
   const attack = Math.min(1, t / 0.004);
   const envelope = attack * Math.exp(-t * decay);
   return gain * envelope * (Math.sin(2 * Math.PI * frequency * t) + 0.28 * Math.sin(2 * Math.PI * frequency * 2 * t) + 0.08 * Math.sin(2 * Math.PI * frequency * 3 * t));
+}
+
+function createTransitionWav(): Uint8Array {
+  return synthesize(0.4, (time) => bell(time, 0, 587.33, 11, 0.32) + bell(time, 0.09, 783.99, 12, 0.24));
 }
 
 function createChimeWav(): Uint8Array {

@@ -72,6 +72,8 @@ export function MemoryPhotoBrowser({ random = false, hidden = false, onClose, on
     }).catch(() => { ids.forEach((id) => checkedAssets.current.delete(id)); });
   }, []);
   const [composerOpen, setComposerOpen] = useState(false);
+  const [countHint, setCountHint] = useState(false);
+  useEffect(() => { if (!countHint) return; const timer = setTimeout(() => setCountHint(false), 2200); return () => clearTimeout(timer); }, [countHint, count]);
   const [folderId, setFolderId] = useState<string | null>(defaultCollectionId);
   // The composer covers from 34% of the page down; the shrunk photo must fit above it.
   const [stageTop, setStageTop] = useState(60);
@@ -218,11 +220,15 @@ export function MemoryPhotoBrowser({ random = false, hidden = false, onClose, on
     if (currentCard) { openLinked(currentCard); return; }
     haptic.light(); setComposerOpen(true);
   }, [currentCard, openLinked]);
+  const closeComposer = useCallback(() => { haptic.light(); setComposerOpen(false); }, []);
   const swipeUp = useMemo(() => Gesture.Pan()
-    .enabled(!composerOpen)
-    .activeOffsetY(-24)
+    .activeOffsetY([-24, 24])
     .failOffsetX([-24, 24])
-    .onEnd((event) => { if (event.translationY < -60 || event.velocityY < -500) runOnJS(openComposer)(); }), [composerOpen, openComposer]);
+    .onEnd((event) => {
+      // Up writes about the photo; down on the photo goes back to the big view.
+      if (!composerOpen && (event.translationY < -60 || event.velocityY < -500)) runOnJS(openComposer)();
+      else if (composerOpen && (event.translationY > 60 || event.velocityY > 500)) runOnJS(closeComposer)();
+    }), [closeComposer, composerOpen, openComposer]);
 
   const denied = state.access === "undetermined" || state.access === "denied";
   const items: Array<Asset | "end"> = deck.length ? [...deck, "end"] : [];
@@ -234,12 +240,18 @@ export function MemoryPhotoBrowser({ random = false, hidden = false, onClose, on
     <SafeAreaProvider>
       <SafeAreaView style={styles.page} edges={["top", "bottom"]} onLayout={(event) => setPageHeight(event.nativeEvent.layout.height)}>
         <View style={styles.header}>
-          <Pressable accessibilityRole="button" accessibilityLabel={t("common.cancel")} hitSlop={8} style={styles.headerButton} onPress={leave}><Icon name="chevron-back" size={24} /></Pressable>
+          <Pressable accessibilityRole="button" accessibilityLabel={t("common.cancel")} hitSlop={8} style={styles.headerButton} onPress={composerOpen ? () => setComposerOpen(false) : leave}><Icon name="chevron-back" size={24} /></Pressable>
           <View style={styles.progress}>{deck.map((asset, slot) => <View key={asset.id} style={[styles.progressSegment, slot <= index && styles.progressSegmentOn, generated[asset.id] ? styles.progressSegmentDone : null]} />)}</View>
-          {random ? <Pressable accessibilityRole="button" accessibilityLabel={copy("每组数量", "Photos per set")} hitSlop={8} style={styles.countChip} onPress={() => deal(SET_SIZES[(SET_SIZES.indexOf(count as typeof SET_SIZES[number]) + 1) % SET_SIZES.length])}>
+          {random ? <Pressable accessibilityRole="button" accessibilityLabel={copy("每组数量", "Photos per set")} hitSlop={8} style={styles.countChip} onPress={() => {
+            // Changing the size never swaps the photos in front of you: it applies to the next set.
+            haptic.select();
+            setCount(SET_SIZES[(SET_SIZES.indexOf(count as typeof SET_SIZES[number]) + 1) % SET_SIZES.length]!);
+            setCountHint(true);
+          }}>
             <Text style={styles.countText}>{count}</Text><Icon name="chevron-down" size={13} />
           </Pressable> : <Text style={styles.countText}>{Math.min(index + 1, deck.length)}/{deck.length}</Text>}
         </View>
+        {countHint ? <Reanimated.View entering={FadeIn.duration(160)} style={styles.countHint} pointerEvents="none"><Text style={styles.countHintText}>{copy(`下一组 ${count} 张`, `Next set: ${count} photos`)}</Text></Reanimated.View> : null}
         {denied ? <View style={styles.center}>
           <Text style={styles.title}>{copy("从照片里，找回生活", "Find a moment in your photos")}</Text>
           <Text style={styles.explanation}>{copy("允许访问相册后，可在这里翻看照片。浏览不会上传，也不会删除原照片；只有确认生成回忆后才会上传。", "Allow photo access to browse here. Browsing never uploads or deletes photos. Photos are uploaded only after you confirm creating a memory.")}</Text>
@@ -262,8 +274,8 @@ export function MemoryPhotoBrowser({ random = false, hidden = false, onClose, on
             initialScrollIndex={startIndex > 0 && startIndex <= deck.length ? startIndex : undefined}
             renderItem={({ item, index: slot }) => item === "end"
               ? <SetEnd width={width} generatedIds={generatedIds} generatedAssets={deck.filter((asset) => generated[asset.id])} onPractice={() => onPracticeSet(generatedIds)} onNext={() => void nextSet()} />
-              : <Reanimated.View entering={slot === 0 ? ZoomIn.springify().damping(14).stiffness(140) : undefined} style={[styles.photoPage, { width }]}>
-                <PhotoStage asset={item} shrink={composerOpen && slot === index} shrinkHeight={composerTop - 12} framed={Boolean(cardFor(item))} />
+              : <Reanimated.View entering={slot === 0 ? FadeIn.duration(320) : undefined} style={[styles.photoPage, { width }]}>
+                <PhotoStage asset={item} shrink={false} shrinkHeight={composerTop - 12} framed={Boolean(cardFor(item))} />
                 {generated[item.id] ? <Reanimated.View entering={ZoomIn.duration(motion.duration.enter)} style={styles.generatedBadge}><CheckMark size={16} /><Text style={styles.generatedText}>{copy("已生成", "Saved")}</Text></Reanimated.View>
                   : linked[item.id] ? <Reanimated.View entering={FadeIn.duration(motion.duration.enter)} style={styles.generatedBadge}>
                     <Pressable accessibilityRole="button" accessibilityLabel={copy("已有卡片，查看", "Has a card · open")} hitSlop={8} style={styles.linkedBadgeInner} onPress={() => openLinked(linked[item.id]!)}>
@@ -272,6 +284,10 @@ export function MemoryPhotoBrowser({ random = false, hidden = false, onClose, on
                   </Reanimated.View> : null}
               </Reanimated.View>}
           />
+          {composerOpen && current ? <Reanimated.View entering={FadeIn.duration(220)} style={[styles.composerPhoto, { height: Math.max(120, composerTop - 4) }]}>
+            {/* Writing: a landscape photo spans the width; a portrait one is cropped like a card cover. */}
+            <MemoryPhotoPreview asset={current} cover={current.height > current.width} style={styles.composerPhotoImage} />
+          </Reanimated.View> : null}
           {state.access === "limited" ? <Pressable style={styles.limitedBanner} onPress={() => void permissionAction(true)}><Text style={styles.limitedText}>{copy("仅展示已授权照片 · 调整范围", "Showing selected photos · Manage access")}</Text></Pressable> : null}
           {current && !composerOpen ? <View style={styles.footer} pointerEvents="box-none">
             <Pressable accessibilityRole="button" style={({ pressed }) => [styles.dayChip, pressed && { opacity: 0.7 }]} onPress={() => { haptic.light(); setDayPickerFor(current); }}>
@@ -491,6 +507,8 @@ const styles = createStyles(() => ({
   primaryText: { color: theme.colors.onAccent, fontSize: 15, fontWeight: "700" },
   stage: { flex: 1 },
   photoPage: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 12, paddingVertical: 10 },
+  composerPhoto: { position: "absolute", top: 0, left: 0, right: 0, backgroundColor: theme.colors.canvas, zIndex: 5 },
+  composerPhotoImage: { width: "100%", height: "100%" },
   photoFrame: { width: "100%", flex: 1 },
   photo: { width: "100%", height: "100%", borderRadius: 14 },
   generatedBadge: { position: "absolute", top: 22, right: 24, minHeight: 30, paddingHorizontal: 10, borderRadius: 15, backgroundColor: theme.colors.surface, flexDirection: "row", alignItems: "center", gap: 4 },
@@ -500,7 +518,10 @@ const styles = createStyles(() => ({
   limitedBanner: { position: "absolute", top: 8, alignSelf: "center", paddingHorizontal: 12, paddingVertical: 6, borderRadius: 14, backgroundColor: theme.colors.surface },
   limitedText: { color: theme.colors.textSecondary, fontSize: 12 },
   footer: { position: "absolute", left: 0, right: 0, bottom: 14, alignItems: "center", gap: 10 },
-  dayChip: { minHeight: 36, paddingHorizontal: 14, borderRadius: 18, backgroundColor: theme.colors.surface, flexDirection: "row", alignItems: "center", gap: 6 },
+  // Outlined so it reads as a button (it opens that day's photos).
+  dayChip: { minHeight: 36, paddingHorizontal: 14, borderRadius: 18, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.borderStrong, flexDirection: "row", alignItems: "center", gap: 6 },
+  countHint: { position: "absolute", top: 58, right: 12, zIndex: 20, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 14, backgroundColor: theme.colors.ink },
+  countHintText: { color: theme.colors.onInk, fontSize: 12, fontWeight: "600" },
   dayChipText: { color: theme.colors.text, fontSize: 14, fontWeight: "600" },
   swipeHint: { minHeight: 36, paddingHorizontal: 12, flexDirection: "row", alignItems: "center", gap: 4 },
   swipeHintText: { color: theme.colors.textSecondary, fontSize: 13 },

@@ -17,7 +17,8 @@ import { MemoryPhotoBrowser } from "./home/MemoryPhotoBrowser";
 import { MemoryCollectionFilters } from "./home/MemoryCollectionFilters";
 import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { KeyboardAwareScrollView, useReanimatedKeyboardAnimation } from "react-native-keyboard-controller";
-import Reanimated, { FadeInDown, useAnimatedRef, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
+import Reanimated, { FadeInDown, runOnJS, useAnimatedRef, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { Surface, PressableSurface, TabUnderline, coverFillFor, useFirstAppearance } from "../components/surface/Surface";
 import { OioMascot, type OioMascotHandle } from "../components/sketch/OioMascot";
 import { haptic } from "../feedback/haptics";
@@ -159,6 +160,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
   const homeCopy = memoryHomeCopy(appLocale);
   const [homeTab, setHomeTab] = useState<MemoryHomeTab>("memory");
   const touchingCollectionFilters = useRef(false);
+  const touchingCollectionFiltersShared = useSharedValue(false);
   const [photoBrowser, setPhotoBrowser] = useState<"today" | "random" | null>(null);
   const [photoBrowserHidden, setPhotoBrowserHidden] = useState(false);
   const [photoSourceMenuVisible, setPhotoSourceMenuVisible] = useState(false);
@@ -1747,21 +1749,25 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
     Alert.alert(t("sidebar.assistant_members_only_title"), t("sidebar.assistant_members_only_message"));
   };
 
-  const homeTabsResponder = useMemo(() => PanResponder.create({
-    onMoveShouldSetPanResponder: (_event, gesture) => Boolean(
-      isActive && !sidebarVisible && !searchVisible && !composerVisible && !quickNoteExpanded
-      && !photoBrowser && !selectingRecords && !touchingCollectionFilters.current && libraryView !== TRASH_VIEW && homeTab !== "blind"
-      && gesture.x0 > 28 && Math.abs(gesture.dx) > 20
-      && Math.abs(gesture.dx) > Math.abs(gesture.dy) * 1.8
-    ),
-    onPanResponderRelease: (_event, gesture) => {
-      setHomeTab(current => {
-        const next = swipedMemoryTab(current, gesture.dx, gesture.dy);
-        if (next !== current) haptic.select();
-        return next;
-      });
-    },
-  }), [isActive, sidebarVisible, searchVisible, composerVisible, quickNoteExpanded, photoBrowser, selectingRecords, libraryView, homeTab]);
+  // Left / right swipe switches home tabs. A gesture-handler pan runs alongside
+  // the lists' native vertical scrolling (a PanResponder never got the touch).
+  const switchHomeTab = useCallback((dx: number, dy: number) => {
+    setHomeTab((current) => {
+      const next = swipedMemoryTab(current, dx, dy);
+      if (next !== current) haptic.select();
+      return next;
+    });
+  }, []);
+  const homeTabsSwipeEnabled = isActive && !sidebarVisible && !searchVisible && !composerVisible && !quickNoteExpanded
+    && !photoBrowser && !selectingRecords && libraryView !== TRASH_VIEW;
+  const homeTabsSwipe = useMemo(() => Gesture.Pan()
+    .enabled(homeTabsSwipeEnabled)
+    .activeOffsetX([-24, 24])
+    .failOffsetY([-14, 14])
+    .onEnd((event) => {
+      if (touchingCollectionFiltersShared.value) return;
+      runOnJS(switchHomeTab)(event.translationX, event.translationY);
+    }), [homeTabsSwipeEnabled, switchHomeTab, touchingCollectionFiltersShared]);
 
 
   const quickNoteExplicitLineCount = draft.text.split("\n").length;
@@ -1821,11 +1827,11 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
         </View>
       </View>
 
-      <View style={{ flex: 1 }} {...homeTabsResponder.panHandlers}>
-      {!selectingRecords && editorialHome ? <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 4 }}><View style={{ flex: 1, minWidth: 0 }}><MemoryCollectionFilters editorial={editorialHome} collections={collections} selected={libraryView} onSelect={selectLibraryView} onTouching={value => { touchingCollectionFilters.current = value; }} /></View><Pressable accessibilityRole="button" accessibilityLabel={t("library.display_options")} hitSlop={6} style={[styles.headerIconButton, { marginRight: 10 }]} onPress={chooseLibraryAction}><Icon name="ellipsis-horizontal" size={21} color={theme.colors.textSecondary} /></Pressable></View> : null}
-      {homeTab === "podcast" && libraryView !== TRASH_VIEW && !selectingRecords ? <PodcastHome collections={collections} bottomInset={screenInsets.bottom} onOpenPlayer={() => setPodcastPlayerVisible(true)} /> : homeTab === "blind" && libraryView !== TRASH_VIEW && !selectingRecords ? <ScrollView style={{ flex: 1, minHeight: 0 }} contentContainerStyle={styles.memoryLanding}>
+      <GestureDetector gesture={homeTabsSwipe}><View style={{ flex: 1 }}>
+      {!selectingRecords && editorialHome ? <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 4 }}><View style={{ flex: 1, minWidth: 0 }}><MemoryCollectionFilters editorial={editorialHome} collections={collections} selected={libraryView} onSelect={selectLibraryView} onTouching={value => { touchingCollectionFilters.current = value; touchingCollectionFiltersShared.value = value; }} /></View><Pressable accessibilityRole="button" accessibilityLabel={t("library.display_options")} hitSlop={6} style={[styles.headerIconButton, { marginRight: 10 }]} onPress={chooseLibraryAction}><Icon name="ellipsis-horizontal" size={21} color={theme.colors.textSecondary} /></Pressable></View> : null}
+      {homeTab === "podcast" && libraryView !== TRASH_VIEW && !selectingRecords ? <PodcastHome collections={collections} bottomInset={screenInsets.bottom} onOpenPlayer={() => setPodcastPlayerVisible(true)} /> : homeTab === "blind" && libraryView !== TRASH_VIEW && !selectingRecords ? <View style={{ flex: 1, minHeight: 0 }}>
         <BlindBoxHome records={recordsScope === queryScope ? records : []} loading={loading || loadingMore} hasMore={recordsScope === queryScope && Boolean(nextCursor)} onLoadMore={() => void loadMore()} onStart={startBlindBoxSet} />
-      </ScrollView> : <>
+      </View> : <>
       {!selectingRecords && libraryView !== TRASH_VIEW && homeTab === "today" ? <TodayDayBar
         day={shownDay}
         today={localDay}
@@ -1872,7 +1878,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
         ListFooterComponent={loadingMore ? <ActivityIndicator color={theme.colors.accentStrong} style={styles.loadMoreIndicator} /> : loadMoreError ? <Pressable accessibilityRole="button" onPress={() => void loadMore()} style={{ minHeight: 44, padding: 16, alignItems: "center" }}><Text style={{ color: theme.colors.textMuted }}>{t("main.error.network_retry")}</Text><Text style={{ color: theme.colors.accentStrong }}>{t("common.retry")}</Text></Pressable> : null}
       />
       </>}
-      </View>
+      </View></GestureDetector>
       <RecordActionSheet
         record={recordActionMenu?.record ?? null}
         trash={libraryView === TRASH_VIEW}
@@ -1882,7 +1888,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
         onMove={(record) => { setRecordActionMenu(null); openMoveActions(record); }}
         onDelete={(record) => { setRecordActionMenu(null); confirmDelete(record.id); }}
       />
-      {!selectingRecords && libraryView !== TRASH_VIEW ? <PodcastMiniPlayer bottom={homeTab === "podcast" ? Math.max(screenInsets.bottom + 10, 14) : Math.max(screenInsets.bottom + 10, 14) + 74} onOpen={() => setPodcastPlayerVisible(true)} /> : null}
+      {!selectingRecords && libraryView !== TRASH_VIEW ? <PodcastMiniPlayer showResume={homeTab === "podcast"} bottom={homeTab === "podcast" ? Math.max(screenInsets.bottom + 10, 14) : Math.max(screenInsets.bottom + 10, 14) + 74} onOpen={() => setPodcastPlayerVisible(true)} /> : null}
       <PodcastPlayer visible={podcastPlayerVisible} onClose={() => setPodcastPlayerVisible(false)} />
       {!selectingRecords && libraryView !== TRASH_VIEW && homeTab !== "podcast" ? <Surface radius={28} fill={theme.colors.surface} style={[styles.memoryEntryDock, { bottom: Math.max(screenInsets.bottom + 10, 14) }]}>
         <Pressable accessibilityRole="button" accessibilityLabel={t("card_detail.photo.camera")} style={({ pressed }) => [styles.memoryPhotoShortcut, pressed && styles.memoryPhotoShortcutPressed]} onPress={() => { haptic.medium(); void captureMemoryPhoto(); }}>

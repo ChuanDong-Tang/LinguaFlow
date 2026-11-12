@@ -1,4 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { AppState } from "react-native";
+import { playCardTransitionSound } from "../audio/gameFeedbackAudio";
 import { useSyncExternalStore } from "react";
 import { alignCardSpeechMarks } from "@lf/core/text/cardSpeechText";
 import { getCardArticleAudio, getCardAudioTimeline, getCardRecord, type CardRecordDetail } from "../api/cardApi";
@@ -140,7 +142,14 @@ async function playIndex(index: number): Promise<void> {
     const { detail, block, audio, sentences } = card;
     const entryId = detail.id.replace(/^card:/u, "");
     const coverUrl = detail.thumbnail?.url ?? detail.images?.[0]?.url ?? null;
+    const movedOn = state.current !== null && state.current.recordId !== recordId;
     set({ current: { recordId, title: detail.displayTitle || block.text.slice(0, 24), coverUrl, text: block.text, sentences }, loading: false });
+    // A short cue when the next card starts, so the switch is noticeable (foreground only).
+    if (movedOn && AppState.currentState === "active") {
+      void playCardTransitionSound().catch(() => undefined);
+      await new Promise((resolve) => setTimeout(resolve, 380));
+      if (!isTtsPlaybackSessionCurrent(session)) return;
+    }
     countCardEncounter(recordId);
     // Get the next card ready while this one plays.
     const nextId = state.queue[index + 1];

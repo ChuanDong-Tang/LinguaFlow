@@ -1,18 +1,23 @@
-import React, { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import React, { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import { runOnJS } from "react-native-reanimated";
 import { ActivityIndicator, Image, Modal, Pressable, ScrollView, View } from "react-native";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import { Moon, Repeat, RepeatOnce, Shuffle, SkipBack, SkipForward, Star } from "phosphor-react-native";
 import { Text } from "../../components/Typography";
 import { Icon } from "../../components/Icon";
 import { haptic } from "../../feedback/haptics";
-import { t } from "../../i18n";
+import { t, tf } from "../../i18n";
 import { theme } from "../../theme";
 import { createStyles } from "../../styles";
 import { setCardFavorite } from "../../services/api/cardApi";
 import { cycleTtsPlaybackRate, getTtsPlaybackState, seekTtsPlayback, subscribeTtsPlayback } from "../../services/tts/ttsPlayback";
 import {
   currentSentenceIndex,
+  loadRecentPodcasts,
+  playPodcast,
   playSentence,
+  type PodcastPlaylist,
   podcastNext,
   podcastOwnsAudio,
   podcastPrevious,
@@ -47,14 +52,37 @@ function formatMs(ms: number): string {
 }
 
 /** Bar above the dock while a podcast is playing; tap to open the player. */
-export function PodcastMiniPlayer({ bottom, onOpen }: { bottom: number; onOpen: () => void }) {
+export function PodcastMiniPlayer({ bottom, onOpen, showResume = false }: { bottom: number; onOpen: () => void; showResume?: boolean }) {
   const podcast = usePodcast();
   const tts = useTts();
   const [favorite, toggleFavorite] = useFavorite(podcast.current?.recordId);
-  if (!podcast.current && !podcast.loading) return null;
+  // On the podcast tab the bar stays, Spotify-style: with nothing playing it
+  // offers the last playlist to resume.
+  const [lastPlaylist, setLastPlaylist] = useState<PodcastPlaylist | null>(null);
+  useEffect(() => {
+    if (!showResume || podcast.current) return;
+    let active = true;
+    void loadRecentPodcasts().then((recent) => { if (active) setLastPlaylist(recent[0] ?? null); });
+    return () => { active = false; };
+  }, [podcast.current, showResume]);
+  const swipeUpOpen = useMemo(() => Gesture.Pan().activeOffsetY(-16).onEnd((event) => { if (event.translationY < -40) runOnJS(onOpen)(); }), [onOpen]);
+  if (!podcast.current && !podcast.loading) {
+    if (!showResume || !lastPlaylist) return null;
+    const resume = () => { haptic.light(); void playPodcast(lastPlaylist); onOpen(); };
+    return <GestureDetector gesture={swipeUpOpen}><Pressable accessibilityRole="button" accessibilityLabel={t("podcast.resume_last")} onPress={resume} style={[styles.mini, { bottom }]}>
+      {lastPlaylist.coverUrl ? <Image source={{ uri: lastPlaylist.coverUrl }} style={styles.miniCover} /> : <View style={[styles.miniCover, styles.coverPlaceholder]}><Icon name="headset-outline" size={18} color={theme.colors.textMuted} /></View>}
+      <View style={styles.miniText}>
+        <Text numberOfLines={1} style={styles.miniTitle}>{lastPlaylist.title}</Text>
+        <Text numberOfLines={1} style={styles.miniList}>{t("podcast.last_played")} · {tf("podcast.cards_count", { count: lastPlaylist.recordIds.length })}</Text>
+      </View>
+      <Pressable accessibilityRole="button" accessibilityLabel={t("podcast.resume_last")} hitSlop={8} style={styles.miniButton} onPress={resume}>
+        <Icon name="play" size={24} color={theme.colors.text} />
+      </Pressable>
+    </Pressable></GestureDetector>;
+  }
   const playing = podcastOwnsAudio() && tts.status === "playing";
   const progress = tts.durationMs ? Math.min(1, tts.positionMs / tts.durationMs) : 0;
-  return <Pressable accessibilityRole="button" accessibilityLabel={t("podcast.open_player")} onPress={onOpen} style={[styles.mini, { bottom }]}>
+  return <GestureDetector gesture={swipeUpOpen}><Pressable accessibilityRole="button" accessibilityLabel={t("podcast.open_player")} onPress={onOpen} style={[styles.mini, { bottom }]}>
     {podcast.current?.coverUrl ? <Image source={{ uri: podcast.current.coverUrl }} style={styles.miniCover} /> : <View style={[styles.miniCover, styles.coverPlaceholder]}><Icon name="headset-outline" size={18} color={theme.colors.textMuted} /></View>}
     <View style={styles.miniText}>
       <Text numberOfLines={1} style={styles.miniTitle}>{podcast.current?.title ?? t("podcast.loading")}</Text>
@@ -67,7 +95,7 @@ export function PodcastMiniPlayer({ bottom, onOpen }: { bottom: number; onOpen: 
       {podcast.loading || tts.status === "loading" ? <ActivityIndicator color={theme.colors.text} /> : <Icon name={playing ? "pause" : "play"} size={24} color={theme.colors.text} />}
     </Pressable>
     <View style={styles.miniProgress}><View style={[styles.miniProgressFill, { width: `${progress * 100}%` }]} /></View>
-  </Pressable>;
+  </Pressable></GestureDetector>;
 }
 
 /** Full-screen player: subtitles, cover, progress and controls. */
