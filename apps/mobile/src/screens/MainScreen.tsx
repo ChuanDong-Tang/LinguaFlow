@@ -24,7 +24,8 @@ import { OioMascot, type OioMascotHandle } from "../components/sketch/OioMascot"
 import { haptic } from "../feedback/haptics";
 import { motion } from "../motion";
 import OioCharacter from "../../assets/app/oio-character.svg";
-import { Camera, ClockCounterClockwise, Eye, Gift, ImagesSquare, SunHorizon, TrayArrowDown } from "phosphor-react-native";
+import { Camera, Eye, Gift, ImagesSquare, SunHorizon } from "phosphor-react-native";
+import OioRecall from "../../assets/app/oio-recall.svg";
 import { ProgressRing } from "../components/ProgressRing";
 import { cardProgressRing } from "../domain/practice/cardProgressRing";
 import { isBlindBoxPlayable } from "../domain/blindBox/pickSentence";
@@ -33,7 +34,8 @@ import { PracticeSetSummary } from "../components/PracticeSetSummary";
 import { endPracticeSession, startPracticeSession, type PracticeSessionSummary } from "../services/practice/practiceSession";
 import { focusedCoverRect, homeCoverAspect } from "../domain/card/coverAspect";
 import { historyChipLabel, TodayDayBar } from "./home/TodayDayBar";
-import { historyDays, relativeDayLabel, type HistoryDay } from "./home/todayDays";
+import { historyDays, relativeDayLabel, shiftDay, type HistoryDay } from "./home/todayDays";
+import { subscribeReminderOpens } from "../services/reminders/memoryReminders";
 import Sortable from "react-native-sortables";
 import { FlashList, type FlashListRef } from "@shopify/flash-list";
 import {
@@ -1390,6 +1392,14 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
     onOpenCard(ids[0]!, "cloze", undefined, { browseRecordIds: ids, closeOnBrowseFinish: true, onBrowseSetFinished: () => undefined, onBrowseClosed: () => markHistoryVisited(day.dateKey) });
   }
 
+  // A tapped 回忆提醒 opens 今日, or last week's day as a 历史今日 stack.
+  useEffect(() => subscribeReminderOpens((kind) => {
+    setHomeTab("today");
+    setViewDay(null);
+    if (kind === "lastWeek") openHistoryDay({ key: "week", dateKey: shiftDay(toDateKey(new Date()), -7) });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), []);
+
   // 盲盒 game: one sentence per card, with photos; a 战绩 summary when the set ends.
   const [blindBoxSummary, setBlindBoxSummary] = useState<PracticeSessionSummary | null>(null);
   const lastBlindBoxIdsRef = useRef<string[]>([]);
@@ -1569,8 +1579,13 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
     ]);
   }
 
+  // Long-press works like a photo album: start multi-select with this card
+  // picked (move / delete from the bar). The trash keeps its restore menu.
   function openRecordActions(record: CardRecordSummary, anchor: RecordActionAnchor): void {
-    setRecordActionMenu({ record, anchor });
+    if (libraryView === TRASH_VIEW || record.isSample) { setRecordActionMenu({ record, anchor }); return; }
+    haptic.medium();
+    setSelectingRecords(true);
+    setSelectedRecordIds(new Set([record.id]));
   }
 
   function restoreFromTrash(recordId: string): void {
@@ -1671,12 +1686,6 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
   function chooseLibraryAction(): void {
     haptic.light();
     setLibraryMenuVisible(true);
-  }
-
-  function enterRecordSelection(): void {
-    setLibraryMenuVisible(false);
-    setSelectingRecords(true);
-    setSelectedRecordIds(new Set());
   }
 
   function selectLibrarySort(mode: "shuffle" | "newest" | "oldest"): void {
@@ -1949,12 +1958,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
                   <Text style={[styles.displayMenuOptionText, practiceFilter === value && styles.displayMenuOptionTextOn]}>{t(`library.filter_practice_${value}`)}</Text>
                 </Pressable>)}
               </View>
-              <View style={styles.libraryMenuDivider} />
-              {/* Same size as the options above (it used the old sidebar row style). */}
-              <Pressable accessibilityRole="button" style={styles.displayMenuOption} onPress={enterRecordSelection}>
-                <Icon name="checkmark-circle-outline" size={17} color={theme.colors.text} />
-                <Text style={styles.displayMenuOptionText}>{t("library.multi_select")}</Text>
-              </Pressable>
+              {/* 选择卡片 moved to long-press on a card (like a photo album). */}
             </Pressable>
           </Surface>
         </Pressable>
@@ -2665,8 +2669,9 @@ function LibrarySidebar({ visible, activeView, collections, profile, entitlement
               muted={!assistantAvailable}
               onPress={assistantAvailable ? onOpenAssistant : () => Alert.alert(t("sidebar.assistant_members_only_title"), t("sidebar.assistant_members_only_message"))}
             />
-            <SidebarRow leading={<ClockCounterClockwise size={22} color={theme.colors.textStrong} weight="duotone" />} label={t("sidebar.recall")} onPress={onOpenRecall} />
-            <SidebarRow leading={<TrayArrowDown size={22} color={theme.colors.textStrong} weight="duotone" />} label={t("sidebar.import_corpus")} muted={entitlement?.tier !== "pro"} onPress={entitlement?.tier === "pro" ? onOpenCorpus : () => Alert.alert(t("sidebar.pro_required_title"), t("sidebar.pro_required_message"))} />
+            {/* The earlier icons the team preferred: OIO's recall clock and a document. */}
+            <SidebarRow leading={<OioRecall width={27} height={25} />} label={t("sidebar.recall")} onPress={onOpenRecall} />
+            <SidebarRow icon="document-text-outline" label={t("sidebar.import_corpus")} muted={entitlement?.tier !== "pro"} onPress={entitlement?.tier === "pro" ? onOpenCorpus : () => Alert.alert(t("sidebar.pro_required_title"), t("sidebar.pro_required_message"))} />
           </View>
 
           <View style={[styles.sidebarCollectionSection, styles.sidebarCollectionContent]}>

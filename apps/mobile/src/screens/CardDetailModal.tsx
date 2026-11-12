@@ -2940,7 +2940,8 @@ function Review({ sentencePractice = false, onSentenceDone, practiceCommand, rev
   }
 
   function cycleDisplayMode(): void {
-    const next = displayMode === "auxiliary" ? "target" : "auxiliary";
+    // 英文 → 对照 (each English sentence with its own Chinese below) → 原文 → 英文.
+    const next: ContentDisplayMode = displayMode === "target" ? "bilingual" : displayMode === "bilingual" ? "auxiliary" : "target";
     setDisplayMode(next);
     if (next === "target" || auxiliaryLoading || !onActivateLearningContent) return;
     const activeBlock = detail.contentBlocks.find((block) => block.contentType === contentBinding.contentType && block.contentVersion === contentBinding.contentVersion);
@@ -3591,6 +3592,46 @@ function Review({ sentencePractice = false, onSentenceDone, practiceCommand, rev
     after: recommendationSegment.text.slice(recommendationTaskItem.endUtf16),
   } : null;
 
+  // Reading page bottom: folder, ask-OIO, 相关回忆, time / copy / ★ / 👁.
+  // Also shown under the lyrics in 播放 so you can go on to other cards.
+  const readingBottom = <>
+          {!detail.isSample ? <View style={styles.readingMeta}>
+            <View style={styles.readingTagRow}>
+              <Pressable disabled={!onUpdateMetadata || metadataSaving} accessibilityRole="button" style={({ pressed }) => [styles.readingTag, pressed && styles.metadataPressed]} onPress={() => setCollectionPickerVisible(true)}>
+                <Text numberOfLines={1} style={styles.readingTagText}># {collectionLabel}</Text>
+              </Pressable>
+              {/* No reply yet: tap OIO to get one. */}
+              {!detail.replyText && detail.originalText.trim() ? <Pressable accessibilityRole="button" accessibilityLabel={t(replyFailed ? "common.retry" : "chat.settings.generate_reply")} hitSlop={8} disabled={!onRetryGeneration || replyGenerating || retryingGenerationTarget !== null} style={({ pressed }) => [styles.replyAsk, pressed && styles.metadataPressed]} onPress={() => { haptic.light(); onRetryGeneration?.("reply"); }}>
+                {replyGenerating ? <ActivityIndicator size="small" color={theme.colors.textSecondary} /> : <Text style={styles.replyAskHint}>{t(replyFailed ? "common.retry" : "card_detail.ask_oio_reply")}</Text>}
+                <OioMascot size={28} idle={!replyGenerating} />
+              </Pressable> : null}
+            </View>
+            {detail.topic?.trim() ? <Pressable accessibilityRole="button" style={({ pressed }) => [styles.relatedRow, pressed && styles.metadataPressed]} onPress={() => { haptic.light(); setRelatedFeedVisible(true); }}>
+              <Icon name="search-outline" size={16} color={theme.colors.textSecondary} />
+              <Text style={styles.relatedLabel}>{t("card_detail.related_memories")}</Text>
+              {/* A short theme keyword, not the title (old cards have none: label only). */}
+              <Text numberOfLines={1} style={styles.relatedKeyword}>{detail.themeKeyword?.trim() ?? ""}</Text>
+              <Icon name="chevron-forward" size={15} color={theme.colors.textMuted} />
+            </Pressable> : null}
+          </View> : null}
+          <View style={styles.readingFooter}>
+            <Pressable disabled={!onUpdateMetadata} hitSlop={6} onPress={() => setRecordTimeEditorVisible(true)}>
+              <Text style={styles.readingFooterTime}>{formatDate(memoryDateKey)} · {formatTime(memoryTime)}</Text>
+            </Pressable>
+            <View style={styles.readingFooterActions}>
+              {primaryText.trim() ? <Pressable accessibilityRole="button" accessibilityLabel={t("card_detail.copy")} hitSlop={6} style={styles.footerIcon} onPress={() => void copySection(primaryText)}>
+                <Icon name="copy-outline" size={19} color={theme.colors.textSecondary} />
+              </Pressable> : null}
+              {!detail.isSample ? <Pressable accessibilityRole="button" accessibilityLabel={t(favorited ? "card_detail.unfavorite" : "card_detail.favorite")} accessibilityState={{ selected: favorited }} hitSlop={6} style={styles.footerIcon} onPress={toggleFavorite}>
+                <Star size={20} color={favorited ? theme.colors.text : theme.colors.textSecondary} weight={favorited ? "fill" : "regular"} />
+              </Pressable> : null}
+              {encounterCount !== undefined && !detail.isSample ? <View style={styles.footerEncounter} accessibilityLabel={tf("library.encounter_count", { count: encounterCount })}>
+                <Eye size={16} color={theme.colors.textMuted} />
+                <Text style={styles.footerEncounterText}>{encounterCount}</Text>
+              </View> : null}
+            </View>
+          </View>
+  </>;
   if (playbackMode) {
     const playbackArtworkUri = playbackImage?.thumbnail?.url ?? detail.thumbnail?.url ?? playbackImage?.url;
     const playbackBelongsToCard = Boolean(
@@ -3645,7 +3686,7 @@ function Review({ sentencePractice = false, onSentenceDone, practiceCommand, rev
               {displayMode !== "target" && auxiliary ? <Text style={styles.cardPlaybackAuxiliary}>{auxiliary}</Text> : null}
             </Pressable>;
           })}
-
+          <View style={styles.cardPlaybackBottom}>{readingBottom}</View>
         </ScrollView>
       </View>
       <View style={styles.cardPlaybackBar}>
@@ -3845,8 +3886,11 @@ function Review({ sentencePractice = false, onSentenceDone, practiceCommand, rev
           </Pressable> : null}
           {detail.displayTitle.trim() || primaryTextBlock ? <View style={styles.readingTitleRow}>
             <Text numberOfLines={3} style={styles.readingTitle}>{detail.displayTitle}</Text>
-            {primaryTextBlock && detail.originalText.trim() && (detail.mode === "corpus" || detail.rewrittenText) ? <Pressable accessibilityRole="button" accessibilityLabel={t(displayMode === "auxiliary" ? "card_detail.flip_back" : "card_detail.flip_original")} accessibilityState={{ selected: displayMode === "auxiliary" }} hitSlop={8} disabled={auxiliaryLoading} style={({ pressed }) => [styles.flipButton, displayMode === "auxiliary" && styles.flipButtonOn, pressed && { opacity: 0.7 }]} onPress={() => { haptic.select(); cycleDisplayMode(); }}>
-              {auxiliaryLoading ? <ActivityIndicator size="small" color={theme.colors.textSecondary} /> : <Icon name="sync-outline" size={17} color={displayMode === "auxiliary" ? theme.colors.onAccent : theme.colors.text} />}
+            {primaryTextBlock && detail.originalText.trim() && (detail.mode === "corpus" || detail.rewrittenText) ? <Pressable accessibilityRole="button" accessibilityLabel={t("card_detail.flip_original")} accessibilityState={{ selected: displayMode !== "target" }} hitSlop={8} disabled={auxiliaryLoading} style={({ pressed }) => [styles.flipButton, styles.flipPill, displayMode !== "target" && styles.flipButtonOn, pressed && { opacity: 0.7 }]} onPress={() => { haptic.select(); cycleDisplayMode(); }}>
+              {auxiliaryLoading ? <ActivityIndicator size="small" color={theme.colors.textSecondary} /> : <>
+                <Icon name="sync-outline" size={14} color={displayMode !== "target" ? theme.colors.onAccent : theme.colors.text} />
+                <Text style={[styles.flipPillText, displayMode !== "target" && { color: theme.colors.onAccent }]}>{t(displayMode === "target" ? "card_detail.display.english" : displayMode === "bilingual" ? "card_detail.display.bilingual" : "card_detail.display.original")}</Text>
+              </>}
             </Pressable> : null}
           </View> : null}
           {!detail.originalText.trim() && onSaveOriginal ? <View style={styles.moduleComposer}>
@@ -3896,42 +3940,7 @@ function Review({ sentencePractice = false, onSentenceDone, practiceCommand, rev
             <OioMascot size={26} idle={false} />
             {renderLearningBlock(replyBlock)}
           </View> : null}
-          {!detail.isSample && !focusSegmentId ? <View style={styles.readingMeta}>
-            <View style={styles.readingTagRow}>
-              <Pressable disabled={!onUpdateMetadata || metadataSaving} accessibilityRole="button" style={({ pressed }) => [styles.readingTag, pressed && styles.metadataPressed]} onPress={() => setCollectionPickerVisible(true)}>
-                <Text numberOfLines={1} style={styles.readingTagText}># {collectionLabel}</Text>
-              </Pressable>
-              {/* No reply yet: tap OIO to get one. */}
-              {!detail.replyText && detail.originalText.trim() ? <Pressable accessibilityRole="button" accessibilityLabel={t(replyFailed ? "common.retry" : "chat.settings.generate_reply")} hitSlop={8} disabled={!onRetryGeneration || replyGenerating || retryingGenerationTarget !== null} style={({ pressed }) => [styles.replyAsk, pressed && styles.metadataPressed]} onPress={() => { haptic.light(); onRetryGeneration?.("reply"); }}>
-                {replyGenerating ? <ActivityIndicator size="small" color={theme.colors.textSecondary} /> : <Text style={styles.replyAskHint}>{t(replyFailed ? "common.retry" : "card_detail.ask_oio_reply")}</Text>}
-                <OioMascot size={28} idle={!replyGenerating} />
-              </Pressable> : null}
-            </View>
-            {detail.topic?.trim() ? <Pressable accessibilityRole="button" style={({ pressed }) => [styles.relatedRow, pressed && styles.metadataPressed]} onPress={() => { haptic.light(); setRelatedFeedVisible(true); }}>
-              <Icon name="search-outline" size={16} color={theme.colors.textSecondary} />
-              <Text style={styles.relatedLabel}>{t("card_detail.related_memories")}</Text>
-              {/* A short theme keyword, not the title (old cards have none: label only). */}
-              <Text numberOfLines={1} style={styles.relatedKeyword}>{detail.themeKeyword?.trim() ?? ""}</Text>
-              <Icon name="chevron-forward" size={15} color={theme.colors.textMuted} />
-            </Pressable> : null}
-          </View> : null}
-          {focusSegmentId ? null : <View style={styles.readingFooter}>
-            <Pressable disabled={!onUpdateMetadata} hitSlop={6} onPress={() => setRecordTimeEditorVisible(true)}>
-              <Text style={styles.readingFooterTime}>{formatDate(memoryDateKey)} · {formatTime(memoryTime)}</Text>
-            </Pressable>
-            <View style={styles.readingFooterActions}>
-              {primaryText.trim() ? <Pressable accessibilityRole="button" accessibilityLabel={t("card_detail.copy")} hitSlop={6} style={styles.footerIcon} onPress={() => void copySection(primaryText)}>
-                <Icon name="copy-outline" size={19} color={theme.colors.textSecondary} />
-              </Pressable> : null}
-              {!detail.isSample ? <Pressable accessibilityRole="button" accessibilityLabel={t(favorited ? "card_detail.unfavorite" : "card_detail.favorite")} accessibilityState={{ selected: favorited }} hitSlop={6} style={styles.footerIcon} onPress={toggleFavorite}>
-                <Star size={20} color={favorited ? theme.colors.text : theme.colors.textSecondary} weight={favorited ? "fill" : "regular"} />
-              </Pressable> : null}
-              {encounterCount !== undefined && !detail.isSample ? <View style={styles.footerEncounter} accessibilityLabel={tf("library.encounter_count", { count: encounterCount })}>
-                <Eye size={16} color={theme.colors.textMuted} />
-                <Text style={styles.footerEncounterText}>{encounterCount}</Text>
-              </View> : null}
-            </View>
-          </View>}
+          {focusSegmentId ? null : readingBottom}
           </View>
         </KeyboardAwareScrollView>
       </View>
@@ -5669,11 +5678,14 @@ const styles = createStyles(() => ({
   readingTitle: { flex: 1, color: theme.colors.text, fontSize: 21, lineHeight: 29, fontWeight: "700" },
   flipButton: { width: 34, height: 34, marginTop: -2, borderRadius: 17, backgroundColor: theme.colors.fill2, alignItems: "center", justifyContent: "center" },
   flipButtonOn: { backgroundColor: theme.colors.accent },
+  flipPill: { width: undefined, paddingHorizontal: 10, flexDirection: "row", gap: 4 },
+  flipPillText: { color: theme.colors.text, fontSize: 12, fontWeight: "700" },
   readingBody: { marginTop: 6 },
   replyBubble: { marginTop: 22, padding: 12, borderRadius: 14, backgroundColor: theme.colors.fill1, gap: 6 },
   readingMeta: { marginTop: 26, gap: 10 },
   setProgress: { height: 4, marginHorizontal: 20, marginBottom: 6, borderRadius: 2, backgroundColor: theme.colors.fill2, overflow: "hidden" },
   setProgressFill: { height: 4, borderRadius: 2, backgroundColor: theme.colors.accent },
+  cardPlaybackBottom: { marginTop: 8, paddingBottom: 24 },
   readingTagRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
   readingTag: { flexShrink: 1, paddingVertical: 4 },
   replyAsk: { flexDirection: "row", alignItems: "center", gap: 6 },

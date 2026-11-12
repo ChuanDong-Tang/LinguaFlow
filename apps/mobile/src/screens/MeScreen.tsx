@@ -1,3 +1,5 @@
+import { ReminderSettingsSheet, reminderSummary } from "./me/ReminderSettingsSheet";
+import { DEFAULT_REMINDERS, loadReminderSettings, type ReminderSettings } from "../services/reminders/memoryReminders";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, Alert, Image, Modal, Platform, Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from "react-native";
 import { Text, TextInput } from "../components/Typography";
@@ -65,6 +67,9 @@ const UPDATE_LOG_KEYWORDS = ["error", "fail", "exception", "crash", "rollback", 
 const UPDATE_ID_PATTERN = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi;
 
 export function MeScreen({ isActive, onOpenAbout, onApplyAppLocale, sessionRevision, onBindEmail, onLogout, onDeleteAccount, onClose }: MeScreenProps) {
+  const [remindersVisible, setRemindersVisible] = useState(false);
+  const [reminders, setReminders] = useState<ReminderSettings>(DEFAULT_REMINDERS);
+  useEffect(() => { void loadReminderSettings().then(setReminders); }, []);
   const { size: fontSize } = useFontSize();
   const [appearanceChoice, setAppearanceChoice] = useState<AppearancePreference>(appearance.preference);
   const { isMounted } = useMountedGuard();
@@ -310,12 +315,14 @@ export function MeScreen({ isActive, onOpenAbout, onApplyAppLocale, sessionRevis
               }} style={[fontStyles.option, option === appearanceChoice && fontStyles.selected]}><Text style={{ color: option === appearanceChoice ? theme.colors.onInk : theme.colors.text }}>{t(`me.appearance.${option}`)}</Text></Pressable>)}
             </View>
           </View>
+          <SettingsRow icon="notifications-outline" label={t("reminders.title")} value={reminderSummary(reminders)} onPress={() => setRemindersVisible(true)} />
           <SettingsRow icon="chatbox-ellipses-outline" label={t("feedback.title")} onPress={() => setFeedbackVisible(true)} />
           <SettingsRow icon="information-circle-outline" label={t("me.about")} onPress={onOpenAbout} />
           <SettingsRow icon="log-out-outline" label={t("me.logout")} onPress={onLogout} />
           <SettingsRow icon="person-remove-outline" label={t("me.delete_account")} onPress={onDeleteAccount} tone="danger" isLast />
         </View>
       </ScrollView>
+      <ReminderSettingsSheet visible={remindersVisible} onClose={() => setRemindersVisible(false)} onChanged={setReminders} />
       <Modal
         visible={subscriptionManagerVisible}
         animationType="slide"

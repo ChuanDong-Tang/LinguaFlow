@@ -46,7 +46,9 @@ module.exports = {
       package: "com.yueyantech.oio",
       versionCode: 62,
       allowBackup: false,
-      permissions: ["RECORD_AUDIO"],
+      // POST_NOTIFICATIONS: local 回忆提醒 (Android 13+). expo-notifications is used
+      // without its config plugin, so iOS gets no push entitlement (local only).
+      permissions: ["RECORD_AUDIO", "POST_NOTIFICATIONS"],
       blockedPermissions: [
         "android.permission.READ_MEDIA_VIDEO",
         "android.permission.READ_MEDIA_AUDIO",

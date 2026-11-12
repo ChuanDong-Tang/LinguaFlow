@@ -83,8 +83,12 @@ export function isDarkAppearance() {
 // values in place (applyAppearancePalette) and regenerates createStyles()
 // sheets, so module-level imports of `theme` stay valid.
 const palette = { ...(isDarkAppearance() ? darkPalette : lightPalette) };
-// Text-only card covers: soft neutral tints picked by a stable hash of the id.
-const PENCIL_FILLS = { light: ["#F3F3F5", "#EEF5F0", "#F5F1EC", "#EEF1F6"], dark: ["#24242A", "#1E2A22", "#2A2620", "#20242C"] };
+// Text-only card covers: light, fresh Morandi tints (2026-11 feedback: not
+// dull; cream #FDFCF9), picked by a stable hash of the id.
+const PENCIL_FILLS = {
+  light: ["#FDFCF9", "#EEF5F0", "#EDF2F8", "#F8F0EE", "#F3F1F8", "#F6F4EA"],
+  dark: ["#24242A", "#1E2A22", "#20242C", "#2A2224", "#25222B", "#28271F"],
+};
 
 function paletteColors() {
   return {
