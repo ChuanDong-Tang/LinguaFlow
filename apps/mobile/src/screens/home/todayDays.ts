@@ -28,10 +28,13 @@ export function relativeDayLabel(day: string, today: string, locale: string): st
   return zh ? `${ago}天前` : ja ? `${ago}日前` : `${ago} days ago`;
 }
 
-export type HistoryDay = { key: string; dateKey: string };
+export type HistoryDay = { key: string; dateKey: string; years?: number };
 
-/** 1 week / 1 month / 1–3 years before today (same calendar day; Feb 29 falls back to Feb 28). */
-export function historyDays(today: string): HistoryDay[] {
+/**
+ * 历史今日 shortcuts, farthest first: N年前 … 2年前, 1年前, 1月前, 1周前 (same
+ * calendar day; Feb 29 falls back to Feb 28). The caller keeps days with cards.
+ */
+export function historyDays(today: string, maxYears = 10): HistoryDay[] {
   const base = dayOf(today);
   const monthsBack = (months: number) => {
     const date = new Date(base.getFullYear(), base.getMonth() - months, 1, 12);
@@ -39,11 +42,7 @@ export function historyDays(today: string): HistoryDay[] {
     date.setDate(Math.min(base.getDate(), lastDay));
     return dateKeyOf(date);
   };
-  return [
-    { key: "week", dateKey: shiftDay(today, -7) },
-    { key: "month", dateKey: monthsBack(1) },
-    { key: "year1", dateKey: monthsBack(12) },
-    { key: "year2", dateKey: monthsBack(24) },
-    { key: "year3", dateKey: monthsBack(36) },
-  ];
+  const years = Array.from({ length: maxYears }, (_, index) => maxYears - index)
+    .map((count) => ({ key: count === 1 ? "year1" : `years${count}`, dateKey: monthsBack(12 * count), years: count }));
+  return [...years, { key: "month", dateKey: monthsBack(1) }, { key: "week", dateKey: shiftDay(today, -7) }];
 }

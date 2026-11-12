@@ -8,6 +8,7 @@ import React, { useCallback, useContext, useEffect, useLayoutEffect, useMemo, us
 import { ClozeToneContext } from "./cardDetail/clozeToneContext";
 import { pickBlindBoxSentence } from "../domain/blindBox/pickSentence";
 import { homeCoverAspect } from "../domain/card/coverAspect";
+import { recordPracticeAttempt } from "../services/practice/practiceSession";
 import { ClozeSummarySheet } from "../components/ClozeSummarySheet";
 import { FolderQuickMenu } from "../components/FolderQuickMenu";
 import { VideoPlayerModal } from "../components/VideoPlayerModal";
@@ -732,9 +733,9 @@ export function CardDetailModal({ sentencePractice = false, detail, loading, ima
             {tab === "review" && (onUpdateContent || onEditCard) ? <Pressable accessibilityLabel="卡片操作" style={styles.iconHeaderButton} onPress={() => setDetailActionMenuVisible(true)}><Icon name="ellipsis-horizontal" size={23} color={theme.colors.text} /></Pressable> : null}
           </View>
         </View>
-        {/* Browsing (回忆 / 今日 / 盲盒) has no 1/10 bar: just keep swiping. */}
+        {/* Browsing (回忆 / 今日) has no 1/10 bar: just keep swiping. 盲盒 shows set progress. */}
         {recallPosition && tab === "review" ? recallPosition.kind === "browse"
-          ? null
+          ? sentencePractice ? <View style={styles.setProgress}><View style={[styles.setProgressFill, { width: `${Math.round(((recallPosition.index + 1) / Math.max(1, recallPosition.total)) * 100)}%` }]} /></View> : null
           : <Text numberOfLines={1} style={[styles.recallContextLabel, !recallContextLabel && styles.recallContextLabelHidden]}>{recallContextLabel ?? " "}</Text> : null}
         {detailActionMenuVisible ? <View style={styles.detailActionLayer}><Pressable style={StyleSheet.absoluteFill} onPress={() => setDetailActionMenuVisible(false)} /><View style={styles.detailMenu}>
           {detail?.rewrittenText && detail.mode !== "corpus" && onUpdateMetadata ? <Pressable style={styles.detailActionItem} onPress={() => void openRewriteEditor()}><Icon name="create-outline" size={17} color={theme.colors.textSecondary} /><Text style={styles.detailActionText}>{t("card_detail.edit_rewrite")}</Text></Pressable> : null}
@@ -903,6 +904,7 @@ function RecallAdjacentCard({ detail, position, contextLabel, canUseDictation, b
           <View style={styles.iconHeaderButton}><Icon name="ellipsis-horizontal" size={23} color={theme.colors.text} /></View>
         </View>
       </View>
+      {sentencePractice ? <View style={styles.setProgress}><View style={[styles.setProgressFill, { width: `${Math.round(((position.index + 1) / Math.max(1, position.total)) * 100)}%` }]} /></View> : null}
     </> : <>
       <View style={styles.header}><View style={styles.historyButtons}><View style={styles.historyButton} /></View><Text style={styles.title}>{position.index + 1} / {position.total}</Text><View style={styles.headerEnd}><View style={styles.iconHeaderButton}><Icon name="close" size={23} color={theme.colors.text} /></View></View></View>
       <Text numberOfLines={1} style={[styles.recallContextLabel, !contextLabel && styles.recallContextLabelHidden]}>{contextLabel ?? " "}</Text>
@@ -3800,7 +3802,8 @@ function Review({ sentencePractice = false, onSentenceDone, practiceCommand, rev
           ]}
           alwaysBounceVertical={false}
         >
-          {focusSegmentId ? null : <View collapsable={false} style={{ backgroundColor: theme.colors.surface }}>
+          {/* 盲盒 keeps the card's photo / video above its one sentence. */}
+          {<View collapsable={false} style={{ backgroundColor: theme.colors.surface }}>
           <CardImageGallery readingPresentation={detail.isSample ? undefined : "photo"} images={detailGalleryImages(images, detail.thumbnail?.url)} loading={imageAdding} dateLabel={`${formatDate(memoryDateKey)} · ${formatTime(memoryTime)}`} onRemove={onRemoveImage} onCoverPositionChange={onCoverPositionChange} onSwipeContextChange={onImageSwipeContextChange} onIndexChange={(index) => {
             setImageIndex(index);
             const image = images[index];
@@ -4687,6 +4690,7 @@ function Cloze({ onlySegmentIds, detail, contentBinding, clozeState, clozeVersio
     void Haptics.notificationAsync(answerCorrect ? Haptics.NotificationFeedbackType.Success : Haptics.NotificationFeedbackType.Error).catch(() => undefined);
     void (answerCorrect ? playSuccessFeedbackSound() : playIncorrectFeedbackSound()).catch(() => undefined);
     onClozeAttempt?.({ recordId: detail.id, blankId: blank.id, correct: answerCorrect });
+    recordPracticeAttempt(detail.id, blank.id, answerCorrect);
     const nextChecked = {
       ...checkedAnswers,
       [blank.id]: answerCorrect ? "correct" as const : "incorrect" as const,
@@ -4777,6 +4781,7 @@ function Cloze({ onlySegmentIds, detail, contentBinding, clozeState, clozeVersio
       const correct = normalizeAnswer(answer) === normalizeAnswer(blank.answer);
       nextChecked[blank.id] = correct ? "correct" : "incorrect";
       onClozeAttempt?.({ recordId: detail.id, blankId: blank.id, correct });
+      recordPracticeAttempt(detail.id, blank.id, correct);
       return { blank, blankIndex, answer, correct };
     });
     setCheckedAnswers(nextChecked);
@@ -4920,6 +4925,7 @@ function Cloze({ onlySegmentIds, detail, contentBinding, clozeState, clozeVersio
     const blank = blankIndex === null ? undefined : clozeState.blanks[blankIndex];
     if (!blank || saving) return;
     haptic.light();
+    recordPracticeAttempt(detail.id, blank.id, true);
     setAnswers((current) => ({ ...current, [blank.id]: blank.answer }));
     setCheckedAnswers((current) => ({ ...current, [blank.id]: "correct" }));
     setSessionAnswers((current) => ({ ...current, [blank.id]: blank.answer }));
@@ -5666,6 +5672,8 @@ const styles = createStyles(() => ({
   readingBody: { marginTop: 6 },
   replyBubble: { marginTop: 22, padding: 12, borderRadius: 14, backgroundColor: theme.colors.fill1, gap: 6 },
   readingMeta: { marginTop: 26, gap: 10 },
+  setProgress: { height: 4, marginHorizontal: 20, marginBottom: 6, borderRadius: 2, backgroundColor: theme.colors.fill2, overflow: "hidden" },
+  setProgressFill: { height: 4, borderRadius: 2, backgroundColor: theme.colors.accent },
   readingTagRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
   readingTag: { flexShrink: 1, paddingVertical: 4 },
   replyAsk: { flexDirection: "row", alignItems: "center", gap: 6 },

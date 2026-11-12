@@ -1,9 +1,10 @@
-import React from "react";
+import React, { useEffect } from "react";
+import Reanimated, { useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
 import { Pressable, ScrollView, View } from "react-native";
 import { Text } from "../../components/Typography";
 import { Icon } from "../../components/Icon";
 import { haptic } from "../../feedback/haptics";
-import { getLanguage, t } from "../../i18n";
+import { getLanguage, t, tf } from "../../i18n";
 import { theme } from "../../theme";
 import { createStyles } from "../../styles";
 import { type HistoryDay } from "./todayDays";
@@ -29,11 +30,14 @@ function dayTitle(dateKey: string): string {
  * 今日 tab day bar (2026-11): ‹ date › steps through days, the date opens the
  * calendar, 回到今天 returns, and "this day in history" chips jump back.
  */
-export function TodayDayBar({ day, today, history, onChangeDay, onOpenCalendar, onOpenMenu }: {
+export function TodayDayBar({ day, today, history, visited, onOpenHistory, onChangeDay, onOpenCalendar, onOpenMenu }: {
   day: string;
   today: string;
   /** Only the history days that have cards. */
   history: HistoryDay[];
+  /** History days already opened: their chip stays lit. */
+  visited: ReadonlySet<string>;
+  onOpenHistory: (day: HistoryDay) => void;
   onChangeDay: (dateKey: string) => void;
   onOpenCalendar: () => void;
   onOpenMenu: () => void;
@@ -67,15 +71,30 @@ export function TodayDayBar({ day, today, history, onChangeDay, onOpenCalendar, 
         <Icon name="ellipsis-horizontal" size={21} color={theme.colors.textSecondary} />
       </Pressable>
     </View>
-    {history.length ? <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
-      {history.map((item) => {
-        const selected = item.dateKey === day;
-        return <Pressable key={item.key} accessibilityRole="button" accessibilityState={{ selected }} style={({ pressed }) => [styles.chip, selected && styles.chipOn, pressed && { opacity: 0.75 }]} onPress={() => { haptic.select(); onChangeDay(selected ? today : item.dateKey); }}>
-          <Text style={[styles.chipText, selected && styles.chipTextOn]}>{t(`today.history.${item.key}` as "today.history.week")}</Text>
-        </Pressable>;
-      })}
-    </ScrollView> : null}
+    {history.length ? <View style={styles.historyRow}>
+      <Text style={styles.historyLabel}>{t("history_day.label")}</Text>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
+        {history.map((item) => <HistoryChip key={item.key} item={item} lit={visited.has(item.dateKey)} onPress={() => { haptic.light(); onOpenHistory(item); }} />)}
+      </ScrollView>
+    </View> : null}
   </View>;
+}
+
+export function historyChipLabel(item: HistoryDay): string {
+  if (item.years && item.years > 1) return tf("today.history.years", { count: item.years });
+  return t(`today.history.${item.key}` as "today.history.week");
+}
+
+/** A 历史今日 chip; once visited it lights up (brand glow that fades in). */
+function HistoryChip({ item, lit, onPress }: { item: HistoryDay; lit: boolean; onPress: () => void }) {
+  const glow = useSharedValue(lit ? 1 : 0);
+  useEffect(() => { glow.value = withTiming(lit ? 1 : 0, { duration: 700 }); }, [glow, lit]);
+  const glowStyle = useAnimatedStyle(() => ({ shadowOpacity: glow.value * 0.55, transform: [{ scale: 1 + glow.value * 0.02 }] }));
+  return <Reanimated.View style={[styles.chipGlow, glowStyle]}>
+    <Pressable accessibilityRole="button" accessibilityState={{ selected: lit }} style={({ pressed }) => [styles.chip, lit && styles.chipLit, pressed && { opacity: 0.75 }]} onPress={onPress}>
+      <Text style={[styles.chipText, lit && styles.chipTextLit]}>{historyChipLabel(item)}</Text>
+    </Pressable>
+  </Reanimated.View>;
 }
 
 const styles = createStyles(() => ({
@@ -89,7 +108,10 @@ const styles = createStyles(() => ({
   menuButton: { width: 40, height: 40, alignItems: "center", justifyContent: "center" },
   chips: { gap: 8, paddingRight: 8 },
   chip: { minHeight: 30, paddingHorizontal: 12, borderRadius: 15, backgroundColor: theme.colors.fill2, justifyContent: "center" },
-  chipOn: { backgroundColor: theme.colors.accent },
+  chipLit: { backgroundColor: theme.colors.accentSoft, borderWidth: 1, borderColor: theme.colors.accent },
+  chipGlow: { borderRadius: 15, shadowColor: theme.colors.accent, shadowRadius: 8, shadowOffset: { width: 0, height: 0 }, elevation: 0 },
   chipText: { color: theme.colors.textSecondary, fontSize: 13, fontWeight: "600" },
-  chipTextOn: { color: theme.colors.onAccent },
+  chipTextLit: { color: theme.colors.accent },
+  historyRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  historyLabel: { color: theme.colors.textMuted, fontSize: 12, fontWeight: "600" },
 }));

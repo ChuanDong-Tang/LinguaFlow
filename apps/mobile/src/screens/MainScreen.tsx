@@ -14,9 +14,8 @@ import { subscribeCardEncounters } from "../services/card/cardEncounters";
 import { PodcastHome } from "./podcast/PodcastHome";
 import { PodcastMiniPlayer, PodcastPlayer } from "./podcast/PodcastPlayer";
 import { MemoryPhotoBrowser } from "./home/MemoryPhotoBrowser";
-import { MemoryArchiveDeck } from "./home/MemoryArchiveDeck";
 import { MemoryCollectionFilters } from "./home/MemoryCollectionFilters";
-import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import { SafeAreaProvider, SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { KeyboardAwareScrollView, useReanimatedKeyboardAnimation } from "react-native-keyboard-controller";
 import Reanimated, { FadeInDown, useAnimatedRef, useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
 import { Surface, PressableSurface, TabUnderline, coverFillFor, useFirstAppearance } from "../components/surface/Surface";
@@ -27,9 +26,12 @@ import OioCharacter from "../../assets/app/oio-character.svg";
 import { Camera, ClockCounterClockwise, Eye, Gift, ImagesSquare, SunHorizon, TrayArrowDown } from "phosphor-react-native";
 import { ProgressRing } from "../components/ProgressRing";
 import { cardProgressRing } from "../domain/practice/cardProgressRing";
-import { blindBoxOrder } from "../domain/blindBox/pickSentence";
+import { isBlindBoxPlayable } from "../domain/blindBox/pickSentence";
+import { BlindBoxHome } from "./home/BlindBoxHome";
+import { PracticeSetSummary } from "../components/PracticeSetSummary";
+import { endPracticeSession, startPracticeSession, type PracticeSessionSummary } from "../services/practice/practiceSession";
 import { focusedCoverRect, homeCoverAspect } from "../domain/card/coverAspect";
-import { TodayDayBar } from "./home/TodayDayBar";
+import { historyChipLabel, TodayDayBar } from "./home/TodayDayBar";
 import { historyDays, relativeDayLabel, type HistoryDay } from "./home/todayDays";
 import Sortable from "react-native-sortables";
 import { FlashList, type FlashListRef } from "@shopify/flash-list";
@@ -163,7 +165,9 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
   const [podcastPlayerVisible, setPodcastPlayerVisible] = useState(false);
   useAndroidBack(photoSourceMenuVisible, () => setPhotoSourceMenuVisible(false));
   const photoConfirmLock = useRef(false);
-  const [homeLayout, setHomeLayout] = useState<"grid" | "list">("grid");
+  // Display (2026-11 round 3): 方格 (uniform tiles) / 瀑布 (masonry) / 列表, remembered
+  // per tab — 回忆 defaults to 方格, 今日 to 瀑布. Order and filters are shared.
+  const [homeLayout, setHomeLayout] = useState<HomeLayout>("grid");
   const [localDay, setLocalDay] = useState(() => toDateKey(new Date()));
   useEffect(() => {
     const updateDay = () => setLocalDay(toDateKey(new Date()));
@@ -177,7 +181,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
   const [viewDay, setViewDay] = useState<string | null>(null);
   const shownDay = viewDay && viewDay < localDay ? viewDay : localDay;
   const dateScope = homeDateKey(homeTab, libraryView === TRASH_VIEW, new Date(`${shownDay}T12:00:00`));
-  const [todayLayout, setTodayLayout] = useState<"feed" | "grid">("feed");
+  const [todayLayout, setTodayLayout] = useState<HomeLayout>("waterfall");
   const [todayCalendarVisible, setTodayCalendarVisible] = useState(false);
   const [historyDayKeys, setHistoryDayKeys] = useState<HistoryDay[]>([]);
   useEffect(() => {
@@ -185,7 +189,8 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
     let active = true;
     const targets = historyDays(localDay);
     // One request covers every "this day in history" chip: keep the days that have cards.
-    void getCardDateKeys(targets[targets.length - 1]!.dateKey, targets[0]!.dateKey)
+    const keys = targets.map((target) => target.dateKey).sort();
+    void getCardDateKeys(keys[0]!, keys[keys.length - 1]!)
       .then((keys) => { if (active) setHistoryDayKeys(targets.filter((target) => keys.includes(target.dateKey))); })
       .catch(() => undefined);
     return () => { active = false; };
@@ -207,8 +212,12 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
   // 今日 is a single-column feed (big photo, then words — like Threads / 朋友圈);
   // 回忆 keeps the two-column masonry.
   // 今日 defaults to the single-column feed; ⋯ can switch it to the waterfall grid.
-  const todayFeed = homeTab === "today" && libraryView !== TRASH_VIEW && todayLayout === "feed";
-  const gridLayout = libraryView !== TRASH_VIEW && (homeTab === "today" ? todayLayout === "grid" : homeLayout === "grid");
+  const activeLayout: HomeLayout = libraryView === TRASH_VIEW ? "list" : homeTab === "today" ? todayLayout : homeLayout;
+  const setActiveLayout = homeTab === "today" ? setTodayLayout : setHomeLayout;
+  // 今日's 列表 is the big single-column feed; 回忆's is the compact list.
+  const todayFeed = homeTab === "today" && activeLayout === "list";
+  const gridLayout = activeLayout !== "list";
+  const uniformGrid = activeLayout === "grid";
   const [selectedRecordIds, setSelectedRecordIds] = useState<Set<string>>(new Set());
   const [batchMoveVisible, setBatchMoveVisible] = useState(false);
   const [cardCapabilities, setCardCapabilities] = useState<CardCapabilities>(DEFAULT_CARD_CAPABILITIES);
@@ -430,7 +439,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
           practice: practiceFilter === "all" ? undefined : practiceFilter,
           limit: LIBRARY_PAGE_SIZE,
           sort: sortMode === "oldest" ? "oldest" : "newest",
-          shuffleSeed: dateScope || sortMode !== "shuffle" ? undefined : requestedShuffleSeed,
+          shuffleSeed: sortMode !== "shuffle" ? undefined : requestedShuffleSeed,
         }),
         getCardCollections(),
       ]);
@@ -536,7 +545,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
         limit: LIBRARY_PAGE_SIZE,
         cursor: nextCursor,
         sort: sortMode === "oldest" ? "oldest" : "newest",
-        shuffleSeed: dateScope || sortMode !== "shuffle" ? undefined : shuffleSeed.current,
+        shuffleSeed: sortMode !== "shuffle" ? undefined : shuffleSeed.current,
       });
       if (
         loadSequence !== loadMoreSequenceRef.current
@@ -1357,6 +1366,44 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
     if (image.uploadId) void deleteCardImageUpload(image.uploadId).catch(() => undefined);
   }
 
+  // 历史今日: open that day as a rising card stack; tapping reviews its cards
+  // (whole cards, choice practice). Leaving lights the chip up.
+  const [historyDay, setHistoryDay] = useState<{ day: HistoryDay; records: CardRecordSummary[]; loading: boolean } | null>(null);
+  const [visitedHistoryDays, setVisitedHistoryDays] = useState<ReadonlySet<string>>(() => new Set());
+  const markHistoryVisited = (dateKey: string) => setVisitedHistoryDays((current) => new Set([...current, dateKey]));
+  function openHistoryDay(day: HistoryDay): void {
+    setHistoryDay({ day, records: [], loading: true });
+    void getCardRecordPage({ dateKey: day.dateKey, limit: 50, sort: "oldest" })
+      .then((page) => setHistoryDay((current) => current?.day.dateKey === day.dateKey ? { ...current, records: page.items.filter((record) => !record.isSample), loading: false } : current))
+      .catch(() => setHistoryDay((current) => current?.day.dateKey === day.dateKey ? { ...current, loading: false } : current));
+  }
+  function closeHistoryDay(): void {
+    if (historyDay) markHistoryVisited(historyDay.day.dateKey);
+    setHistoryDay(null);
+  }
+  function startHistoryReview(ids: string[]): void {
+    const day = historyDay?.day;
+    setHistoryDay(null);
+    if (!ids.length || !day) return;
+    onOpenCard(ids[0]!, "cloze", undefined, { browseRecordIds: ids, closeOnBrowseFinish: true, onBrowseSetFinished: () => undefined, onBrowseClosed: () => markHistoryVisited(day.dateKey) });
+  }
+
+  // 盲盒 game: one sentence per card, with photos; a 战绩 summary when the set ends.
+  const [blindBoxSummary, setBlindBoxSummary] = useState<PracticeSessionSummary | null>(null);
+  const lastBlindBoxIdsRef = useRef<string[]>([]);
+  function startBlindBoxSet(ids: string[]): void {
+    if (!ids.length) return;
+    lastBlindBoxIdsRef.current = ids;
+    startPracticeSession();
+    onOpenCard(ids[0]!, "review", undefined, {
+      browseRecordIds: ids,
+      practice: "sentence",
+      closeOnBrowseFinish: true,
+      onBrowseSetFinished: () => undefined,
+      onBrowseClosed: () => { const summary = endPracticeSession(); if (summary) setTimeout(() => setBlindBoxSummary(summary), 300); },
+    });
+  }
+
   function openDetail(record: CardRecordSummary, origin?: CardDetailRequest["origin"]): void {
     if (record.status !== "completed") {
       Alert.alert(t("card_detail.processing"), t("main.card.processing_message"));
@@ -1760,7 +1807,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
             </View>}
         <View style={styles.headerActions}>
           {!selectingRecords ? <Pressable accessibilityRole="button" accessibilityLabel={t("contact.curious_companion.name")} hitSlop={8} style={styles.headerCharacter} onPressIn={() => headerMascot.current?.hop()} onPress={() => { haptic.light(); void openAssistant(); }}><OioMascot ref={headerMascot} size={29} /></Pressable> : null}
-          {selectingRecords ? <Pressable accessibilityRole="button" accessibilityLabel={gridLayout ? homeCopy.list : homeCopy.grid} style={styles.headerIconButton} onPress={() => setHomeLayout(gridLayout ? "list" : "grid")}><Icon name={gridLayout ? "list-outline" : "grid-outline"} size={22} color={theme.colors.text} /></Pressable> : <Pressable
+          {selectingRecords ? <Pressable accessibilityRole="button" accessibilityLabel={gridLayout ? homeCopy.list : homeCopy.grid} style={styles.headerIconButton} onPress={() => setActiveLayout(gridLayout ? "list" : "grid")}><Icon name={gridLayout ? "list-outline" : "grid-outline"} size={22} color={theme.colors.text} /></Pressable> : <Pressable
             accessibilityLabel={t("quick_note.a11y.search")}
             style={styles.headerIconButton}
             onPress={openSearch}
@@ -1777,12 +1824,14 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
       <View style={{ flex: 1 }} {...homeTabsResponder.panHandlers}>
       {!selectingRecords && editorialHome ? <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 4 }}><View style={{ flex: 1, minWidth: 0 }}><MemoryCollectionFilters editorial={editorialHome} collections={collections} selected={libraryView} onSelect={selectLibraryView} onTouching={value => { touchingCollectionFilters.current = value; }} /></View><Pressable accessibilityRole="button" accessibilityLabel={t("library.display_options")} hitSlop={6} style={[styles.headerIconButton, { marginRight: 10 }]} onPress={chooseLibraryAction}><Icon name="ellipsis-horizontal" size={21} color={theme.colors.textSecondary} /></Pressable></View> : null}
       {homeTab === "podcast" && libraryView !== TRASH_VIEW && !selectingRecords ? <PodcastHome collections={collections} bottomInset={screenInsets.bottom} onOpenPlayer={() => setPodcastPlayerVisible(true)} /> : homeTab === "blind" && libraryView !== TRASH_VIEW && !selectingRecords ? <ScrollView style={{ flex: 1, minHeight: 0 }} contentContainerStyle={styles.memoryLanding}>
-        <MemoryArchiveDeck key={`${libraryView}:${sortMode}`} records={recordsScope === queryScope ? records : []} loading={loading || loadingMore} hasMore={recordsScope === queryScope && Boolean(nextCursor)} onThumbnailError={recoverFailedThumbnail} onLoadMore={() => void loadMore()} onOpen={(ids, first, handlers) => onOpenCard(first, "review", undefined, { browseRecordIds: blindBoxOrder(ids, first), practice: "sentence", onBrowseSetFinished: handlers.onFinished, onBrowseClosed: handlers.onClosed, closeOnBrowseFinish: true })} />
+        <BlindBoxHome records={recordsScope === queryScope ? records : []} loading={loading || loadingMore} hasMore={recordsScope === queryScope && Boolean(nextCursor)} onLoadMore={() => void loadMore()} onStart={startBlindBoxSet} />
       </ScrollView> : <>
       {!selectingRecords && libraryView !== TRASH_VIEW && homeTab === "today" ? <TodayDayBar
         day={shownDay}
         today={localDay}
         history={historyDayKeys}
+        visited={visitedHistoryDays}
+        onOpenHistory={openHistoryDay}
         onChangeDay={(day) => setViewDay(day >= localDay ? null : day)}
         onOpenCalendar={() => setTodayCalendarVisible(true)}
         onOpenMenu={chooseLibraryAction}
@@ -1790,16 +1839,16 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
 
       <FlashList
         ref={homeListRef}
-        key={`${gridLayout ? "grid" : "list"}:${dateScope ?? "all"}`}
+        key={`${activeLayout}:${dateScope ?? "all"}`}
         numColumns={gridLayout ? 2 : 1}
-        masonry={gridLayout}
+        masonry={activeLayout === "waterfall"}
         refreshing={loading && records.length > 0}
         onRefresh={() => { void refresh(Crypto.randomUUID()); }}
         style={styles.libraryList}
         data={[...(recordsScope === queryScope ? records : [])].filter((record) => (!selectingRecords || !record.isSample) && (!dateScope || record.dateKey === dateScope)).sort((a, b) => Number(b.isSample) - Number(a.isSample))}
         keyExtractor={(record) => record.id}
         renderItem={({ item: record, index }) => (
-          <CardCard enterIndex={index} grid={gridLayout} feed={todayFeed} record={record} collectionName={record.collectionId ? collections.find((collection) => collection.id === record.collectionId)?.name : undefined} selecting={selectingRecords} selected={selectedRecordIds.has(record.id)} onPress={(origin) => selectingRecords ? toggleRecordSelection(record.id) : libraryView === TRASH_VIEW ? undefined : void openDetail(record, origin)} onOpenActions={(anchor) => openRecordActions(record, anchor)} onHideTutorial={() => hideTutorial(record.id)} onThumbnailError={recoverFailedThumbnail} />
+          <CardCard enterIndex={index} grid={gridLayout} uniform={uniformGrid} feed={todayFeed} record={record} collectionName={record.collectionId ? collections.find((collection) => collection.id === record.collectionId)?.name : undefined} selecting={selectingRecords} selected={selectedRecordIds.has(record.id)} onPress={(origin) => selectingRecords ? toggleRecordSelection(record.id) : libraryView === TRASH_VIEW ? undefined : void openDetail(record, origin)} onOpenActions={(anchor) => openRecordActions(record, anchor)} onHideTutorial={() => hideTutorial(record.id)} onThumbnailError={recoverFailedThumbnail} />
         )}
         ListHeaderComponent={homeTab === "memory" && !selectingRecords && libraryView !== TRASH_VIEW ? <View style={gridLayout ? styles.gridHeader : undefined}><MemoryRoundShortcut active={isActive} resume={memoryRoundResumeAvailable} onPress={onOpenMemoryRound} /></View> : null}
         contentContainerStyle={gridLayout ? styles.gridList : todayFeed ? styles.todayList : styles.list}
@@ -1849,6 +1898,20 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
           <Text style={styles.memoryEntryLabel}>{homeCopy.photos}</Text>
         </Pressable>
       </Surface> : null}
+      {historyDay ? <Modal visible animationType="slide" presentationStyle="fullScreen" onRequestClose={closeHistoryDay}>
+        <SafeAreaProvider><SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.feed }} edges={["top", "bottom"]}>
+          <Pressable accessibilityRole="button" accessibilityLabel={t("common.cancel")} hitSlop={8} style={styles.historyClose} onPress={closeHistoryDay}><Icon name="chevron-back" size={24} color={theme.colors.text} /></Pressable>
+          <BlindBoxHome variant="history" title={`${historyChipLabel(historyDay.day)} · ${historyDay.day.dateKey.replace(/^(\d+)-0?(\d+)-0?(\d+)$/u, "$1.$2.$3")}`} records={historyDay.records} loading={historyDay.loading} hasMore={false} onLoadMore={() => undefined} onStart={startHistoryReview} />
+        </SafeAreaView></SafeAreaProvider>
+      </Modal> : null}
+      <PracticeSetSummary summary={blindBoxSummary} onClose={() => setBlindBoxSummary(null)} onAgain={() => {
+        setBlindBoxSummary(null);
+        const pool = records.filter((record) => record.status === "completed" && !record.isSample && isBlindBoxPlayable(record.practiceSummary)).map((record) => record.id);
+        const previous = new Set(lastBlindBoxIdsRef.current);
+        const fresh = pool.filter((id) => !previous.has(id));
+        const source = fresh.length ? fresh : pool;
+        startBlindBoxSet([...source].sort(() => Math.random() - 0.5).slice(0, Math.max(1, lastBlindBoxIdsRef.current.length)));
+      }} />
       <PhotoSourceMenu visible={photoSourceMenuVisible} bottomInset={screenInsets.bottom} onClose={() => setPhotoSourceMenuVisible(false)} onPick={(mode) => { setPhotoSourceMenuVisible(false); setPhotoBrowserHidden(false); setPhotoBrowser(mode); }} />
       {selectingRecords && selectedRecordIds.size ? <View style={[styles.batchActionBar, libraryView === TRASH_VIEW && styles.batchActionBarCentered, { paddingBottom: Math.max(screenInsets.bottom, 10) }]}>{libraryView !== TRASH_VIEW ? <Pressable style={styles.batchAction} onPress={() => setBatchMoveVisible(true)}><Icon name="folder-open-outline" size={22} color={theme.colors.text} /><Text style={styles.batchActionText}>{t("library.move")}</Text></Pressable> : null}<Pressable style={styles.batchAction} onPress={confirmBatchDelete}><Icon name="trash-outline" size={22} color={theme.colors.danger} /><Text style={[styles.batchActionText, { color: theme.colors.danger }]}>{libraryView === TRASH_VIEW ? "彻底删除" : t("common.delete")}</Text></Pressable></View> : null}
       <Modal visible={libraryMenuVisible} transparent animationType="fade" onRequestClose={() => setLibraryMenuVisible(false)}>
@@ -1857,17 +1920,12 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
             <Pressable onPress={() => undefined} style={styles.displayMenuInner}>
               <Text style={styles.displayMenuLabel}>{t("library.layout")}</Text>
               <View style={styles.displayMenuSegment}>
-                {homeTab === "today"
-                  ? (["feed", "grid"] as const).map((layout) => <Pressable key={layout} accessibilityRole="radio" accessibilityState={{ checked: todayLayout === layout }} style={[styles.displayMenuOption, todayLayout === layout && styles.displayMenuOptionOn]} onPress={() => { haptic.select(); setTodayLayout(layout); }}>
-                    <Icon name={layout === "grid" ? "grid-outline" : "list-outline"} size={17} color={todayLayout === layout ? theme.colors.onAccent : theme.colors.text} />
-                    <Text style={[styles.displayMenuOptionText, todayLayout === layout && styles.displayMenuOptionTextOn]}>{t(layout === "grid" ? "today.layout_waterfall" : "today.layout_feed")}</Text>
-                  </Pressable>)
-                  : (["grid", "list"] as const).map((layout) => <Pressable key={layout} accessibilityRole="radio" accessibilityState={{ checked: homeLayout === layout }} style={[styles.displayMenuOption, homeLayout === layout && styles.displayMenuOptionOn]} onPress={() => { haptic.select(); setHomeLayout(layout); }}>
-                  <Icon name={layout === "grid" ? "grid-outline" : "list-outline"} size={17} color={homeLayout === layout ? theme.colors.onAccent : theme.colors.text} />
-                  <Text style={[styles.displayMenuOptionText, homeLayout === layout && styles.displayMenuOptionTextOn]}>{t(layout === "grid" ? "library.layout_grid" : "library.layout_list")}</Text>
+                {(["grid", "waterfall", "list"] as const).map((layout) => <Pressable key={layout} accessibilityRole="radio" accessibilityState={{ checked: activeLayout === layout }} style={[styles.displayMenuOption, activeLayout === layout && styles.displayMenuOptionOn]} onPress={() => { haptic.select(); setActiveLayout(layout); }}>
+                  <Icon name={layout === "list" ? "list-outline" : "grid-outline"} size={16} color={activeLayout === layout ? theme.colors.onAccent : theme.colors.text} />
+                  <Text style={[styles.displayMenuOptionText, activeLayout === layout && styles.displayMenuOptionTextOn]}>{t(layout === "grid" ? "library.layout_grid" : layout === "waterfall" ? "today.layout_waterfall" : "library.layout_list")}</Text>
                 </Pressable>)}
               </View>
-              {homeTab === "today" ? null : <><Text style={styles.displayMenuLabel}>{t("library.order")}</Text>
+              {<><Text style={styles.displayMenuLabel}>{t("library.order")}</Text>
               <View style={styles.displayMenuSegment}>
                 {(["shuffle", "newest", "oldest"] as const).map((mode) => <Pressable key={mode} accessibilityRole="radio" accessibilityState={{ checked: sortMode === mode }} style={[styles.displayMenuOption, sortMode === mode && styles.displayMenuOptionOn]} onPress={() => { haptic.select(); selectLibrarySort(mode); }}>
                   <Text style={[styles.displayMenuOptionText, sortMode === mode && styles.displayMenuOptionTextOn]}>{t(mode === "shuffle" ? "library.order_shuffle" : mode === "newest" ? "library.order_newest" : "library.order_oldest")}</Text>
@@ -3187,8 +3245,10 @@ async function stabilizeRecordThumbnails(
   }));
 }
 
-function CardCard({ record, grid = false, feed = false, enterIndex, collectionName, selecting = false, selected = false, onPress, onOpenActions, onThumbnailError, onHideTutorial }: {
+function CardCard({ record, grid = false, uniform = false, feed = false, enterIndex, collectionName, selecting = false, selected = false, onPress, onOpenActions, onThumbnailError, onHideTutorial }: {
   grid?: boolean;
+  /** 方格: every tile the same square shape (瀑布 keeps each photo's own shape). */
+  uniform?: boolean;
   /** 今日 single-column feed card. */
   feed?: boolean;
   enterIndex?: number;
@@ -3230,10 +3290,10 @@ function CardCard({ record, grid = false, feed = false, enterIndex, collectionNa
   const content = (
       <View style={[styles.cardContent, grid && styles.memoryGridContent]}>
         {selecting ? <View style={[styles.cardSelectionIcon, grid && { position: "absolute", top: 8, right: 8, zIndex: 2, borderRadius: 18, backgroundColor: theme.colors.surface, padding: 3 }]}><Icon name={selected ? "checkmark-circle" : "ellipse-outline"} size={23} color={selected ? theme.colors.text : theme.colors.textMuted} /></View> : null}
-        {record.thumbnail ? <View ref={thumbnailRef} collapsable={false} style={grid ? [styles.memoryGridCover, { aspectRatio: homeCoverAspect(record.thumbnail.width, record.thumbnail.height) }] : styles.thumbnailFrame} onLayout={grid ? (event) => setCoverFrame({ width: event.nativeEvent.layout.width, height: event.nativeEvent.layout.height }) : undefined}>{grid
+        {record.thumbnail ? <View ref={thumbnailRef} collapsable={false} style={grid ? [styles.memoryGridCover, { aspectRatio: uniform ? 1 : homeCoverAspect(record.thumbnail.width, record.thumbnail.height) }] : styles.thumbnailFrame} onLayout={grid ? (event) => setCoverFrame({ width: event.nativeEvent.layout.width, height: event.nativeEvent.layout.height }) : undefined}>{grid
           // Honor the cover position picked in the editor (was always center-cropped).
           ? coverFrame ? <Image source={{ uri: record.thumbnail.url }} resizeMode="stretch" style={{ position: "absolute", ...focusedCoverRect(record.thumbnail, coverFrame, { x: record.thumbnail.focusX, y: record.thumbnail.focusY }) }} onError={onThumbnailError} /> : null
-          : <FocusedCardThumbnail thumbnail={record.thumbnail} onError={onThumbnailError} />}</View> : grid ? <View style={[styles.memoryGridCover, styles.memoryTextCover, { backgroundColor: coverFillFor(record.id) }]}>
+          : <FocusedCardThumbnail thumbnail={record.thumbnail} onError={onThumbnailError} />}</View> : grid ? <View style={[styles.memoryGridCover, styles.memoryTextCover, uniform && styles.memoryTextCoverUniform, { backgroundColor: coverFillFor(record.id) }]}>
           {/* Text-only memory: title, a short rule, then a taste of the English rewrite. */}
           <Text style={styles.memoryTextCoverTitle} numberOfLines={3}>{record.displayTitle.trim() || record.originalPreview}</Text>
           {(record.rewrittenPreview ?? "").trim() ? <>
@@ -3512,6 +3572,8 @@ const styles = createStyles(() => ({
   memoryGridTitle: { fontSize: 14, lineHeight: 20, fontWeight: "500", marginTop: 8, paddingHorizontal: 10, color: theme.colors.text },
   memoryTextCover: { justifyContent: "center", alignItems: "flex-start", paddingHorizontal: 16, paddingVertical: 20, gap: 10 },
   memoryTextCoverTitle: { fontSize: 17, lineHeight: 24, color: theme.colors.text, fontWeight: "700" },
+  historyClose: { width: 44, height: 44, marginLeft: 8, alignItems: "center", justifyContent: "center" },
+  memoryTextCoverUniform: { aspectRatio: 1, justifyContent: "flex-start", overflow: "hidden" },
   memoryTextCoverRule: { width: 24, height: 2, borderRadius: 1, backgroundColor: theme.colors.textFaint },
   memoryTextCoverPreview: { fontSize: 13, lineHeight: 19, color: theme.colors.textSecondary },
   memoryGridFooter: { flexWrap: "nowrap", gap: 4, marginTop: 6, minHeight: 20, paddingHorizontal: 10, paddingBottom: 10 },
@@ -3823,3 +3885,5 @@ async function previousDayWithCards(dateKey: string): Promise<string | null> {
   const keys = await getCardDateKeys(key(from), key(before)).catch(() => [] as string[]);
   return [...keys].sort().pop() ?? null;
 }
+
+type HomeLayout = "grid" | "waterfall" | "list";
