@@ -22,7 +22,7 @@ import { countCardEncounter } from "../card/cardEncounters";
 // subtitles. 全篇 mode: ◁▷ move between cards. 单句循环 mode: the current
 // sentence repeats and ◁▷ move between sentences.
 
-export type PodcastPlaylist = { id: string; title: string; recordIds: string[]; coverUrl?: string | null };
+export type PodcastPlaylist = { id: string; title: string; recordIds: string[]; coverUrl?: string | null; playedAt?: number };
 export type PodcastSentence = { text: string; startMs: number; durationMs: number };
 export type PodcastMode = "full" | "sentence";
 export type PodcastOrder = "sequential" | "shuffle";
@@ -286,6 +286,7 @@ export async function loadRecentPodcasts(): Promise<PodcastPlaylist[]> {
 
 async function rememberRecent(playlist: PodcastPlaylist): Promise<void> {
   const recent = await loadRecentPodcasts();
-  const next = [{ ...playlist, recordIds: playlist.recordIds.slice(0, 60) }, ...recent.filter((item) => item.id !== playlist.id)].slice(0, 4);
+  // Keep a longer history: the podcast library sorts by 最近播放.
+  const next = [{ ...playlist, recordIds: playlist.recordIds.slice(0, 60), playedAt: Date.now() }, ...recent.filter((item) => item.id !== playlist.id)].slice(0, 24);
   await AsyncStorage.setItem(RECENT_KEY, JSON.stringify(next)).catch(() => undefined);
 }

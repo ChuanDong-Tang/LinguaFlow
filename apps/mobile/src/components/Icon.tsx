@@ -3,7 +3,7 @@ import type { StyleProp, TextStyle } from "react-native";
 import Ionicons from "@expo/vector-icons/Ionicons";
 import { theme } from "../theme";
 import {
-  ArrowClockwise, ArrowDown, ArrowLeft, ArrowRight, ArrowsClockwise, ArrowsIn, ArrowsOut, ArrowsOutCardinal, ArrowUp, ArrowUUpLeft,
+  ArrowClockwise, ArrowDown, ArrowsDownUp, Tag, ArrowLeft, ArrowRight, ArrowsClockwise, ArrowsIn, ArrowsOut, ArrowsOutCardinal, ArrowUp, ArrowUUpLeft,
   BookOpen, BookOpenText, CalendarBlank, CalendarDot, Camera, Cards, CaretDown, CaretLeft, CaretRight, CaretUp, ChatCircleDots,
   ChatTeardropDots, Check, CircleHalf, CheckCircle, Checks, CircleIcon as Circle, CloudArrowDown, Code, Copy, Cube, DotsThree, DownloadSimple, Ear, Eye,
   EyeSlash, FileText, Flag, Folder, FolderOpen, GearSix, Globe, GraduationCap, Headphones, Image, ImageSquare, Info, Leaf, Lightbulb,
@@ -18,6 +18,7 @@ type PhosphorIcon = React.ComponentType<IconProps>;
 // Existing call sites use Ionicons glyph names; map them onto one consistent
 // Phosphor family. Solid Ionicons glyphs map to the "fill" weight.
 const MAP: Partial<Record<string, [PhosphorIcon, IconWeight?]>> = {
+  "swap-vertical-outline": [ArrowsDownUp], "pricetag-outline": [Tag],
   close: [X], "close-outline": [X], "close-circle": [XCircle, "fill"], "close-circle-outline": [XCircle],
   checkmark: [Check], "checkmark-outline": [Check], "checkmark-circle": [CheckCircle, "fill"], "checkmark-circle-outline": [CheckCircle],
   "checkmark-done-circle": [Checks, "bold"],
