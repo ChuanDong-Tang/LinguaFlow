@@ -640,6 +640,62 @@ export class PrismaCardEnrichmentRepository implements CardEnrichmentRepository 
     return this.claimNextJob("generate_topic", workerId, leaseExpiresAt);
   }
 
+  async claimNextThemeKeywordJob(workerId: string, leaseExpiresAt: Date): Promise<CardEnrichmentJobEntity | null> {
+    return this.claimNextJob("generate_theme_keyword", workerId, leaseExpiresAt);
+  }
+
+  async loadThemeKeywordSource(job: CardEnrichmentJobEntity) {
+    if (job.sourceKind !== "card") return null;
+    const card = await this.prisma.card.findFirst({
+      where: { id: job.sourceId, userId: job.userId, status: "completed", deletedAt: null, themeKeyword: null },
+      select: { originalText: true, originalContentHash: true, appLocaleSnapshot: true, topic: true },
+    });
+    if (!card?.originalText || card.originalContentHash !== job.inputHash) return null;
+    return { userId: job.userId, originalText: card.originalText, topic: card.topic ?? null, appLocale: card.appLocaleSnapshot };
+  }
+
+  /** Sets only themeKeyword, and only while it is still empty and the text unchanged. */
+  async completeThemeKeywordJob(job: CardEnrichmentJobEntity, keyword: string): Promise<boolean> {
+    return this.prisma.$transaction(async (tx) => {
+      const claimed = await tx.cardEnrichmentJob.updateMany({
+        where: { id: job.id, status: "processing", workerId: job.workerId },
+        data: { status: "completed", completedAt: new Date(), leaseExpiresAt: null, workerId: null, lastError: null },
+      });
+      if (claimed.count !== 1) return false;
+      const updated = await tx.card.updateMany({
+        where: { id: job.sourceId, userId: job.userId, deletedAt: null, themeKeyword: null, originalContentHash: job.inputHash },
+        data: { themeKeyword: keyword },
+      });
+      return updated.count === 1;
+    });
+  }
+
+  /**
+   * Bounded one-shot backfill (operator script only — never a scanner):
+   * queue keyword jobs for up to `limit` live cards that have none.
+   */
+  async enqueueThemeKeywordBackfill(input: { limit: number; userId?: string; inputVersion: string }): Promise<number> {
+    const cards = await this.prisma.card.findMany({
+      where: {
+        ...(input.userId ? { userId: input.userId } : {}),
+        status: "completed", deletedAt: null, isSample: false, themeKeyword: null,
+        originalText: { not: null }, originalContentHash: { not: null },
+      },
+      select: { id: true, userId: true, originalContentHash: true },
+      orderBy: { recordedAt: "desc" },
+      take: Math.max(1, Math.min(5000, Math.floor(input.limit))),
+    });
+    let created = 0;
+    for (const card of cards) {
+      const result = await this.prisma.cardEnrichmentJob.createMany({
+        data: [{ userId: card.userId, sourceKind: "card", sourceId: card.id, jobType: "generate_theme_keyword", inputHash: card.originalContentHash!, inputVersion: `${input.inputVersion}:${card.originalContentHash}`, priority: -1 }],
+        skipDuplicates: true,
+      });
+      created += result.count;
+    }
+    return created;
+  }
+
   async loadTopicSource(job: CardEnrichmentJobEntity) {
     if (job.sourceKind !== "card") return null;
     const card = await this.prisma.card.findFirst({

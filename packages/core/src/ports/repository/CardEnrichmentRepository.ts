@@ -113,6 +113,10 @@ export interface CardEnrichmentRepository {
     alignment: unknown,
   ): Promise<boolean>;
   claimNextTopicJob(workerId: string, leaseExpiresAt: Date): Promise<CardEnrichmentJobEntity | null>;
+  /** Backfill: a theme keyword for cards made before topic prompt v4. */
+  claimNextThemeKeywordJob?(workerId: string, leaseExpiresAt: Date): Promise<CardEnrichmentJobEntity | null>;
+  loadThemeKeywordSource?(job: CardEnrichmentJobEntity): Promise<{ userId: string; originalText: string; topic: string | null; appLocale: string } | null>;
+  completeThemeKeywordJob?(job: CardEnrichmentJobEntity, keyword: string): Promise<boolean>;
   loadTopicSource(job: CardEnrichmentJobEntity): Promise<CardTopicSource | null>;
   completeTopicJob(job: CardEnrichmentJobEntity, topic: string, headline?: string | null, themeKeyword?: string | null): Promise<boolean>;
   claimNextEmbeddingJob(workerId: string, leaseExpiresAt: Date): Promise<CardEnrichmentJobEntity | null>;

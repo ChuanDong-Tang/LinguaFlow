@@ -2,6 +2,7 @@ import type { AIProvider, ChatTextGenerationStreamEvent } from "@lf/core/ports/a
 import type { CardEnrichmentJobEntity, CardEnrichmentRepository } from "@lf/core/ports/repository/CardEnrichmentRepository.js";
 import type { SystemEventLogRepository } from "@lf/core/ports/repository/SystemEventLogRepository.js";
 import { buildCardTopicPrompt, parseCardTitlesOutput } from "@lf/core/Prompts/cardTopicPrompt.js";
+import { buildCardThemeKeywordPrompt, parseCardThemeKeywordOutput } from "@lf/core/Prompts/cardThemeKeywordPrompt.js";
 import { CARD_TOPIC_MAX_CHARS } from "@lf/core/Prompts/cardExpressionPrompt.js";
 import type { ResourceGovernor } from "../resource/ResourceGovernor.js";
 import type { ContentSafetyService } from "../contentSafety/ContentSafetyService.js";
@@ -21,13 +22,50 @@ export class CardTopicWorkerService {
   ) {}
 
   async claimAndProcess(workerId: string): Promise<boolean> {
-    const job = await this.repository.claimNextTopicJob(
-      workerId,
-      new Date(Date.now() + (this.options.leaseMs ?? 60_000)),
-    );
-    if (!job) return false;
-    await this.process(job);
+    const leaseExpiresAt = new Date(Date.now() + (this.options.leaseMs ?? 60_000));
+    const job = await this.repository.claimNextTopicJob(workerId, leaseExpiresAt);
+    if (job) {
+      await this.process(job);
+      return true;
+    }
+    // New-card topics first; then any queued keyword backfill (low priority).
+    const keywordJob = await this.repository.claimNextThemeKeywordJob?.(workerId, leaseExpiresAt);
+    if (!keywordJob) return false;
+    await this.processThemeKeyword(keywordJob);
     return true;
+  }
+
+  /** Keyword-only backfill job: platform-owned, never billed to the user. */
+  private async processThemeKeyword(job: CardEnrichmentJobEntity): Promise<void> {
+    const startedAt = Date.now();
+    let output = "";
+    try {
+      const source = await this.repository.loadThemeKeywordSource?.(job);
+      if (!source) {
+        await this.repository.completeWithoutResult(job, "CARD_THEME_KEYWORD_SOURCE_MISSING_OR_STALE");
+        return;
+      }
+      const prompt = buildCardThemeKeywordPrompt({ text: source.originalText, topic: source.topic, appLocale: source.appLocale });
+      const generate = () => this.aiProvider.generateChatTextStream({
+        userId: source.userId,
+        text: prompt.userPrompt,
+        appLocale: source.appLocale,
+        companionMode: "platform_topic",
+        systemPrompt: prompt.systemPrompt,
+        rawUserPrompt: true,
+        maxOutputTokens: 40,
+      }, (event) => { if (event.type === "delta") output += event.text; });
+      if (this.resourceGovernor) await this.resourceGovernor.execute("llm", source.userId, generate);
+      else await generate();
+      const keyword = parseCardThemeKeywordOutput(output, source.topic);
+      this.contentSafetyService?.assertAllowed(keyword, "output");
+      if (!await this.repository.completeThemeKeywordJob?.(job, keyword)) return;
+      await this.log(job, "success", null, { durationMs: Date.now() - startedAt, outputChars: keyword.length, tokenMetered: false, kind: "theme_keyword" });
+    } catch (error) {
+      const retry = resolveEnrichmentRetry(error, job.attempts, this.options.maxAttempts ?? 3);
+      await this.repository.rescheduleOrFail(job, safeEnrichmentErrorMessage(error), retry.retryAt, { preserveAttempt: retry.preserveAttempt });
+      await this.log(job, retry.retryAt ? "retry" : "failed", error, { outputChars: output.length, kind: "theme_keyword", ...safeEnrichmentErrorMetadata(error) });
+    }
   }
 
   private async process(job: CardEnrichmentJobEntity): Promise<void> {
