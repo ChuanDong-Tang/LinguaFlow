@@ -37,6 +37,7 @@ export function ClozeAnswerPuzzleTray({
   onProceed,
   onLookup,
   onMastered,
+  onForgot,
 }: {
   puzzle: ClozeAnswerPuzzle;
   selectedIds: string[];
@@ -50,6 +51,8 @@ export function ClozeAnswerPuzzleTray({
   onLookup?: (answer: string, anchor: ClozeLookupAnchor) => void;
   /** Shown for a blank answered right last time: 已掌握 reveals it and moves on. */
   onMastered?: () => void;
+  /** Shown for an unanswered or missed blank: 忘记了 counts it wrong and shows the answer. */
+  onForgot?: () => void;
 }) {
   const answerRef = useRef<View>(null);
   const lookup = () => {
@@ -130,6 +133,9 @@ export function ClozeAnswerPuzzleTray({
         <CheckMark size={14} />
         <Text style={styles.masteredText}>{t("cloze.mastered")}</Text>
       </Pressable> : null}
+      {!answered && !onMastered && onForgot ? <Pressable accessibilityRole="button" disabled={disabled} hitSlop={6} style={({ pressed }) => [styles.forgot, pressed && styles.pressed]} onPress={onForgot}>
+        <Text style={styles.forgotText}>{t("cloze.forgot")}</Text>
+      </Pressable> : null}
       {onCheck && onProceed ? <PressableSurface
         radius={22}
         fill={answered ? (feedback?.correct ? theme.colors.accent : theme.colors.warning) : complete ? theme.colors.accent : theme.colors.fill2}
@@ -180,6 +186,8 @@ const styles = createStyles(() => ({
   actions: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
   actionsRight: { flexDirection: "row", alignItems: "center", gap: 10 },
   mastered: { minHeight: 46, paddingHorizontal: 16, borderRadius: 23, borderWidth: 1.5, borderColor: theme.colors.accent, backgroundColor: theme.colors.accentSoft, flexDirection: "row", alignItems: "center", gap: 5 },
+  forgot: { minHeight: 46, paddingHorizontal: 16, borderRadius: 23, backgroundColor: theme.colors.fill2, alignItems: "center", justifyContent: "center" },
+  forgotText: { color: theme.colors.textSecondary, fontSize: 15, fontWeight: "600" },
   masteredText: { color: theme.colors.accent, fontSize: 15, fontWeight: "700" },
   resetButton: { minHeight: 44, paddingHorizontal: 6, justifyContent: "center" },
   resetText: { color: theme.colors.textSecondary, fontSize: 14, fontWeight: "600" },

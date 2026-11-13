@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from "react";
 import { Modal, Pressable, StyleSheet, View } from "react-native";
-import Reanimated, { ZoomIn } from "react-native-reanimated";
+import Reanimated from "react-native-reanimated";
+import { popupEnter } from "../motion";
 import { Text } from "./Typography";
 import { OioMascot, type OioMascotHandle } from "./sketch/OioMascot";
 import { haptic } from "../feedback/haptics";
@@ -25,7 +26,7 @@ export function PracticeSetSummary({ summary, onClose, onAgain }: { summary: Pra
   return <Modal visible transparent animationType="fade" statusBarTranslucent onRequestClose={onClose}>
     <View style={styles.backdrop}>
       <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
-      <Reanimated.View entering={ZoomIn.springify().damping(14).stiffness(170)} style={styles.panel}>
+      <Reanimated.View entering={popupEnter} style={styles.panel}>
         <OioMascot ref={mascot} size={64} idle={false} />
         <Text style={styles.title}>{t(great ? "practice_summary.great" : "practice_summary.good")}</Text>
         <Text style={[styles.accuracy, { color: great ? theme.colors.accent : theme.colors.text }]}>{summary.accuracy}%</Text>

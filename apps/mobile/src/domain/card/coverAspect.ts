@@ -1,10 +1,12 @@
 /**
- * Home grid cover shape: the photo's own ratio, clamped to 3:4 … 5:4. The cover
- * editor uses the same frame so what you pick is exactly what the card shows.
+ * Home 瀑布 cover shape: the photo's own ratio, clamped to 2:3 … 4:3 (round 4:
+ * 3:4 … 5:4 made almost every phone photo the same 3:4 tile, so the waterfall
+ * read as a grid). The cover editor uses the same frame so what you pick is
+ * exactly what the card shows.
  */
 export function homeCoverAspect(width: number | undefined, height: number | undefined): number {
   const ratio = Math.max(1, width ?? 1) / Math.max(1, height ?? 1);
-  return Math.max(0.75, Math.min(1.25, ratio));
+  return Math.max(2 / 3, Math.min(4 / 3, ratio));
 }
 
 /** Position a `cover`-filled image inside a frame, honoring the chosen focus (0–1). */

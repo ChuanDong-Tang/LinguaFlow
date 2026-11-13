@@ -2,9 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { focusedCoverRect, homeCoverAspect } from "./coverAspect";
 
-test("cover aspect follows the photo within 3:4 … 5:4", () => {
-  assert.equal(homeCoverAspect(1080, 1920), 0.75);
-  assert.equal(homeCoverAspect(1920, 1080), 1.25);
+test("cover aspect follows the photo within 2:3 … 4:3", () => {
+  assert.equal(homeCoverAspect(1080, 1920), 2 / 3);
+  assert.equal(homeCoverAspect(1920, 1080), 4 / 3);
+  assert.equal(homeCoverAspect(1500, 2000), 0.75);
   assert.equal(homeCoverAspect(1000, 1000), 1);
 });
 

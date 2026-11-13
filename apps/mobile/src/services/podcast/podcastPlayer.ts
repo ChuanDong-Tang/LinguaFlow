@@ -44,6 +44,9 @@ const NAVIGATION_PREFIX = "podcast:";
 let state: PodcastState = { playlist: null, queue: [], index: 0, order: "sequential", mode: "full", current: null, loading: false, error: false, sleep: null };
 const listeners = new Set<() => void>();
 let sessionId = 0;
+/** Silence before the card-change cue, and after it before the next card speaks. */
+const CUE_LEAD_MS = 700;
+const CUE_TAIL_MS = 1300;
 let sleepTimer: ReturnType<typeof setTimeout> | null = null;
 
 function set(next: Partial<PodcastState>) {
@@ -144,10 +147,14 @@ async function playIndex(index: number): Promise<void> {
     const coverUrl = detail.thumbnail?.url ?? detail.images?.[0]?.url ?? null;
     const movedOn = state.current !== null && state.current.recordId !== recordId;
     set({ current: { recordId, title: detail.displayTitle || block.text.slice(0, 24), coverUrl, text: block.text, sentences }, loading: false });
-    // A short cue when the next card starts, so the switch is noticeable (foreground only).
+    // A short cue when the next card starts, so the switch is noticeable (foreground
+    // only). Round 4: a longer breath before and after the cue — listeners were
+    // still catching up when the next card had already begun.
     if (movedOn && AppState.currentState === "active") {
+      await new Promise((resolve) => setTimeout(resolve, CUE_LEAD_MS));
+      if (!isTtsPlaybackSessionCurrent(session)) return;
       void playCardTransitionSound().catch(() => undefined);
-      await new Promise((resolve) => setTimeout(resolve, 380));
+      await new Promise((resolve) => setTimeout(resolve, CUE_TAIL_MS));
       if (!isTtsPlaybackSessionCurrent(session)) return;
     }
     countCardEncounter(recordId);

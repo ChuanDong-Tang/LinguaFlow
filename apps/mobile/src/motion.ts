@@ -1,4 +1,4 @@
-import { Easing } from "react-native-reanimated";
+import { Easing, Keyframe } from "react-native-reanimated";
 
 // Motion tokens (see skills/linguaflow-motion). Use these instead of inline numbers.
 export const motion = {
@@ -17,3 +17,13 @@ export const motion = {
     indicator: { damping: 18, stiffness: 220 },
   },
 } as const;
+
+/**
+ * Result popups (cloze summary, set summary): a quick fade with a slight rise
+ * in scale, no overshoot. The old zoom-from-zero spring wobbled too much
+ * (2026-11 round 4 feedback).
+ */
+export const popupEnter = new Keyframe({
+  0: { opacity: 0, transform: [{ scale: 0.94 }] },
+  100: { opacity: 1, transform: [{ scale: 1 }], easing: Easing.out(Easing.cubic) },
+}).duration(220);

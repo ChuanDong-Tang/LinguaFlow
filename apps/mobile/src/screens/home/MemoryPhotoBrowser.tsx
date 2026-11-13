@@ -60,6 +60,10 @@ export function MemoryPhotoBrowser({ random = false, hidden = false, onClose, on
   const [index, setIndex] = useState(0);
   const [round, setRound] = useState(0);
   const [generated, setGenerated] = useState<Record<string, string>>({});
+  // 改写 returns to the photo at once (round 4): 生成中 until the card exists.
+  const [pending, setPending] = useState<Record<string, true>>({});
+  // Words kept when generating failed or was refused, offered again in the composer.
+  const [retryDraft, setRetryDraft] = useState<{ assetId: string; text: string; title: string; failed: boolean } | null>(null);
   // Photos that already became a card (any session / device install): assetId → recordId.
   const [linked, setLinked] = useState<Record<string, string>>({});
   const checkedAssets = useRef(new Set<string>());
@@ -193,6 +197,8 @@ export function MemoryPhotoBrowser({ random = false, hidden = false, onClose, on
   const openLinked = useCallback((recordId: string) => { haptic.light(); onOpenCard(recordId); }, [onOpenCard]);
 
   const current = deck[index] ?? null;
+  const currentIdRef = useRef<string | null>(null);
+  currentIdRef.current = current?.id ?? null;
   const onViewable = useRef(({ viewableItems }: { viewableItems: ViewToken[] }) => {
     const first = viewableItems[0];
     if (first?.index !== null && first?.index !== undefined) setIndex(first.index);
@@ -276,7 +282,8 @@ export function MemoryPhotoBrowser({ random = false, hidden = false, onClose, on
               ? <SetEnd width={width} generatedIds={generatedIds} generatedAssets={deck.filter((asset) => generated[asset.id])} onPractice={() => onPracticeSet(generatedIds)} onNext={() => void nextSet()} />
               : <Reanimated.View entering={slot === 0 ? FadeIn.duration(320) : undefined} style={[styles.photoPage, { width }]}>
                 <PhotoStage asset={item} shrink={false} shrinkHeight={composerTop - 12} framed={Boolean(cardFor(item))} />
-                {generated[item.id] ? <Reanimated.View entering={ZoomIn.duration(motion.duration.enter)} style={styles.generatedBadge}><CheckMark size={16} /><Text style={styles.generatedText}>{copy("已生成", "Saved")}</Text></Reanimated.View>
+                {pending[item.id] ? <Reanimated.View entering={FadeIn.duration(motion.duration.quick)} style={styles.generatedBadge}><ActivityIndicator size="small" color={theme.colors.textSecondary} /><Text style={styles.generatedText}>{copy("生成中", "Creating")}</Text></Reanimated.View>
+                  : generated[item.id] ? <Reanimated.View entering={ZoomIn.duration(motion.duration.enter)} style={styles.generatedBadge}><CheckMark size={16} /><Text style={styles.generatedText}>{copy("已生成", "Saved")}</Text></Reanimated.View>
                   : linked[item.id] ? <Reanimated.View entering={FadeIn.duration(motion.duration.enter)} style={styles.generatedBadge}>
                     <Pressable accessibilityRole="button" accessibilityLabel={copy("已有卡片，查看", "Has a card · open")} hitSlop={8} style={styles.linkedBadgeInner} onPress={() => openLinked(linked[item.id]!)}>
                       <Icon name="albums-outline" size={14} color={theme.colors.accent} /><Text style={styles.generatedText}>{copy("已有卡片", "Has a card")}</Text><Icon name="chevron-forward" size={13} />
@@ -285,8 +292,9 @@ export function MemoryPhotoBrowser({ random = false, hidden = false, onClose, on
               </Reanimated.View>}
           />
           {composerOpen && current ? <Reanimated.View entering={FadeIn.duration(220)} style={[styles.composerPhoto, { height: Math.max(120, composerTop - 4) }]}>
-            {/* Writing: a landscape photo spans the width; a portrait one is cropped like a card cover. */}
-            <MemoryPhotoPreview asset={current} cover={current.height > current.width} style={styles.composerPhotoImage} />
+            {/* Writing: every photo fills the width, cropped like a card cover (round 4:
+                landscape photos used to sit letterboxed with empty sides). */}
+            <MemoryPhotoPreview asset={current} cover style={styles.composerPhotoImage} />
           </Reanimated.View> : null}
           {state.access === "limited" ? <Pressable style={styles.limitedBanner} onPress={() => void permissionAction(true)}><Text style={styles.limitedText}>{copy("仅展示已授权照片 · 调整范围", "Showing selected photos · Manage access")}</Text></Pressable> : null}
           {current && !composerOpen ? <View style={styles.footer} pointerEvents="box-none">
@@ -308,14 +316,28 @@ export function MemoryPhotoBrowser({ random = false, hidden = false, onClose, on
           onCollectionChange={setFolderId}
           onCreateCollection={onCreateCollection}
           onClose={() => setComposerOpen(false)}
+          initialDraft={retryDraft?.assetId === current.id ? retryDraft : null}
           onSubmit={async (text, title) => {
-            const recordId = await onConfirm(current, text, title, folderId);
-            // Refused on quota: the recharge / refresh dialog explains it; keep the words, no error line.
-            if (recordId === "refused") return "refused";
-            if (!recordId || !alive.current) return false;
-            haptic.success();
-            setGenerated((value) => ({ ...value, [current.id]: recordId }));
+            // Back to the full photo right away; the badge says 生成中 → 已生成.
+            const asset = current;
+            haptic.medium();
+            setRetryDraft(null);
+            setPending((value) => ({ ...value, [asset.id]: true }));
             setComposerOpen(false);
+            const settle = (recordId: string | null | "refused") => {
+              if (!alive.current) return;
+              setPending((value) => { const next = { ...value }; delete next[asset.id]; return next; });
+              if (recordId && recordId !== "refused") {
+                haptic.success();
+                setGenerated((value) => ({ ...value, [asset.id]: recordId }));
+                return;
+              }
+              // Refused on quota (the dialog explains it) or failed: keep the words and,
+              // if the photo is still on screen, reopen the composer with them.
+              setRetryDraft({ assetId: asset.id, text, title, failed: recordId !== "refused" });
+              if (currentIdRef.current === asset.id) setComposerOpen(true);
+            };
+            void onConfirm(asset, text, title, folderId).then(settle, () => settle(null));
             return true;
           }}
         /> : null}
@@ -370,7 +392,7 @@ function PhotoStage({ asset, shrink, shrinkHeight, framed = false }: { asset: As
   </Reanimated.View>;
 }
 
-function PhotoComposer({ asset, maxLength, collections, collectionId, onCollectionChange, onCreateCollection, onClose, onSubmit }: {
+function PhotoComposer({ asset, maxLength, collections, collectionId, onCollectionChange, onCreateCollection, onClose, onSubmit, initialDraft }: {
   asset: Asset;
   maxLength: number;
   collections: CardCollection[];
@@ -379,12 +401,14 @@ function PhotoComposer({ asset, maxLength, collections, collectionId, onCollecti
   onCreateCollection?: (name: string, parentId: string | null) => Promise<CardCollection>;
   onClose: () => void;
   onSubmit: (text: string, title: string) => Promise<boolean | "refused">;
+  /** Words from an attempt that did not go through. */
+  initialDraft?: { text: string; title: string; failed: boolean } | null;
 }) {
   const insets = useSafeAreaInsets();
-  const [title, setTitle] = useState("");
-  const [text, setText] = useState("");
+  const [title, setTitle] = useState(initialDraft?.title ?? "");
+  const [text, setText] = useState(initialDraft?.text ?? "");
   const [busy, setBusy] = useState(false);
-  const [failed, setFailed] = useState(false);
+  const [failed, setFailed] = useState(initialDraft?.failed ?? false);
   const [folderMenuOpen, setFolderMenuOpen] = useState(false);
   const folder = collections.find((collection) => collection.id === collectionId);
   const input = useRef<TextInput>(null);

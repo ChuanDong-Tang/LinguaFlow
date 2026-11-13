@@ -29,6 +29,7 @@ import OioRecall from "../../assets/app/oio-recall.svg";
 import { ProgressRing } from "../components/ProgressRing";
 import { cardProgressRing } from "../domain/practice/cardProgressRing";
 import { isBlindBoxPlayable } from "../domain/blindBox/pickSentence";
+import { getBlindBoxSettings } from "../services/practice/blindBoxSettings";
 import { BlindBoxHome } from "./home/BlindBoxHome";
 import { PracticeSetSummary } from "../components/PracticeSetSummary";
 import { endPracticeSession, startPracticeSession, type PracticeSessionSummary } from "../services/practice/practiceSession";
@@ -218,8 +219,8 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
   // 今日 defaults to the single-column feed; ⋯ can switch it to the waterfall grid.
   const activeLayout: HomeLayout = libraryView === TRASH_VIEW ? "list" : homeTab === "today" ? todayLayout : homeLayout;
   const setActiveLayout = homeTab === "today" ? setTodayLayout : setHomeLayout;
-  // 今日's 列表 is the big single-column feed; 回忆's is the compact list.
-  const todayFeed = homeTab === "today" && activeLayout === "list";
+  // 列表 is the compact list on both tabs (round 4: 今日's big single-column
+  // feed showed photos too large and read like a waterfall).
   const gridLayout = activeLayout !== "list";
   const uniformGrid = activeLayout === "grid";
   const [selectedRecordIds, setSelectedRecordIds] = useState<Set<string>>(new Set());
@@ -1863,10 +1864,10 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
         data={[...(recordsScope === queryScope ? records : [])].filter((record) => (!selectingRecords || !record.isSample) && (!dateScope || record.dateKey === dateScope)).sort((a, b) => Number(b.isSample) - Number(a.isSample))}
         keyExtractor={(record) => record.id}
         renderItem={({ item: record, index }) => (
-          <CardCard enterIndex={index} grid={gridLayout} uniform={uniformGrid} feed={todayFeed} record={record} collectionName={record.collectionId ? collections.find((collection) => collection.id === record.collectionId)?.name : undefined} selecting={selectingRecords} selected={selectedRecordIds.has(record.id)} onPress={(origin) => selectingRecords ? toggleRecordSelection(record.id) : libraryView === TRASH_VIEW ? undefined : void openDetail(record, origin)} onOpenActions={(anchor) => openRecordActions(record, anchor)} onHideTutorial={() => hideTutorial(record.id)} onThumbnailError={recoverFailedThumbnail} />
+          <CardCard enterIndex={index} grid={gridLayout} uniform={uniformGrid} record={record} collectionName={record.collectionId ? collections.find((collection) => collection.id === record.collectionId)?.name : undefined} selecting={selectingRecords} selected={selectedRecordIds.has(record.id)} onPress={(origin) => selectingRecords ? toggleRecordSelection(record.id) : libraryView === TRASH_VIEW ? undefined : void openDetail(record, origin)} onOpenActions={(anchor) => openRecordActions(record, anchor)} onHideTutorial={() => hideTutorial(record.id)} onThumbnailError={recoverFailedThumbnail} />
         )}
         ListHeaderComponent={homeTab === "memory" && !selectingRecords && libraryView !== TRASH_VIEW ? <View style={gridLayout ? styles.gridHeader : undefined}><MemoryRoundShortcut active={isActive} resume={memoryRoundResumeAvailable} onPress={onOpenMemoryRound} /></View> : null}
-        contentContainerStyle={gridLayout ? styles.gridList : todayFeed ? styles.todayList : styles.list}
+        contentContainerStyle={gridLayout ? styles.gridList : styles.list}
         alwaysBounceVertical
         bounces
         showsVerticalScrollIndicator
@@ -1921,7 +1922,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
       </Modal> : null}
       <PracticeSetSummary summary={blindBoxSummary} onClose={() => setBlindBoxSummary(null)} onAgain={() => {
         setBlindBoxSummary(null);
-        const pool = records.filter((record) => record.status === "completed" && !record.isSample && isBlindBoxPlayable(record.practiceSummary)).map((record) => record.id);
+        const pool = records.filter((record) => record.status === "completed" && !record.isSample && isBlindBoxPlayable(record.practiceSummary, getBlindBoxSettings().tones)).map((record) => record.id);
         const previous = new Set(lastBlindBoxIdsRef.current);
         const fresh = pool.filter((id) => !previous.has(id));
         const source = fresh.length ? fresh : pool;
@@ -3256,12 +3257,10 @@ async function stabilizeRecordThumbnails(
   }));
 }
 
-function CardCard({ record, grid = false, uniform = false, feed = false, enterIndex, collectionName, selecting = false, selected = false, onPress, onOpenActions, onThumbnailError, onHideTutorial }: {
+function CardCard({ record, grid = false, uniform = false, enterIndex, collectionName, selecting = false, selected = false, onPress, onOpenActions, onThumbnailError, onHideTutorial }: {
   grid?: boolean;
   /** 方格: every tile the same square shape (瀑布 keeps each photo's own shape). */
   uniform?: boolean;
-  /** 今日 single-column feed card. */
-  feed?: boolean;
   enterIndex?: number;
   record: CardRecordSummary;
   collectionName?: string;
@@ -3304,12 +3303,13 @@ function CardCard({ record, grid = false, uniform = false, feed = false, enterIn
         {record.thumbnail ? <View ref={thumbnailRef} collapsable={false} style={grid ? [styles.memoryGridCover, { aspectRatio: uniform ? 1 : homeCoverAspect(record.thumbnail.width, record.thumbnail.height) }] : styles.thumbnailFrame} onLayout={grid ? (event) => setCoverFrame({ width: event.nativeEvent.layout.width, height: event.nativeEvent.layout.height }) : undefined}>{grid
           // Honor the cover position picked in the editor (was always center-cropped).
           ? coverFrame ? <Image source={{ uri: record.thumbnail.url }} resizeMode="stretch" style={{ position: "absolute", ...focusedCoverRect(record.thumbnail, coverFrame, { x: record.thumbnail.focusX, y: record.thumbnail.focusY }) }} onError={onThumbnailError} /> : null
-          : <FocusedCardThumbnail thumbnail={record.thumbnail} onError={onThumbnailError} />}</View> : grid ? <View style={[styles.memoryGridCover, styles.memoryTextCover, uniform && styles.memoryTextCoverUniform, { backgroundColor: coverFillFor(record.id) }]}>
-          {/* Text-only memory: title, a short rule, then a taste of the English rewrite. */}
-          <Text style={styles.memoryTextCoverTitle} numberOfLines={3}>{record.displayTitle.trim() || record.originalPreview}</Text>
+          : <FocusedCardThumbnail thumbnail={record.thumbnail} onError={onThumbnailError} />}</View> : grid ? <View style={[styles.memoryGridCover, styles.memoryTextCover, uniform ? styles.memoryTextCoverUniform : styles.memoryTextCoverFree, { backgroundColor: coverFillFor(record.id) }]}>
+          {/* Text-only memory: title, a short rule, then a taste of the English rewrite.
+              瀑布 lets the cover grow with the words, so tiles differ in height. */}
+          <Text style={styles.memoryTextCoverTitle} numberOfLines={uniform ? 3 : 4}>{record.displayTitle.trim() || record.originalPreview}</Text>
           {(record.rewrittenPreview ?? "").trim() ? <>
             <View style={styles.memoryTextCoverRule} />
-            <Text style={styles.memoryTextCoverPreview} numberOfLines={3}>{record.rewrittenPreview}</Text>
+            <Text style={styles.memoryTextCoverPreview} numberOfLines={uniform ? 3 : 6}>{record.rewrittenPreview}</Text>
           </> : null}
         </View> : null}
         {grid && !selecting && !record.isSample && record.practiceSummary?.status && record.practiceSummary.status !== "image_only" ? <CardStatusBadge summary={record.practiceSummary} /> : null}
@@ -3345,31 +3345,6 @@ function CardCard({ record, grid = false, uniform = false, feed = false, enterIn
         </View>
       </View>
   );
-  if (feed && !selecting) {
-    const enter = firstAppearance && enterIndex !== undefined && enterIndex < motion.maxStaggered
-      ? FadeInDown.duration(motion.duration.enter).delay(enterIndex * motion.stagger)
-      : undefined;
-    const thumb = record.thumbnail;
-    const preview = (record.rewrittenPreview?.trim() || record.originalPreview).trim();
-    return <Reanimated.View entering={enter}>
-      <PressableSurface ref={cardRef} disabled={processing} dimWhenDisabled={false} accessibilityHint={t("library.long_press_hint")} style={styles.todayCard} contentStyle={styles.todayCardInner} onPress={open} onLongPress={longPress} delayLongPress={350}>
-        {thumb ? <View ref={thumbnailRef} collapsable={false} style={[styles.todayCover, { aspectRatio: Math.max(0.8, Math.min(1.5, thumb.width / Math.max(1, thumb.height))) }]}>
-          <Image source={{ uri: thumb.url }} style={StyleSheet.absoluteFill} resizeMode="cover" onError={onThumbnailError} />
-        </View> : null}
-        <View style={styles.todayBody}>
-          {record.displayTitle.trim() ? <Text numberOfLines={2} style={styles.todayTitle}>{record.displayTitle}</Text> : null}
-          {preview ? <Text numberOfLines={thumb ? 3 : 6} style={styles.todayPreview}>{preview}</Text> : null}
-          <View style={styles.todayFooter}>
-            <Text style={styles.todayTime}>{formatTime(record.recordedAt ?? record.createdAt)}</Text>
-            {processing ? <ActivityIndicator size="small" color={theme.colors.accentStrong} /> : record.practiceSummary?.encounterCount !== undefined ? <View style={styles.cardEncounter}>
-              <Eye size={14} color={theme.colors.textMuted} />
-              <Text style={styles.cardEncounterText}>{record.practiceSummary.encounterCount}</Text>
-            </View> : null}
-          </View>
-        </View>
-      </PressableSurface>
-    </Reanimated.View>;
-  }
   if (grid) {
     const enter = firstAppearance && enterIndex !== undefined && enterIndex < motion.maxStaggered
       ? FadeInDown.duration(motion.duration.enter).delay(enterIndex * motion.stagger)
@@ -3584,6 +3559,7 @@ const styles = createStyles(() => ({
   memoryTextCover: { justifyContent: "center", alignItems: "flex-start", paddingHorizontal: 16, paddingVertical: 20, gap: 10 },
   memoryTextCoverTitle: { fontSize: 17, lineHeight: 24, color: theme.colors.text, fontWeight: "700" },
   historyClose: { width: 44, height: 44, marginLeft: 8, alignItems: "center", justifyContent: "center" },
+  memoryTextCoverFree: { aspectRatio: undefined, minHeight: 120, justifyContent: "flex-start" },
   memoryTextCoverUniform: { aspectRatio: 1, justifyContent: "flex-start", overflow: "hidden" },
   memoryTextCoverRule: { width: 24, height: 2, borderRadius: 1, backgroundColor: theme.colors.textFaint },
   memoryTextCoverPreview: { fontSize: 13, lineHeight: 19, color: theme.colors.textSecondary },
@@ -3642,15 +3618,6 @@ const styles = createStyles(() => ({
   searchSubmitText: { color: theme.colors.surface, fontSize: 13, fontWeight: "600" },
   libraryList: { flex: 1, backgroundColor: theme.colors.feed },
   list: { paddingHorizontal: theme.gutter, paddingTop: 6, paddingBottom: 120 },
-  todayList: { paddingHorizontal: 12, paddingTop: 10, paddingBottom: 120 },
-  todayCard: { marginBottom: 12 },
-  todayCardInner: { overflow: "hidden" },
-  todayCover: { width: "100%", backgroundColor: theme.colors.surfaceMuted },
-  todayBody: { paddingHorizontal: 14, paddingTop: 12, paddingBottom: 12, gap: 6 },
-  todayTitle: { color: theme.colors.text, fontSize: 17, lineHeight: 24, fontWeight: "600" },
-  todayPreview: { color: theme.colors.textStrong, fontSize: 15, lineHeight: 23 },
-  todayFooter: { marginTop: 2, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  todayTime: { color: theme.colors.textMuted, fontSize: 12 },
   gridHeader: { paddingHorizontal: 3.5 },
   gridList: { paddingHorizontal: 6, paddingTop: 8, paddingBottom: 120 },
   recallShortcuts: { marginHorizontal: 22, marginBottom: 8, paddingVertical: 6, flexDirection: "row", gap: 7 },

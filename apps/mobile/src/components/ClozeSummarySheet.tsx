@@ -1,6 +1,7 @@
 import React from "react";
 import { Modal, Pressable, ScrollView, StyleSheet, View } from "react-native";
-import Reanimated, { ZoomIn } from "react-native-reanimated";
+import Reanimated from "react-native-reanimated";
+import { popupEnter } from "../motion";
 import { Text } from "./Typography";
 import { haptic } from "../feedback/haptics";
 import { t } from "../i18n";
@@ -19,7 +20,7 @@ export function ClozeSummarySheet({ summary, onClose }: { summary: CardClozeSess
     <View style={styles.backdrop}>
       {/* Tap outside closes; the panel is a sibling so its lists can scroll. */}
       <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
-      <Reanimated.View entering={ZoomIn.springify().damping(16).stiffness(180)} style={styles.panel}>
+      <Reanimated.View entering={popupEnter} style={styles.panel}>
         <Text style={[styles.accuracy, { color: perfect ? theme.colors.accent : theme.colors.text }]}>{summary.accuracy}%</Text>
         <Text style={styles.caption}>{t("cloze.summary.accuracy")}</Text>
         <View style={styles.columns}>
