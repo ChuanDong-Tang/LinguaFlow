@@ -46,8 +46,8 @@ module.exports = {
       package: "com.yueyantech.oio",
       versionCode: 62,
       allowBackup: false,
-      // POST_NOTIFICATIONS: local 回忆提醒 (Android 13+). expo-notifications is used
-      // without its config plugin, so iOS gets no push entitlement (local only).
+      // POST_NOTIFICATIONS: local 回忆提醒 (Android 13+). Local only: the iOS push
+      // entitlement the auto-applied expo-notifications plugin adds is stripped.
       permissions: ["RECORD_AUDIO", "POST_NOTIFICATIONS"],
       blockedPermissions: [
         "android.permission.READ_MEDIA_VIDEO",
@@ -112,6 +112,7 @@ module.exports = {
       "./plugins/with-chat-selectable-text",
       "./plugins/with-picovoice-voice-processor",
       "./plugins/with-android-release-signing",
+      "./plugins/with-local-notifications-only",
     ],
     owner: "reedtang",
     runtimeVersion,
