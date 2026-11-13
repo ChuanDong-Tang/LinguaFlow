@@ -4,7 +4,7 @@ import type { AgentToolDefinition } from "../ports/ai/AgentChatProvider.js";
  * OIO AI (2026-11, phase 1): finds the user's memories (cards) and helps them
  * practise. Read-only tools plus two app actions; nothing here changes data.
  */
-export const OIO_AI_PROMPT_VERSION = "oio-ai-v1";
+export const OIO_AI_PROMPT_VERSION = "oio-ai-v2";
 export const OIO_AI_MAX_TOOL_ROUNDS = 5;
 
 export const OIO_AI_TOOLS: AgentToolDefinition[] = [
@@ -53,16 +53,48 @@ export const OIO_AI_TOOLS: AgentToolDefinition[] = [
   },
 ];
 
+const pad = (n: number) => String(n).padStart(2, "0");
+const key = (d: Date) => `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
+const addDays = (d: Date, days: number) => new Date(d.getTime() + days * 86_400_000);
+
+/**
+ * Ready-made date ranges for common phrases. v1 left the arithmetic to the
+ * model, which resolved 去年这时候 to the wrong year; the ranges are now
+ * computed here (dates are calendar days, timezone-free).
+ */
+export function oioAiDateAnchors(today: string): string[] {
+  const [y, m, d] = today.split("-").map(Number) as [number, number, number];
+  const now = new Date(Date.UTC(y, m - 1, d));
+  const weekday = (now.getUTCDay() + 6) % 7; // Monday = 0
+  const thisMonday = addDays(now, -weekday);
+  const lastMonthStart = new Date(Date.UTC(y, m - 2, 1));
+  const lastMonthEnd = new Date(Date.UTC(y, m - 1, 0));
+  const lastYear = new Date(Date.UTC(y - 1, m - 1, d));
+  return [
+    `today = ${key(now)}`,
+    `yesterday = ${key(addDays(now, -1))}`,
+    `this week (本周) = ${key(thisMonday)} .. ${key(now)}`,
+    `last week (上周) = ${key(addDays(thisMonday, -7))} .. ${key(addDays(thisMonday, -1))}`,
+    `last 7 days (最近一周) = ${key(addDays(now, -6))} .. ${key(now)}`,
+    `this month (这个月) = ${key(new Date(Date.UTC(y, m - 1, 1)))} .. ${key(now)}`,
+    `last month (上个月) = ${key(lastMonthStart)} .. ${key(lastMonthEnd)}`,
+    `this time last year (去年这时候) = ${key(addDays(lastYear, -7))} .. ${key(addDays(lastYear, 7))}`,
+    `last year (去年) = ${y - 1}-01-01 .. ${y - 1}-12-31`,
+    `one week ago (一周前的今天) = ${key(addDays(now, -7))}; one month ago (一个月前的今天) = ${key(new Date(Date.UTC(y, m - 2, Math.min(d, 28))))}; one year ago (一年前的今天) = ${key(lastYear)}`,
+  ];
+}
+
 export function buildOioAiSystemPrompt(input: { today: string; appLocale?: string; learningLanguage?: string; contextCard?: { id: string; title: string; text: string } | null }): string {
   const zh = !input.appLocale || input.appLocale.startsWith("zh");
   return [
     "You are OIO AI inside the OIO app. Users write short memories in their own language; OIO rewrites each into a card in the language they are learning and lets them practise with fill-in blanks (cloze).",
     "Your two jobs: (1) help the user find and revisit their memories; (2) help them learn from their practice.",
-    `Today is ${input.today}. Resolve relative dates (上周, last month, 去年这时候) to explicit YYYY-MM-DD ranges before searching.`,
+    `Date ranges to use as-is for relative dates (do not compute your own):\n${oioAiDateAnchors(input.today).map((line) => `  ${line}`).join("\n")}`,
+    "- For phrases not listed, derive the range from today above. When a date range finds nothing, say which range you searched.",
     "Rules:",
     "- Never invent memories, dates or results. Anything about the user's cards must come from a tool result.",
     "- The app shows found cards as tappable tiles under your reply, so do not list every card in text: summarise in one or two sentences (how many, what they have in common, a notable detail).",
-    "- When practice would help (mistakes found, a theme revisited), call start_blind_box with the relevant card ids so the user gets a start button.",
+    "- When practice would help (mistakes found, cards about a theme found), call start_blind_box in the same turn so the user gets a start button. Do not ask \"要不要练习\" — the button is the offer.",
     "- If nothing is found, say so plainly and suggest a different search.",
     "- You cannot edit, move or delete cards yet; say so if asked.",
     `- Reply in ${zh ? "Simplified Chinese" : "the user's language"}. Keep replies short and warm, no headings, no markdown tables.`,
