@@ -315,6 +315,15 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
     }).catch(() => undefined);
     return () => { active = false; };
   }, []);
+  // The coachmark sits over the folder row's ⋯ button: show it once, briefly.
+  useEffect(() => {
+    if (!searchDictionaryHintVisible) return;
+    const timer = setTimeout(() => {
+      setSearchDictionaryHintVisible(false);
+      void AsyncStorage.setItem(SEARCH_DICTIONARY_HINT_KEY, "1").catch(() => undefined);
+    }, 6000);
+    return () => clearTimeout(timer);
+  }, [searchDictionaryHintVisible]);
   useEffect(() => () => searchDictionaryAbortRef.current?.abort(), []);
   function commitDraft(next: CardDraft): Promise<void> {
     draftRevisionRef.current += 1;
@@ -1402,7 +1411,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
   }), []);
 
   // 盲盒 game: one sentence per card, with photos; a 战绩 summary when the set ends.
-  const [blindBoxSummary, setBlindBoxSummary] = useState<PracticeSessionSummary | null>(null);
+  const [blindBoxSummary, setBlindBoxSummary] = useState<(PracticeSessionSummary & { setSize?: number }) | null>(null);
   const lastBlindBoxIdsRef = useRef<string[]>([]);
   function startBlindBoxSet(ids: string[]): void {
     if (!ids.length) return;
@@ -1413,7 +1422,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
       practice: "sentence",
       closeOnBrowseFinish: true,
       onBrowseSetFinished: () => undefined,
-      onBrowseClosed: () => { const summary = endPracticeSession(); if (summary) setTimeout(() => setBlindBoxSummary(summary), 300); },
+      onBrowseClosed: () => { const summary = endPracticeSession(); if (summary) setTimeout(() => setBlindBoxSummary({ ...summary, setSize: ids.length }), 300); },
     });
   }
 
@@ -1864,7 +1873,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
         data={[...(recordsScope === queryScope ? records : [])].filter((record) => (!selectingRecords || !record.isSample) && (!dateScope || record.dateKey === dateScope)).sort((a, b) => Number(b.isSample) - Number(a.isSample))}
         keyExtractor={(record) => record.id}
         renderItem={({ item: record, index }) => (
-          <CardCard enterIndex={index} grid={gridLayout} uniform={uniformGrid} record={record} collectionName={record.collectionId ? collections.find((collection) => collection.id === record.collectionId)?.name : undefined} selecting={selectingRecords} selected={selectedRecordIds.has(record.id)} onPress={(origin) => selectingRecords ? toggleRecordSelection(record.id) : libraryView === TRASH_VIEW ? undefined : void openDetail(record, origin)} onOpenActions={(anchor) => openRecordActions(record, anchor)} onHideTutorial={() => hideTutorial(record.id)} onThumbnailError={recoverFailedThumbnail} />
+          <CardCard enterIndex={index} grid={gridLayout} uniform={uniformGrid} timeOnly={Boolean(dateScope)} record={record} collectionName={record.collectionId ? collections.find((collection) => collection.id === record.collectionId)?.name : undefined} selecting={selectingRecords} selected={selectedRecordIds.has(record.id)} onPress={(origin) => selectingRecords ? toggleRecordSelection(record.id) : libraryView === TRASH_VIEW ? undefined : void openDetail(record, origin)} onOpenActions={(anchor) => openRecordActions(record, anchor)} onHideTutorial={() => hideTutorial(record.id)} onThumbnailError={recoverFailedThumbnail} />
         )}
         ListHeaderComponent={homeTab === "memory" && !selectingRecords && libraryView !== TRASH_VIEW ? <View style={gridLayout ? styles.gridHeader : undefined}><MemoryRoundShortcut active={isActive} resume={memoryRoundResumeAvailable} onPress={onOpenMemoryRound} /></View> : null}
         contentContainerStyle={gridLayout ? styles.gridList : styles.list}
@@ -1937,7 +1946,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
               <Text style={styles.displayMenuLabel}>{t("library.layout")}</Text>
               <View style={styles.displayMenuSegment}>
                 {(["grid", "waterfall", "list"] as const).map((layout) => <Pressable key={layout} accessibilityRole="radio" accessibilityState={{ checked: activeLayout === layout }} style={[styles.displayMenuOption, activeLayout === layout && styles.displayMenuOptionOn]} onPress={() => { haptic.select(); setActiveLayout(layout); }}>
-                  <Icon name={layout === "list" ? "list-outline" : "grid-outline"} size={16} color={activeLayout === layout ? theme.colors.onAccent : theme.colors.text} />
+                  <Icon name={layout === "list" ? "list-outline" : layout === "waterfall" ? "browsers-outline" : "grid-outline"} size={16} color={activeLayout === layout ? theme.colors.onAccent : theme.colors.text} />
                   <Text style={[styles.displayMenuOptionText, activeLayout === layout && styles.displayMenuOptionTextOn]}>{t(layout === "grid" ? "library.layout_grid" : layout === "waterfall" ? "today.layout_waterfall" : "library.layout_list")}</Text>
                 </Pressable>)}
               </View>
@@ -1954,11 +1963,12 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
                 </Pressable>)}
               </View>
               <Text style={styles.displayMenuLabel}>{t("library.filter_practice")}</Text>
-              <View style={[styles.displayMenuSegment, styles.displayMenuWrap]}>
-                {(["all", "unclozed", "unanswered", "mistakes", "perfect"] as const).map((value) => <Pressable key={value} accessibilityRole="radio" accessibilityState={{ checked: practiceFilter === value }} style={[styles.displayMenuOption, styles.displayMenuChip, practiceFilter === value && styles.displayMenuOptionOn]} onPress={() => { haptic.select(); setPracticeFilter(value); }}>
+              {/* Rows of three; the short last row keeps an empty slot so columns line up. */}
+              {([["all", "unclozed", "unanswered"], ["mistakes", "perfect", null]] as const).map((row, rowIndex) => <View key={rowIndex} style={[styles.displayMenuSegment, rowIndex > 0 && styles.displayMenuRowTight]}>
+                {row.map((value) => value === null ? <View key="spacer" style={{ flex: 1 }} /> : <Pressable key={value} accessibilityRole="radio" accessibilityState={{ checked: practiceFilter === value }} style={[styles.displayMenuOption, practiceFilter === value && styles.displayMenuOptionOn]} onPress={() => { haptic.select(); setPracticeFilter(value); }}>
                   <Text style={[styles.displayMenuOptionText, practiceFilter === value && styles.displayMenuOptionTextOn]}>{t(`library.filter_practice_${value}`)}</Text>
                 </Pressable>)}
-              </View>
+              </View>)}
               {/* 选择卡片 moved to long-press on a card (like a photo album). */}
             </Pressable>
           </Surface>
@@ -3257,10 +3267,12 @@ async function stabilizeRecordThumbnails(
   }));
 }
 
-function CardCard({ record, grid = false, uniform = false, enterIndex, collectionName, selecting = false, selected = false, onPress, onOpenActions, onThumbnailError, onHideTutorial }: {
+function CardCard({ record, grid = false, uniform = false, timeOnly = false, enterIndex, collectionName, selecting = false, selected = false, onPress, onOpenActions, onThumbnailError, onHideTutorial }: {
   grid?: boolean;
   /** 方格: every tile the same square shape (瀑布 keeps each photo's own shape). */
   uniform?: boolean;
+  /** 今日 (one day shown): the footer gives the time, not the same date on every card. */
+  timeOnly?: boolean;
   enterIndex?: number;
   record: CardRecordSummary;
   collectionName?: string;
@@ -3306,11 +3318,15 @@ function CardCard({ record, grid = false, uniform = false, enterIndex, collectio
           : <FocusedCardThumbnail thumbnail={record.thumbnail} onError={onThumbnailError} />}</View> : grid ? <View style={[styles.memoryGridCover, styles.memoryTextCover, uniform ? styles.memoryTextCoverUniform : styles.memoryTextCoverFree, { backgroundColor: coverFillFor(record.id) }]}>
           {/* Text-only memory: title, a short rule, then a taste of the English rewrite.
               瀑布 lets the cover grow with the words, so tiles differ in height. */}
-          <Text style={styles.memoryTextCoverTitle} numberOfLines={uniform ? 3 : 4}>{record.displayTitle.trim() || record.originalPreview}</Text>
-          {(record.rewrittenPreview ?? "").trim() ? <>
-            <View style={styles.memoryTextCoverRule} />
-            <Text style={styles.memoryTextCoverPreview} numberOfLines={uniform ? 3 : 6}>{record.rewrittenPreview}</Text>
-          </> : null}
+          {/* 方格: every tile is square cover + one title line + date, so text tiles put
+              the English on the cover and the title below like photo tiles. */}
+          {uniform ? <Text style={styles.memoryTextCoverQuote} numberOfLines={5}>{(record.rewrittenPreview ?? "").trim() || record.originalPreview}</Text> : <>
+            <Text style={styles.memoryTextCoverTitle} numberOfLines={4}>{record.displayTitle.trim() || record.originalPreview}</Text>
+            {(record.rewrittenPreview ?? "").trim() ? <>
+              <View style={styles.memoryTextCoverRule} />
+              <Text style={styles.memoryTextCoverPreview} numberOfLines={6}>{record.rewrittenPreview}</Text>
+            </> : null}
+          </>}
         </View> : null}
         {grid && !selecting && !record.isSample && record.practiceSummary?.status && record.practiceSummary.status !== "image_only" ? <CardStatusBadge summary={record.practiceSummary} /> : null}
         <View style={styles.cardTextColumn}>
@@ -3322,12 +3338,13 @@ function CardCard({ record, grid = false, uniform = false, enterIndex, collectio
             </>
           ) : (
             <>
-              {record.displayTitle.trim() && (!grid || record.thumbnail) ? <Text numberOfLines={grid ? 2 : 1} ellipsizeMode="tail" style={[styles.cardTitle, grid && styles.memoryGridTitle]}>{record.displayTitle}</Text> : null}
+              {grid && uniform ? <Text numberOfLines={1} ellipsizeMode="tail" style={[styles.cardTitle, styles.memoryGridTitle]}>{record.displayTitle.trim() || record.originalPreview}</Text>
+                : record.displayTitle.trim() && (!grid || record.thumbnail) ? <Text numberOfLines={grid ? 2 : 1} ellipsizeMode="tail" style={[styles.cardTitle, grid && styles.memoryGridTitle]}>{record.displayTitle}</Text> : null}
               {!grid ? <Text numberOfLines={record.thumbnail ? 2 : 3} ellipsizeMode="tail" style={styles.originalText}>{previewText}</Text> : null}
             </>
           )}
           <View style={[styles.cardFooter, grid && styles.memoryGridFooter]}>
-            <Text numberOfLines={1} style={[styles.cardTime, grid && styles.memoryGridDate]}>{formatCardDateLabel(record.dateKey)}{!grid ? ` · ${formatTime(record.recordedAt ?? record.createdAt)}` : ""}</Text>
+            <Text numberOfLines={1} style={[styles.cardTime, grid && styles.memoryGridDate]}>{timeOnly ? formatTime(record.recordedAt ?? record.createdAt) : `${formatCardDateLabel(record.dateKey)}${!grid ? ` · ${formatTime(record.recordedAt ?? record.createdAt)}` : ""}`}</Text>
             {collectionName && !grid ? <Text numberOfLines={1} style={styles.cardCollection}>{collectionName}</Text> : null}
             {record.isSample ? <>
               <Text style={styles.sampleBadge}>{t("main.card.sample")}</Text>
@@ -3556,11 +3573,13 @@ const styles = createStyles(() => ({
   memoryGridContent: { flexDirection: "column", alignItems: "stretch", gap: 0 },
   memoryGridCover: { width: "100%", aspectRatio: 0.85, borderTopLeftRadius: theme.radius.card, borderTopRightRadius: theme.radius.card, overflow: "hidden", backgroundColor: theme.colors.surfaceMuted },
   memoryGridTitle: { fontSize: 14, lineHeight: 20, fontWeight: "500", marginTop: 8, paddingHorizontal: 10, color: theme.colors.text },
-  memoryTextCover: { justifyContent: "center", alignItems: "flex-start", paddingHorizontal: 16, paddingVertical: 20, gap: 10 },
+  // paddingTop clears the progress badge (top-left) so it never covers the title.
+  memoryTextCover: { justifyContent: "center", alignItems: "flex-start", paddingHorizontal: 16, paddingTop: 38, paddingBottom: 18, gap: 10 },
   memoryTextCoverTitle: { fontSize: 17, lineHeight: 24, color: theme.colors.text, fontWeight: "700" },
   historyClose: { width: 44, height: 44, marginLeft: 8, alignItems: "center", justifyContent: "center" },
   memoryTextCoverFree: { aspectRatio: undefined, minHeight: 120, justifyContent: "flex-start" },
   memoryTextCoverUniform: { aspectRatio: 1, justifyContent: "flex-start", overflow: "hidden" },
+  memoryTextCoverQuote: { fontSize: 14, lineHeight: 21, color: theme.colors.textStrong, fontWeight: "500" },
   memoryTextCoverRule: { width: 24, height: 2, borderRadius: 1, backgroundColor: theme.colors.textFaint },
   memoryTextCoverPreview: { fontSize: 13, lineHeight: 19, color: theme.colors.textSecondary },
   memoryGridFooter: { flexWrap: "nowrap", gap: 4, marginTop: 6, minHeight: 20, paddingHorizontal: 10, paddingBottom: 10 },
@@ -3589,12 +3608,12 @@ const styles = createStyles(() => ({
   displayMenuInner: { padding: 14, gap: 8 },
   displayMenuLabel: { color: theme.colors.textMuted, fontSize: 12, fontWeight: "600", letterSpacing: 0.4, marginTop: 2 },
   displayMenuSegment: { flexDirection: "row", gap: 6 },
+  // A second row of the same group sits as close as the buttons in a row (the panel gap is larger).
+  displayMenuRowTight: { marginTop: -2 },
   displayMenuOption: { flex: 1, minHeight: 38, borderRadius: 10, backgroundColor: theme.colors.fill2, flexDirection: "row", gap: 5, alignItems: "center", justifyContent: "center" },
   displayMenuOptionOn: { backgroundColor: theme.colors.accent },
   displayMenuOptionText: { color: theme.colors.text, fontSize: 14 },
   displayMenuOptionTextOn: { color: theme.colors.onAccent, fontWeight: "600" },
-  displayMenuWrap: { flexWrap: "wrap" },
-  displayMenuChip: { flex: 0, flexGrow: 1, minWidth: 64, paddingHorizontal: 10 },
   libraryMenuRow: { minHeight: 76, paddingHorizontal: 20, flexDirection: "row", alignItems: "center", gap: 10 },
   libraryMenuLeadingIcon: { width: 28, alignItems: "center" },
   libraryMenuTextBlock: { flex: 1 },

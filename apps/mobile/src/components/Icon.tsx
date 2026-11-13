@@ -6,7 +6,7 @@ import {
   ArrowClockwise, ArrowDown, ArrowsDownUp, Bell, Tag, ArrowLeft, ArrowRight, ArrowsClockwise, ArrowsIn, ArrowsOut, ArrowsOutCardinal, ArrowUp, ArrowUUpLeft,
   BookOpen, BookOpenText, CalendarBlank, CalendarDot, Camera, Cards, CaretDown, CaretLeft, CaretRight, CaretUp, ChatCircleDots,
   ChatTeardropDots, Check, CircleHalf, CheckCircle, Checks, CircleIcon as Circle, CloudArrowDown, Code, Copy, Cube, DotsThree, DownloadSimple, Ear, Eye,
-  EyeSlash, FileText, Flag, Folder, FolderOpen, GearSix, Globe, GraduationCap, Headphones, Image, ImageSquare, Info, Leaf, Lightbulb,
+  EyeSlash, FileText, Flag, Folder, FolderOpen, GearSix, Globe, GraduationCap, Headphones, Image, ImageSquare, Info, Layout, Leaf, Lightbulb,
   Link, List, MagnifyingGlass, Microphone, MusicNote, MusicNotes, Pause, PencilSimple, Play, PlayCircle, Plus, PlusCircle, ShareNetwork,
   ShieldCheck, Shuffle, SignOut, SkipBack, SkipForward, SpeakerHigh, SpeakerLow, Square, SquaresFour, Star, Stop, TextT, Translate,
   Trash, User, UserMinus, Users, WarningCircle, X, XCircle, type IconProps, type IconWeight,
@@ -41,7 +41,7 @@ const MAP: Partial<Record<string, [PhosphorIcon, IconWeight?]>> = {
   "cloud-download-outline": [CloudArrowDown], "camera-outline": [Camera], "book-outline": [BookOpen], "school-outline": [GraduationCap],
   "eye-outline": [Eye], "eye-off-outline": [EyeSlash], "ellipse-outline": [Circle], "contrast-outline": [CircleHalf], "square-outline": [Square],
   "chatbubble-ellipses-outline": [ChatCircleDots], "chatbox-ellipses-outline": [ChatTeardropDots],
-  "contract-outline": [ArrowsIn], "expand-outline": [ArrowsOut], "apps-outline": [SquaresFour], "grid-outline": [SquaresFour],
+  "contract-outline": [ArrowsIn], "expand-outline": [ArrowsOut], "apps-outline": [SquaresFour], "grid-outline": [SquaresFour], "browsers-outline": [Layout],
   "list-outline": [List], "menu-outline": [List], "bulb-outline": [Lightbulb], "code-slash-outline": [Code], "cube-outline": [Cube],
   "headset-outline": [Headphones], "leaf-outline": [Leaf], "shield-outline": [ShieldCheck], "star-outline": [Star], star: [Star, "fill"],
 };

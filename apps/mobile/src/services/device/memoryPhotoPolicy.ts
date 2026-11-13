@@ -76,6 +76,19 @@ export function nextPhotoSet<T extends { id: string }>(photos: readonly T[], cur
   return { assets: shuffled ? photoBatch(pool, size, random) : pool.slice(0, size), needsMore };
 }
 
+/**
+ * Change the size of the set being viewed, right away (round 4): a bigger size
+ * appends fresh photos after the current ones; a smaller one drops only photos
+ * not yet reached — everything up to `keepThrough` (the furthest photo seen or
+ * made into a card) stays.
+ */
+export function resizePhotoSet<T extends { id: string }>(current: readonly T[], photos: readonly T[], count: number, keepThrough: number, random: () => number = Math.random): T[] {
+  const size = Math.max(0, Number.isFinite(count) ? Math.floor(count) : 0);
+  if (size <= current.length) return current.slice(0, Math.min(current.length, Math.max(size, keepThrough + 1)));
+  const ids = new Set(current.map((photo) => photo.id));
+  return [...current, ...photoBatch(photos.filter((photo) => !ids.has(photo.id)), size - current.length, random)];
+}
+
 /** "近期" photos: from the start of the day `days - 1` days ago until now. */
 export function recentPhotoWindowStart(now: Date, days = 3): number {
   return new Date(now.getFullYear(), now.getMonth(), now.getDate() - (days - 1)).getTime();

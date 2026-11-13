@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { memoryPhotoAccess, photoDayRange, mergePhotoPage, photoBatch, nextPhotoSet, memoryPhotoPreviewUri, isRecentPhoto, relativePhotoDay } from "./memoryPhotoPolicy";
+import { memoryPhotoAccess, photoDayRange, mergePhotoPage, photoBatch, nextPhotoSet, memoryPhotoPreviewUri, isRecentPhoto, relativePhotoDay, resizePhotoSet } from "./memoryPhotoPolicy";
 
 test("photo previews resolve local files without passing Photos IDs or cloud URLs to Image", () => {
   assert.equal(memoryPhotoPreviewUri({ uri: "ph://asset", localUri: "file:///photo.jpg" }), "file:///photo.jpg");
@@ -64,4 +64,19 @@ test("relative day labels for today, yesterday and the day before", () => {
   assert.equal(relativePhotoDay(new Date(2026, 10, 7, 12, 0).getTime(), now), "two_days_ago");
   assert.equal(relativePhotoDay(new Date(2026, 10, 6, 12, 0).getTime(), now), null);
   assert.equal(relativePhotoDay(0, now), null);
+});
+
+test("resizing the set applies now and never drops what was seen", () => {
+  const photo = (id: string) => ({ id });
+  const deck = ["a", "b", "c", "d", "e"].map(photo);
+  const library = ["a", "b", "c", "d", "e", "f", "g", "h"].map(photo);
+  const grown = resizePhotoSet(deck, library, 7, 1, () => 0);
+  assert.deepEqual(grown.slice(0, 5), deck);
+  assert.equal(grown.length, 7);
+  assert.equal(new Set(grown.map((item) => item.id)).size, 7);
+  assert.deepEqual(resizePhotoSet(deck, library, 2, 0, () => 0).map((item) => item.id), ["a", "b"]);
+  // Seen through "d": shrinking to 2 keeps four.
+  assert.deepEqual(resizePhotoSet(deck, library, 2, 3, () => 0).map((item) => item.id), ["a", "b", "c", "d"]);
+  // Not enough photos left: append what there is.
+  assert.equal(resizePhotoSet(deck, library.slice(0, 6), 30, 0).length, 6);
 });

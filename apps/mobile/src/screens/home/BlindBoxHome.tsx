@@ -44,6 +44,8 @@ export function BlindBoxHome({ records, loading, hasMore, onLoadMore, onStart, v
   const [dealtIds, setDealtIds] = useState<string[]>([]);
   useEffect(() => {
     const ids = new Set(playable.map((record) => record.id));
+    // Nothing to deal (still loading / filtered out): only clear once, or this loops.
+    if (!playable.length) { if (dealtIds.length) setDealtIds([]); return; }
     if (dealtIds.length && dealtIds.every((id) => ids.has(id)) && (dealtIds.length >= 3 || playable.length <= dealtIds.length)) return;
     const shuffle = <T,>(items: T[]) => [...items].sort(() => Math.random() - 0.5);
     const photos = shuffle(playable.filter((record) => record.thumbnail));

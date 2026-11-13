@@ -1,5 +1,6 @@
 import React from "react";
 import { Modal, Pressable, View } from "react-native";
+import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import { Text } from "../../components/Typography";
 import { CheckMark } from "../../components/surface/Surface";
 import { haptic } from "../../feedback/haptics";
@@ -25,9 +26,10 @@ export function BlindBoxSettingsSheet({ visible, onClose }: { visible: boolean; 
     haptic.select();
     setBlindBoxSettings({ tones });
   };
+  // Own SafeAreaProvider: the sheet must clear the Android gesture bar / iOS home indicator.
   return <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-    <Pressable style={styles.backdrop} onPress={onClose}>
-      <Pressable style={styles.sheet} onPress={() => undefined}>
+    <SafeAreaProvider><Pressable style={styles.backdrop} onPress={onClose}>
+      <SafeAreaView edges={["bottom"]} style={styles.sheetArea}><Pressable style={styles.sheet} onPress={() => undefined}>
         <View style={styles.handle} />
         <Text style={styles.title}>{t("blind_box.settings.title")}</Text>
         <View style={styles.section}>
@@ -53,21 +55,22 @@ export function BlindBoxSettingsSheet({ visible, onClose }: { visible: boolean; 
             </Pressable>;
           })}
         </View>
-      </Pressable>
-    </Pressable>
+      </Pressable></SafeAreaView>
+    </Pressable></SafeAreaProvider>
   </Modal>;
 }
 
 const styles = createStyles(() => ({
   backdrop: { flex: 1, justifyContent: "flex-end", backgroundColor: theme.colors.scrim },
-  sheet: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 36, borderTopLeftRadius: 16, borderTopRightRadius: 16, backgroundColor: theme.colors.surface, gap: 16 },
+  sheetArea: { backgroundColor: theme.colors.surface, borderTopLeftRadius: 16, borderTopRightRadius: 16 },
+  sheet: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 20, gap: 16 },
   handle: { alignSelf: "center", width: 40, height: 4, borderRadius: 2, backgroundColor: theme.colors.fill3 },
   title: { color: theme.colors.text, fontSize: 17, fontWeight: "700" },
   section: { gap: 8 },
   label: { color: theme.colors.textMuted, fontSize: 12, fontWeight: "600" },
   caption: { color: theme.colors.textMuted, fontSize: 12, lineHeight: 17, marginTop: -4 },
-  chips: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  chip: { minWidth: 52, minHeight: 36, paddingHorizontal: 14, borderRadius: 18, backgroundColor: theme.colors.fill2, alignItems: "center", justifyContent: "center" },
+  chips: { flexDirection: "row", gap: 8 },
+  chip: { flex: 1, minHeight: 40, paddingHorizontal: 14, borderRadius: 18, backgroundColor: theme.colors.fill2, alignItems: "center", justifyContent: "center" },
   chipOn: { backgroundColor: theme.colors.accent },
   chipText: { color: theme.colors.text, fontSize: 14, fontWeight: "600", fontVariant: ["tabular-nums"] },
   chipTextOn: { color: theme.colors.onAccent },

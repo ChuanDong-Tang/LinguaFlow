@@ -12,7 +12,8 @@ import { createStyles } from "../styles";
 import type { PracticeSessionSummary } from "../services/practice/practiceSession";
 
 /** End-of-set 战绩 (盲盒, 2026-11): cards, accuracy, right / wrong — a small celebration. */
-export function PracticeSetSummary({ summary, onClose, onAgain }: { summary: PracticeSessionSummary | null; onClose: () => void; onAgain?: () => void }) {
+/** `setSize`: cards dealt; leaving earlier says 先练到这里 instead of 这一组完成啦. */
+export function PracticeSetSummary({ summary, onClose, onAgain }: { summary: (PracticeSessionSummary & { setSize?: number }) | null; onClose: () => void; onAgain?: () => void }) {
   const mascot = useRef<OioMascotHandle>(null);
   useEffect(() => {
     if (!summary) return;
@@ -28,7 +29,7 @@ export function PracticeSetSummary({ summary, onClose, onAgain }: { summary: Pra
       <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
       <Reanimated.View entering={popupEnter} style={styles.panel}>
         <OioMascot ref={mascot} size={64} idle={false} />
-        <Text style={styles.title}>{t(great ? "practice_summary.great" : "practice_summary.good")}</Text>
+        <Text style={styles.title}>{t(summary.setSize && summary.cards < summary.setSize ? "practice_summary.partial" : great ? "practice_summary.great" : "practice_summary.good")}</Text>
         <Text style={[styles.accuracy, { color: great ? theme.colors.accent : theme.colors.text }]}>{summary.accuracy}%</Text>
         <Text style={styles.caption}>{t("cloze.summary.accuracy")}</Text>
         <View style={styles.stats}>

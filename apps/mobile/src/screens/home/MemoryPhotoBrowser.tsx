@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, AppState, FlatList, Keyboard, Linking, Modal, Pressable, useWindowDimensions, View, type ViewToken } from "react-native";
+import { ActivityIndicator, AppState, FlatList, Keyboard, Linking, Modal, Pressable, StyleSheet, useWindowDimensions, View, type ViewToken } from "react-native";
 import { Gesture, GestureDetector, GestureHandlerRootView } from "react-native-gesture-handler";
 import { runOnJS } from "react-native-reanimated";
 import Reanimated, { FadeIn, FadeInDown, useAnimatedStyle, useSharedValue, withSpring, withTiming, ZoomIn } from "react-native-reanimated";
@@ -22,7 +22,7 @@ import { getLinkedPhotoCards, type CardCollection } from "../../services/api/car
 import { loadPhotoFlowPosition, savePhotoFlowPosition } from "../../services/device/photoFlowPosition";
 import { FolderQuickMenu } from "../../components/FolderQuickMenu";
 import { createMemoryPhotoPager, type PhotoPagerState } from "../../services/device/memoryPhotoPager";
-import { isRecentPhoto, nextPhotoSet, photoBatch, photoTakenTime, relativePhotoDay } from "../../services/device/memoryPhotoPolicy";
+import { isRecentPhoto, nextPhotoSet, photoBatch, photoTakenTime, relativePhotoDay, resizePhotoSet } from "../../services/device/memoryPhotoPolicy";
 import { memoryPhotoCopy } from "./memoryPhotoCopy";
 import { MemoryPhotoPreview } from "./MemoryPhotoPreview";
 
@@ -76,8 +76,9 @@ export function MemoryPhotoBrowser({ random = false, hidden = false, onClose, on
     }).catch(() => { ids.forEach((id) => checkedAssets.current.delete(id)); });
   }, []);
   const [composerOpen, setComposerOpen] = useState(false);
-  const [countHint, setCountHint] = useState(false);
-  useEffect(() => { if (!countHint) return; const timer = setTimeout(() => setCountHint(false), 2200); return () => clearTimeout(timer); }, [countHint, count]);
+  const [countMenuOpen, setCountMenuOpen] = useState(false);
+  // Furthest photo reached in this set: a smaller size never drops it.
+  const furthestRef = useRef(0);
   const [folderId, setFolderId] = useState<string | null>(defaultCollectionId);
   // The composer covers from 34% of the page down; the shrunk photo must fit above it.
   const [stageTop, setStageTop] = useState(60);
@@ -129,6 +130,8 @@ export function MemoryPhotoBrowser({ random = false, hidden = false, onClose, on
         const position = Math.min(restored.index, restored.deck.length);
         setStartIndex(position);
         setIndex(position);
+        furthestRef.current = position;
+        if (SET_SIZES.includes(restored.deck.length as typeof SET_SIZES[number])) setCount(restored.deck.length);
         return restored.deck;
       }
       return photoBatch(pool, count);
@@ -150,11 +153,30 @@ export function MemoryPhotoBrowser({ random = false, hidden = false, onClose, on
     else if (deck[index]) savePhotoFlowPosition({ mode: "recent", assetId: deck[index]!.id });
   }, [deck, index, random, restored]);
 
+  useEffect(() => { furthestRef.current = Math.max(furthestRef.current, index); }, [index]);
+  // The size applies now (round 4): grow with fresh photos after the current ones,
+  // or drop only photos not reached yet.
+  async function resizeSet(nextCount: number) {
+    haptic.select();
+    setCountMenuOpen(false);
+    setCount(nextCount);
+    const made = deck.reduce((last, asset, slot) => generated[asset.id] || pending[asset.id] ? slot : last, -1);
+    const keepThrough = Math.max(furthestRef.current, index, made);
+    let library = pool;
+    const pager = pagerRef.current;
+    for (let pages = 0; pager && nextCount > deck.length && library.length < nextCount + deck.length && pager.getState().hasNextPage && pages < 3; pages += 1) {
+      await pager.loadMore();
+      library = pager.getState().assets;
+    }
+    if (!alive.current) return;
+    setDeck((current) => resizePhotoSet(current, library, nextCount, keepThrough));
+  }
   function deal(nextCount = count) {
     haptic.select();
     setCount(nextCount);
     setGenerated({});
     setIndex(0);
+    furthestRef.current = 0;
     setRound((value) => value + 1);
     setDeck(random ? photoBatch(pool, nextCount) : pool.slice(0, nextCount));
     listRef.current?.scrollToOffset({ offset: 0, animated: false });
@@ -173,6 +195,7 @@ export function MemoryPhotoBrowser({ random = false, hidden = false, onClose, on
     haptic.medium();
     setGenerated({});
     setIndex(0);
+    furthestRef.current = 0;
     setRound((value) => value + 1);
     setDeck(next.assets.length ? next.assets : deck);
     listRef.current?.scrollToOffset({ offset: 0, animated: false });
@@ -245,19 +268,21 @@ export function MemoryPhotoBrowser({ random = false, hidden = false, onClose, on
     <GestureHandlerRootView style={{ flex: 1 }}>
     <SafeAreaProvider>
       <SafeAreaView style={styles.page} edges={["top", "bottom"]} onLayout={(event) => setPageHeight(event.nativeEvent.layout.height)}>
-        <View style={styles.header}>
+        <View style={[styles.header, countMenuOpen && styles.headerRaised]}>
           <Pressable accessibilityRole="button" accessibilityLabel={t("common.cancel")} hitSlop={8} style={styles.headerButton} onPress={composerOpen ? () => setComposerOpen(false) : leave}><Icon name="chevron-back" size={24} /></Pressable>
           <View style={styles.progress}>{deck.map((asset, slot) => <View key={asset.id} style={[styles.progressSegment, slot <= index && styles.progressSegmentOn, generated[asset.id] ? styles.progressSegmentDone : null]} />)}</View>
-          {random ? <Pressable accessibilityRole="button" accessibilityLabel={copy("每组数量", "Photos per set")} hitSlop={8} style={styles.countChip} onPress={() => {
-            // Changing the size never swaps the photos in front of you: it applies to the next set.
-            haptic.select();
-            setCount(SET_SIZES[(SET_SIZES.indexOf(count as typeof SET_SIZES[number]) + 1) % SET_SIZES.length]!);
-            setCountHint(true);
-          }}>
-            <Text style={styles.countText}>{count}</Text><Icon name="chevron-down" size={13} />
-          </Pressable> : <Text style={styles.countText}>{Math.min(index + 1, deck.length)}/{deck.length}</Text>}
+          {random && deck.length ? <Pressable accessibilityRole="button" accessibilityLabel={copy("每组数量", "Photos per set")} accessibilityState={{ expanded: countMenuOpen }} hitSlop={8} style={styles.countChip} onPress={() => { haptic.light(); setCountMenuOpen((value) => !value); }}>
+            <Text style={styles.countText}>{copy(`${count} 张`, `${count}`)}</Text><Icon name={countMenuOpen ? "chevron-up" : "chevron-down"} size={13} />
+          </Pressable> : !random && deck.length ? <Text style={styles.countText}>{Math.min(index + 1, deck.length)}/{deck.length}</Text> : null}
+          {/* Anchored under the chip (inside the header, which sits above the backdrop). */}
+          {countMenuOpen ? <Reanimated.View entering={FadeIn.duration(motion.duration.quick)} style={styles.countMenu}>
+              <Text style={styles.countMenuLabel}>{copy("每组数量", "Photos per set")}</Text>
+              {SET_SIZES.map((size) => <Pressable key={size} accessibilityRole="radio" accessibilityState={{ checked: size === count }} style={({ pressed }) => [styles.countOption, size === count && styles.countOptionOn, pressed && { opacity: 0.7 }]} onPress={() => void resizeSet(size)}>
+                <Text style={[styles.countOptionText, size === count && styles.countOptionTextOn]}>{copy(`${size} 张`, `${size}`)}</Text>
+              </Pressable>)}
+            </Reanimated.View> : null}
         </View>
-        {countHint ? <Reanimated.View entering={FadeIn.duration(160)} style={styles.countHint} pointerEvents="none"><Text style={styles.countHintText}>{copy(`下一组 ${count} 张`, `Next set: ${count} photos`)}</Text></Reanimated.View> : null}
+        {countMenuOpen ? <Pressable accessibilityLabel={t("common.cancel")} style={[StyleSheet.absoluteFill, { zIndex: 20 }]} onPress={() => setCountMenuOpen(false)} /> : null}
         {denied ? <View style={styles.center}>
           <Text style={styles.title}>{copy("从照片里，找回生活", "Find a moment in your photos")}</Text>
           <Text style={styles.explanation}>{copy("允许访问相册后，可在这里翻看照片。浏览不会上传，也不会删除原照片；只有确认生成回忆后才会上传。", "Allow photo access to browse here. Browsing never uploads or deletes photos. Photos are uploaded only after you confirm creating a memory.")}</Text>
@@ -544,8 +569,13 @@ const styles = createStyles(() => ({
   footer: { position: "absolute", left: 0, right: 0, bottom: 14, alignItems: "center", gap: 10 },
   // Outlined so it reads as a button (it opens that day's photos).
   dayChip: { minHeight: 36, paddingHorizontal: 14, borderRadius: 18, backgroundColor: theme.colors.surface, borderWidth: 1, borderColor: theme.colors.borderStrong, flexDirection: "row", alignItems: "center", gap: 6 },
-  countHint: { position: "absolute", top: 58, right: 12, zIndex: 20, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 14, backgroundColor: theme.colors.ink },
-  countHintText: { color: theme.colors.onInk, fontSize: 12, fontWeight: "600" },
+  headerRaised: { zIndex: 30 },
+  countMenu: { position: "absolute", top: "100%", right: 12, zIndex: 20, padding: 6, gap: 2, minWidth: 128, borderRadius: 14, backgroundColor: theme.colors.surface, ...theme.shadow.menu },
+  countMenuLabel: { color: theme.colors.textMuted, fontSize: 12, fontWeight: "600", paddingHorizontal: 10, paddingTop: 4, paddingBottom: 2 },
+  countOption: { minHeight: 44, paddingHorizontal: 10, borderRadius: 10, justifyContent: "center" },
+  countOptionOn: { backgroundColor: theme.colors.accentSoft },
+  countOptionText: { color: theme.colors.text, fontSize: 15, fontWeight: "500", fontVariant: ["tabular-nums"] },
+  countOptionTextOn: { color: theme.colors.accent, fontWeight: "700" },
   dayChipText: { color: theme.colors.text, fontSize: 14, fontWeight: "600" },
   swipeHint: { minHeight: 36, paddingHorizontal: 12, flexDirection: "row", alignItems: "center", gap: 4 },
   swipeHintText: { color: theme.colors.textSecondary, fontSize: 13 },
