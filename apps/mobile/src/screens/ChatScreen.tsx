@@ -95,6 +95,8 @@ type ChatScreenProps = {
   onBack: () => void;
   onOpenCard?: (recordId: string) => void;
   onConvertMessageToCard?: (draft: CardDraft) => void;
+  /** OIO 2.0: the rewrite chat is retired — old conversations are browse-only. */
+  readOnly?: boolean;
 };
 
 type DictionaryLookupState = {
@@ -115,7 +117,7 @@ type SttRecognitionPlan = {
 
 const MULTILINGUAL_STT_LANGUAGES = ["zh-CN", "ja-JP", "ko-KR", "en-US"];
 
-export function ChatScreen({ contact, onBack, onConvertMessageToCard }: ChatScreenProps) {
+export function ChatScreen({ contact, onBack, onConvertMessageToCard, readOnly = false }: ChatScreenProps) {
   const { showNotice } = useFloatingNotice();
   const window = useWindowDimensions();
   const screenTranslateX = useRef(new Animated.Value(window.width)).current;
@@ -1585,7 +1587,7 @@ export function ChatScreen({ contact, onBack, onConvertMessageToCard }: ChatScre
           </Pressable>
         ) : null}
 
-        {isViewingBusinessToday ? <ChatComposer
+        {isViewingBusinessToday && !readOnly ? <ChatComposer
           value={inputText}
           onChangeText={handleComposerTextChange}
           onSend={handleSend}

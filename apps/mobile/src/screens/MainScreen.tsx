@@ -29,6 +29,7 @@ import OioRecall from "../../assets/app/oio-recall.svg";
 import { ProgressRing } from "../components/ProgressRing";
 import { cardProgressRing } from "../domain/practice/cardProgressRing";
 import { isBlindBoxPlayable } from "../domain/blindBox/pickSentence";
+import { OioAiScreen } from "./ai/OioAiScreen";
 import { getBlindBoxSettings } from "../services/practice/blindBoxSettings";
 import { BlindBoxHome } from "./home/BlindBoxHome";
 import { PracticeSetSummary } from "../components/PracticeSetSummary";
@@ -1751,9 +1752,11 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
   }
 
   const assistantAvailable = sidebarEntitlement?.tier === "plus" || sidebarEntitlement?.tier === "pro";
+  // OIO 2.0: the mascot opens OIO AI (members); the old rewrite chat is browse-only from the sidebar.
+  const [oioAiVisible, setOioAiVisible] = useState(false);
   const openAssistant = async () => {
     if (assistantAvailable) {
-      onOpenAssistant();
+      setOioAiVisible(true);
       return;
     }
     const entitlement = await getCurrentEntitlement().catch(() => null);
@@ -1762,7 +1765,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
       await setCachedEntitlement(entitlement).catch(() => undefined);
     }
     if (entitlement?.tier === "plus" || entitlement?.tier === "pro") {
-      onOpenAssistant();
+      setOioAiVisible(true);
       return;
     }
     Alert.alert(t("sidebar.assistant_members_only_title"), t("sidebar.assistant_members_only_message"));
@@ -1831,7 +1834,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
               {MEMORY_HOME_TABS.map((tab) => <Pressable key={tab} accessibilityRole="tab" accessibilityState={{ selected: homeTab === tab }} hitSlop={6} style={styles.memoryTab} onPress={() => { if (homeTab !== tab) haptic.select(); setHomeTab(tab); }}><Text style={[styles.memoryTabText, homeTab === tab && styles.memoryTabSelected]}>{tab === "today" ? relativeDayLabel(shownDay, localDay, getLanguage()) : homeCopy[tab]}</Text>{homeTab === tab ? <TabUnderline key={tab} width={28} style={styles.memoryTabUnderline} /> : <View style={styles.memoryTabUnderlineSpace} />}</Pressable>)}
             </View>}
         <View style={styles.headerActions}>
-          {!selectingRecords ? <Pressable accessibilityRole="button" accessibilityLabel={t("contact.curious_companion.name")} hitSlop={8} style={styles.headerCharacter} onPressIn={() => headerMascot.current?.hop()} onPress={() => { haptic.light(); void openAssistant(); }}><OioMascot ref={headerMascot} size={29} /></Pressable> : null}
+          {!selectingRecords ? <Pressable accessibilityRole="button" accessibilityLabel="OIO AI" hitSlop={8} style={styles.headerCharacter} onPressIn={() => headerMascot.current?.hop()} onPress={() => { haptic.light(); void openAssistant(); }}><OioMascot ref={headerMascot} size={29} /></Pressable> : null}
           {selectingRecords ? <Pressable accessibilityRole="button" accessibilityLabel={gridLayout ? homeCopy.list : homeCopy.grid} style={styles.headerIconButton} onPress={() => setActiveLayout(gridLayout ? "list" : "grid")}><Icon name={gridLayout ? "list-outline" : "grid-outline"} size={22} color={theme.colors.text} /></Pressable> : <Pressable
             accessibilityLabel={t("quick_note.a11y.search")}
             style={styles.headerIconButton}
@@ -1929,6 +1932,13 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
           <BlindBoxHome variant="history" title={`${historyChipLabel(historyDay.day)} · ${historyDay.day.dateKey.replace(/^(\d+)-0?(\d+)-0?(\d+)$/u, "$1.$2.$3")}`} records={historyDay.records} loading={historyDay.loading} hasMore={false} onLoadMore={() => undefined} onStart={startHistoryReview} />
         </SafeAreaView></SafeAreaProvider>
       </Modal> : null}
+      <OioAiScreen
+        visible={oioAiVisible}
+        onClose={() => setOioAiVisible(false)}
+        // The panel stays mounted (keeps the conversation); it steps aside for the card / game.
+        onOpenCard={(recordId) => { setOioAiVisible(false); onOpenCard(recordId, "review"); }}
+        onStartBlindBox={(recordIds) => { setOioAiVisible(false); startBlindBoxSet(recordIds); }}
+      />
       <PracticeSetSummary summary={blindBoxSummary} onClose={() => setBlindBoxSummary(null)} onAgain={() => {
         setBlindBoxSummary(null);
         const pool = records.filter((record) => record.status === "completed" && !record.isSample && isBlindBoxPlayable(record.practiceSummary, getBlindBoxSettings().tones)).map((record) => record.id);
@@ -2070,7 +2080,8 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
         onOpenRecall={() => {
           closeSidebarThen(onOpenRecall);
         }}
-        onOpenAssistant={() => closeSidebarThen(onOpenAssistant)}
+        onOpenAssistant={() => closeSidebarThen(() => void openAssistant())}
+        onOpenOldChats={() => closeSidebarThen(onOpenAssistant)}
         onOpenCorpus={() => closeSidebarThen(() => { void openCorpusComposer(); })}
         onOpenCalendar={() => closeSidebarThen(() => setCalendarVisible(true))}
         onCreateCollection={(name, parentId) => saveCollection(name, undefined, parentId)}
@@ -2101,7 +2112,7 @@ function MemoryRoundShortcut({ active, resume, onPress }: { active: boolean; res
   </PressableSurface>;
 }
 
-function LibrarySidebar({ visible, activeView, collections, profile, entitlement, onClose, onSelect, onOpenRecall, onOpenAssistant, onOpenCorpus, onOpenCalendar, onCreateCollection, onRenameCollection, onToggleFavorite, onDeleteCollection, onReorderCollection, onReorderFavoriteCollection, onOpenAccount }: {
+function LibrarySidebar({ visible, activeView, collections, profile, entitlement, onClose, onSelect, onOpenRecall, onOpenAssistant, onOpenOldChats, onOpenCorpus, onOpenCalendar, onCreateCollection, onRenameCollection, onToggleFavorite, onDeleteCollection, onReorderCollection, onReorderFavoriteCollection, onOpenAccount }: {
   visible: boolean;
   activeView: LibraryView;
   collections: CardCollection[];
@@ -2111,6 +2122,7 @@ function LibrarySidebar({ visible, activeView, collections, profile, entitlement
   onSelect: (view: LibraryView) => void;
   onOpenRecall: () => void;
   onOpenAssistant: () => void;
+  onOpenOldChats: () => void;
   onOpenCorpus: () => void;
   onOpenCalendar: () => void;
   onCreateCollection: (name: string, parentId: string | null) => Promise<void>;
@@ -2676,13 +2688,15 @@ function LibrarySidebar({ visible, activeView, collections, profile, entitlement
           <View style={styles.sidebarFixedContent}>
             <SidebarRow
               leading={<OioCharacter width={25} height={24} />}
-              label={t("contact.curious_companion.name")}
+              label="OIO AI"
               muted={!assistantAvailable}
               onPress={assistantAvailable ? onOpenAssistant : () => Alert.alert(t("sidebar.assistant_members_only_title"), t("sidebar.assistant_members_only_message"))}
             />
             {/* The earlier icons the team preferred: OIO's recall clock and a document. */}
             <SidebarRow leading={<OioRecall width={27} height={25} />} label={t("sidebar.recall")} onPress={onOpenRecall} />
             <SidebarRow icon="document-text-outline" label={t("sidebar.import_corpus")} muted={entitlement?.tier !== "pro"} onPress={entitlement?.tier === "pro" ? onOpenCorpus : () => Alert.alert(t("sidebar.pro_required_title"), t("sidebar.pro_required_message"))} />
+            {/* The retired rewrite chat: earlier conversations stay readable. */}
+            <SidebarRow icon="chatbubble-ellipses-outline" label={t("sidebar.old_chats")} onPress={onOpenOldChats} />
           </View>
 
           <View style={[styles.sidebarCollectionSection, styles.sidebarCollectionContent]}>

@@ -959,6 +959,7 @@ export default function App() {
       overlay = (
         <FadingScreen>
           <ChatScreen
+            readOnly
             contact={activeContact}
             onBack={() => setScreen("main")}
             onOpenCard={(recordId) => {
