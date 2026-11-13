@@ -8,11 +8,31 @@ set -euo pipefail
 #
 #   enqueue-theme-keyword-backfill.sh --count 20 --email <user> --confirm-production   # canary
 #   enqueue-theme-keyword-backfill.sh --count 2000 --confirm-production                 # everyone
+#   enqueue-theme-keyword-backfill.sh --status                                           # read-only progress
 
 usage() {
   echo "Usage: $0 --count <1-5000> [--email <email>] --confirm-production" >&2
   exit 2
 }
+
+if [[ "${1:-}" == "--status" && $# -eq 1 ]]; then
+  # Read-only: job counts by status and how many live cards still lack a keyword.
+  ssh oio-main "set -euo pipefail
+    cd /opt/oio-production
+    node --env-file=.env --import tsx" <<'NODE'
+import { PrismaClient } from "@prisma/client";
+const prisma = new PrismaClient();
+try {
+  const jobs = await prisma.cardEnrichmentJob.groupBy({ by: ["status"], where: { jobType: "generate_theme_keyword" }, _count: { _all: true } });
+  const missing = await prisma.card.count({ where: { status: "completed", deletedAt: null, isSample: false, themeKeyword: null, originalText: { not: null } } });
+  const lastErrors = await prisma.cardEnrichmentJob.groupBy({ by: ["lastError"], where: { jobType: "generate_theme_keyword", status: "failed" }, _count: { _all: true } });
+  console.log(JSON.stringify({ jobs: Object.fromEntries(jobs.map((row) => [row.status, row._count._all])), missing, failedReasons: lastErrors.map((row) => ({ reason: (row.lastError ?? "").slice(0, 80), count: row._count._all })) }));
+} finally {
+  await prisma.$disconnect();
+}
+NODE
+  exit 0
+fi
 
 count=""; email=""; confirmed=false
 while [[ $# -gt 0 ]]; do
