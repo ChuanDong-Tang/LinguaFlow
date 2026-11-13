@@ -43,6 +43,8 @@ model User {
   cardCollections             CardCollection[]
   cardThemeSnapshot           CardThemeSnapshot?
   cardEmbeddings              CardEmbedding[]
+  aiThreads                   AiThread[]
+  aiMessages                  AiMessage[]
   phraseEmbeddings            PhraseEmbedding[]
   phraseOccurrenceEmbeddings  PhraseOccurrenceEmbedding[]
   phrases                     Phrase[]
@@ -1533,4 +1535,44 @@ enum SystemEventLogStatus {
   success
   failed
   ignored
+}
+
+/// OIO AI conversations (2026-11). Separate from the legacy rewrite chat.
+model AiThread {
+  id        String   @id @default(cuid())
+  userId    String
+  title     String?
+  /// Card the thread was opened from (问这张卡), if any.
+  contextCardId String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user     User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages AiMessage[]
+
+  @@index([userId, updatedAt(sort: Desc)])
+  @@map("ai_threads")
+}
+
+model AiMessage {
+  id        String   @id @default(cuid())
+  threadId  String
+  userId    String
+  /// "user" | "assistant"
+  role      String
+  text      String
+  /// Assistant blocks shown under the text: found cards, action buttons.
+  blocks    Json?
+  /// Tool calls and their compact results, for the model's memory and debugging.
+  trace     Json?
+  requestId String?
+  promptVersion String?
+  createdAt DateTime @default(now())
+
+  thread AiThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  user   User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([threadId, createdAt])
+  @@index([userId, createdAt(sort: Desc)])
+  @@map("ai_messages")
 }

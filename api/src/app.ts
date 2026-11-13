@@ -34,6 +34,10 @@ import { registerCardRoutes } from "./card/routes.js";
 import { registerAuthRoutes } from "./auth/routes.js";
 import { registerChatStreamRoutes } from "./chat/streamRoutes.js";
 import { createAIProvider } from "@lf/server/providers/ai/createAIProvider.js";
+import { createAgentProvider } from "@lf/server/providers/ai/createAgentProvider.js";
+import { PrismaOioAiRepository } from "@lf/server/infrastructure/repository/PrismaOioAiRepository.js";
+import { OioAiService } from "@lf/server/services/ai/OioAiService.js";
+import { registerOioAiRoutes } from "./ai/routes.js";
 import { ChatGenerationService } from "@lf/server/services/chat/ChatGenerationService.js";
 import { registerChatRoutes } from "./chat/routes.js";
 import { PrismaConversationRepository } from "@lf/server/infrastructure/repository/PrismaConversationRepository.js";
@@ -447,6 +451,15 @@ export function createApp() {
     runtimeConfig.recallSearchResultLimit,
     runtimeConfig.recallSemanticMinScore,
   );
+  // OIO AI (2026-11): tool-calling assistant over the user's own cards.
+  const oioAiService = new OioAiService(
+    new PrismaOioAiRepository(prisma),
+    createAgentProvider(runtimeConfig),
+    recallService,
+    usageV2Service,
+    subscriptionService,
+    contentSafetyService,
+  );
   const ttsProvider = new AzureGlobalTtsProvider();
   const ttsStorageProvider = new CosStorageProvider();
   const ttsService = new TtsService(
@@ -490,6 +503,7 @@ export function createApp() {
       chatMessageService,
       systemEventLogRepository,
     });
+    registerOioAiRoutes(app, { oioAiService, userRepository, systemEventLogRepository });
     registerAuthRoutes(app, {
       authProvider,
       authLoginService,

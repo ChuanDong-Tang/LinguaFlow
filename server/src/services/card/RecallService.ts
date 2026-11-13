@@ -104,7 +104,7 @@ export class RecallService {
     }));
   }
 
-  private async withThumbnails<T extends { recordId: string }>(userId: string, candidates: T[]): Promise<Array<T & { thumbnail: { url: string; urlExpiresAt: string | null; width: number; height: number } | null }>> {
+  async withThumbnails<T extends { recordId: string }>(userId: string, candidates: T[]): Promise<Array<T & { thumbnail: { url: string; urlExpiresAt: string | null; width: number; height: number } | null }>> {
     if (!candidates.length || !this.imageService) return candidates.map((candidate) => ({ ...candidate, thumbnail: null }));
     const refs = candidates.map((candidate) => parseCardRecordId(candidate.recordId)).filter((ref): ref is NonNullable<typeof ref> => ref?.source === "card");
     const images = await this.repository.findCandidateImages(userId, refs.map((ref) => ref.sourceId));
