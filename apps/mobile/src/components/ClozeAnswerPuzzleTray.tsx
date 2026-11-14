@@ -89,10 +89,9 @@ export function ClozeAnswerPuzzleTray({
     onChange(placeClozeAnswerToken(puzzle, selectedIds, id));
   };
 
-  // Answer shown with nothing placed (忘记了 / 已掌握): the empty slot row adds nothing.
-  const nothingPlaced = !selectedIds.some((id) => id && id !== EMPTY_SLOT);
+  // Once checked, the feedback box shows the answer; the assembled row adds nothing (round 4).
   return <View style={styles.root}>
-    {answered && nothingPlaced ? null : <View style={[styles.answer, incorrect && !answered && styles.answerIncorrect]}>
+    {answered ? null : <View style={[styles.answer, incorrect && !answered && styles.answerIncorrect]}>
       <View style={[styles.wrap, styles.answerWrap, !words && styles.characterAnswerWrap]}>
         {puzzle.fixedPrefix ? <Text style={styles.fixedPrefix}>{puzzle.fixedPrefix}</Text> : null}
         {puzzle.target.map((_, slot) => {

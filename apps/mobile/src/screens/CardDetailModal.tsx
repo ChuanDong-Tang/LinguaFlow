@@ -5636,7 +5636,10 @@ function buildCardClozeAnswerRanges(
     // Persisted mastery stays green after reopening, but its answer is masked
     // again so the user still gets a recall opportunity.
     const correct = isCardClozeBlankAnsweredThisSession(blank, checkedAnswers);
-    const answer = correct ? blank.answer : answers[blank.id] ?? "";
+    // A wrong answer shows the right one in place (yellow) right after 检查, so the
+    // finished sentence can be read without waiting for 知道了 (round 4).
+    const incorrect = !correct && checkedAnswers[blank.id] === "incorrect";
+    const answer = correct || incorrect ? blank.answer : answers[blank.id] ?? "";
     if (!answer) return [];
     const start = blank.startUtf16 - row.textStart;
     const selectedText = sentenceText.slice(start, blank.endUtf16 - row.textStart);
@@ -5646,7 +5649,7 @@ function buildCardClozeAnswerRanges(
       start: start + (run.index ?? 0),
       end: start + (run.index ?? 0) + run[0].length,
       text: index === originalRuns.length - 1 ? answerRuns.slice(index).join(" ") : answerRuns[index] ?? "",
-      incorrect: !correct && checkedAnswers[blank.id] === "incorrect",
+      incorrect,
     })).filter((range) => range.text);
   });
 }
