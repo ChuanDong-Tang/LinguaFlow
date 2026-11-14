@@ -3905,7 +3905,9 @@ function Review({ sentencePractice = false, sentenceOccurrence = 1, onSentenceDo
           </Pressable> : null}
           {detail.displayTitle.trim() || primaryTextBlock ? <View style={styles.readingTitleRow}>
             <Text numberOfLines={3} style={styles.readingTitle}>{detail.displayTitle}</Text>
-            {primaryTextBlock && detail.originalText.trim() && (detail.mode === "corpus" || detail.rewrittenText) ? <Pressable accessibilityRole="button" accessibilityLabel={t("card_detail.flip_original")} accessibilityState={{ selected: displayMode !== "target" }} hitSlop={8} disabled={auxiliaryLoading} style={({ pressed }) => [styles.flipButton, styles.flipPill, displayMode !== "target" && styles.flipButtonOn, pressed && { opacity: 0.7 }]} onPress={() => { haptic.select(); cycleDisplayMode(); }}>
+            {primaryTextBlock && (detail.originalText.trim() && (detail.mode === "corpus" || detail.rewrittenText)
+              // The sample card has no original text; its Chinese comes as per-sentence auxiliary segments.
+              || (detail.isSample && cardSecondarySegments(primaryTextBlock).length > 0)) ? <Pressable accessibilityRole="button" accessibilityLabel={t("card_detail.flip_original")} accessibilityState={{ selected: displayMode !== "target" }} hitSlop={8} disabled={auxiliaryLoading} style={({ pressed }) => [styles.flipButton, styles.flipPill, displayMode !== "target" && styles.flipButtonOn, pressed && { opacity: 0.7 }]} onPress={() => { haptic.select(); cycleDisplayMode(); }}>
               {auxiliaryLoading ? <ActivityIndicator size="small" color={theme.colors.textSecondary} /> : <>
                 <Icon name="sync-outline" size={14} color={displayMode !== "target" ? theme.colors.onAccent : theme.colors.text} />
                 <Text style={[styles.flipPillText, displayMode !== "target" && { color: theme.colors.onAccent }]}>{t(displayMode === "target" ? "card_detail.display.english" : displayMode === "bilingual" ? "card_detail.display.bilingual" : "card_detail.display.original")}</Text>
