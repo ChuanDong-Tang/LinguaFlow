@@ -19,5 +19,5 @@ test("January rolls back to December of the previous year", () => {
 test("prompt carries the anchors and the button rule", () => {
   const prompt = buildOioAiSystemPrompt({ today: "2026-11-14", appLocale: "zh-CN" });
   assert.match(prompt, /去年这时候\) = 2025-11-07/);
-  assert.match(prompt, /Do not ask/);
+  assert.match(prompt, /Never talk about buttons/);
 });

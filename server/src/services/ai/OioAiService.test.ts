@@ -14,7 +14,7 @@ function scriptedAgent(rounds: Array<AgentStreamEvent[]>): AgentChatProvider & {
   };
 }
 
-function fixture(options: { tier?: string; agent: AgentChatProvider }) {
+function fixture(options: { tier?: string; agent: AgentChatProvider; practiceRows?: unknown[] }) {
   const calls: string[] = [];
   const card = { recordId: "card_a", title: "装修", dateKey: "2026-10-20", preview: "We finally...", hasPhoto: true };
   const repository = {
@@ -26,7 +26,7 @@ function fixture(options: { tier?: string; agent: AgentChatProvider }) {
     previews: async (_u: string, ids: string[]) => new Map(ids.filter((id) => id === "card_a").map((id) => [id, card])),
     listCardsInRange: async () => [card],
     getCard: async () => null,
-    practiceRows: async () => [],
+    practiceRows: async () => options.practiceRows ?? [],
   };
   const recall = {
     search: async () => [{ recordId: "card_a", displayTitle: "装修" }, { recordId: "card_b", displayTitle: "old" }],
@@ -77,4 +77,18 @@ test("a failed model call releases the reservation", async () => {
   const { service, calls } = fixture({ agent });
   await assert.rejects(service.chatStream({ userId: "u1", requestId: "r1", text: "hi", today: "2026-11-13" }, async () => undefined), { code: "UPSTREAM_AI_ERROR" });
   assert.deepEqual(calls, ["reserve", "release"]);
+});
+
+test("practice stats bring their own practice button, offered once per turn", async () => {
+  const agent = scriptedAgent([
+    [{ type: "tool_calls", calls: [{ id: "c1", name: "practice_stats", arguments: "{}" }] }, { type: "done" }],
+    [{ type: "tool_calls", calls: [{ id: "c2", name: "start_blind_box", arguments: JSON.stringify({ card_ids: ["card_a"] }) }] }, { type: "done" }],
+    [{ type: "delta", text: "tiles 错了一次" }, { type: "done" }],
+  ]);
+  const { service } = fixture({ agent, practiceRows: [{ cardId: "card_a", title: "装修", updatedAt: new Date(), clozeState: { blanks: [{ id: "b", answer: "tiles", attempts: 1, correctCount: 0, lastResult: "incorrect" }] } }] });
+  const events: OioAiStreamEvent[] = [];
+  await service.chatStream({ userId: "u1", requestId: "r1", text: "老错哪些词", today: "2026-11-14" }, async (event) => { events.push(event); });
+  const actions = events.filter((event) => event.type === "action");
+  assert.equal(actions.length, 1);
+  assert.deepEqual(actions[0]!.type === "action" ? actions[0]!.action.cardIds : null, ["card_a"]);
 });

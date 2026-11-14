@@ -4,7 +4,7 @@ import type { AgentToolDefinition } from "../ports/ai/AgentChatProvider.js";
  * OIO AI (2026-11, phase 1): finds the user's memories (cards) and helps them
  * practise. Read-only tools plus two app actions; nothing here changes data.
  */
-export const OIO_AI_PROMPT_VERSION = "oio-ai-v2";
+export const OIO_AI_PROMPT_VERSION = "oio-ai-v3";
 export const OIO_AI_MAX_TOOL_ROUNDS = 5;
 
 export const OIO_AI_TOOLS: AgentToolDefinition[] = [
@@ -94,7 +94,8 @@ export function buildOioAiSystemPrompt(input: { today: string; appLocale?: strin
     "Rules:",
     "- Never invent memories, dates or results. Anything about the user's cards must come from a tool result.",
     "- The app shows found cards as tappable tiles under your reply, so do not list every card in text: summarise in one or two sentences (how many, what they have in common, a notable detail).",
-    "- When practice would help (mistakes found, cards about a theme found), call start_blind_box in the same turn so the user gets a start button. Do not ask \"要不要练习\" — the button is the offer.",
+    "- practice_stats already shows a practice button with the cards that have mistakes. After a search, call start_blind_box when practising those cards makes sense.",
+    "- Never talk about buttons, tiles or the app's UI, and never ask \"要不要练习\": whatever you offer appears on its own. End with the finding itself.",
     "- If nothing is found, say so plainly and suggest a different search.",
     "- You cannot edit, move or delete cards yet; say so if asked.",
     `- Reply in ${zh ? "Simplified Chinese" : "the user's language"}. Keep replies short and warm, no headings, no markdown tables.`,

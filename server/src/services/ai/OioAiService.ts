@@ -116,6 +116,7 @@ export class OioAiService {
     const blocks: Block[] = [];
     const trace: Array<{ name: string; args: Record<string, unknown>; resultCount?: number; error?: string }> = [];
     const used = { input: 0, output: 0 };
+    const offered = { practice: false };
     try {
       for (let round = 0; round <= OIO_AI_MAX_TOOL_ROUNDS; round += 1) {
         let roundText = "";
@@ -139,7 +140,8 @@ export class OioAiService {
           const args = parseArgs(call);
           let result: unknown;
           try {
-            result = await this.runTool(input.userId, call.name, args, async (block) => {
+            result = await this.runTool(input.userId, call.name, args, offered, async (block) => {
+              if (block.type === "action") { if (offered.practice) return; offered.practice = true; }
               blocks.push(block);
               await emit(block.type === "cards" ? { type: "cards", cards: block.cards } : { type: "action", action: block.action });
             });
@@ -172,7 +174,7 @@ export class OioAiService {
   }
 
   /** Runs one tool. `show` sends a block (cards / button) to the app and saves it on the reply. */
-  private async runTool(userId: string, name: string, args: Record<string, unknown>, show: (block: Block) => Promise<void>): Promise<unknown> {
+  private async runTool(userId: string, name: string, args: Record<string, unknown>, offered: { practice: boolean }, show: (block: Block) => Promise<void>): Promise<unknown> {
     if (name === "search_cards") {
       const query = str(args.query);
       const dateFrom = DATE.test(String(args.date_from ?? "")) ? String(args.date_from) : undefined;
@@ -210,8 +212,13 @@ export class OioAiService {
       const ids = stats.cardsWithMistakes.slice(0, 6).map((card) => card.cardId);
       const previews = await this.repository.previews(userId, ids);
       const cards = ids.flatMap((id) => previews.get(id) ? [previews.get(id)!] : []);
-      if (cards.length) await show({ type: "cards", cards: await this.withThumbnails(userId, cards) });
-      return { days, ...stats };
+      if (cards.length) {
+        await show({ type: "cards", cards: await this.withThumbnails(userId, cards) });
+        // The practice button comes with the mistakes, not at the model's discretion
+        // (it sometimes said a button was ready without offering one).
+        await show({ type: "action", action: { kind: "start_blind_box", cardIds: cards.map((card) => card.recordId), label: `用这 ${cards.length} 张练一组` } });
+      }
+      return { days, ...stats, practiceButtonShown: cards.length > 0 };
     }
     if (name === "find_word_in_my_cards") {
       const text = str(args.text, 100);
@@ -223,6 +230,7 @@ export class OioAiService {
       return { count: cards.length, occurrences: found.slice(0, 12).map((item) => ({ id: item.recordId, title: item.displayTitle, sentences: (item.matches ?? []).slice(0, 2).map((match) => match.sentence) })) };
     }
     if (name === "start_blind_box") {
+      if (offered.practice) return { ok: true, alreadyShown: true };
       const requested = Array.isArray(args.card_ids) ? args.card_ids.map(String).slice(0, 50) : [];
       const owned = await this.repository.previews(userId, requested);
       const cardIds = requested.filter((id) => owned.has(id));
