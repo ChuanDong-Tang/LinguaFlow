@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Image, Pressable, View } from "react-native";
 import Reanimated, { FadeIn, FadeInDown, useReducedMotion } from "react-native-reanimated";
 import { Text } from "../../components/Typography";
@@ -36,7 +36,10 @@ export function BlindBoxHome({ records, loading, hasMore, onLoadMore, onStart, v
   const [settingsOpen, setSettingsOpen] = useState(false);
   const history = variant === "history";
   const count = settings.setSize;
-  const playable = useMemo(() => records.filter((record) => record.status === "completed" && !record.isSample && (history || isBlindBoxPlayable(record.practiceSummary, settings.tones))), [history, records, settings.tones]);
+  // Every card with blanks can play: the chosen blanks (未填 / 填错 by default) come
+  // first, the rest only fill a short set (round 4).
+  const playable = useMemo(() => records.filter((record) => record.status === "completed" && !record.isSample && (history || isBlindBoxPlayable(record.practiceSummary))), [history, records]);
+  const capacityOf = useCallback((record: CardRecordSummary) => blindBoxCapacity(record.practiceSummary, settings.tones), [settings.tones]);
   // A bigger set needs more cards loaded.
   useEffect(() => { if (!history && playable.length < count && hasMore && !loading) onLoadMore(); }, [count, hasMore, history, loading, onLoadMore, playable.length]);
   // Three cards dealt once per visit (photos first); re-dealt only when they stop qualifying.
@@ -47,10 +50,10 @@ export function BlindBoxHome({ records, loading, hasMore, onLoadMore, onStart, v
     if (!playable.length) { if (dealtIds.length) setDealtIds([]); return; }
     if (dealtIds.length && dealtIds.every((id) => ids.has(id)) && (dealtIds.length >= 3 || playable.length <= dealtIds.length)) return;
     const shuffle = <T,>(items: T[]) => [...items].sort(() => Math.random() - 0.5);
-    const photos = shuffle(playable.filter((record) => record.thumbnail));
-    const texts = shuffle(playable.filter((record) => !record.thumbnail));
-    setDealtIds([...photos, ...texts].slice(0, 3).map((record) => record.id));
-  }, [dealtIds, playable]);
+    // Cards with the chosen blanks first, photos before text.
+    const rank = (record: CardRecordSummary) => (capacityOf(record).preferred > 0 ? 0 : 2) + (record.thumbnail ? 0 : 1);
+    setDealtIds(shuffle(playable).sort((a, b) => rank(a) - rank(b)).slice(0, 3).map((record) => record.id));
+  }, [capacityOf, dealtIds, playable]);
   const dealt = dealtIds.map((id) => playable.find((record) => record.id === id)).filter((record): record is CardRecordSummary => Boolean(record));
   // Middle card is the one on top.
   const stack = dealt.length === 3 ? [dealt[1]!, dealt[0]!, dealt[2]!] : dealt;
@@ -66,7 +69,7 @@ export function BlindBoxHome({ records, loading, hasMore, onLoadMore, onStart, v
       return;
     }
     // Distinct cards first; a card repeats (another sentence) only to fill a short set.
-    onStart(buildBlindBoxSet(playable.map((record) => ({ id: record.id, capacity: blindBoxCapacity(record.practiceSummary, settings.tones) })), first.id, count));
+    onStart(buildBlindBoxSet(playable.map((record) => ({ id: record.id, ...capacityOf(record) })), first.id, count));
   };
 
   return <Pressable accessibilityRole="button" accessibilityLabel={t("blind_box.start")} style={styles.page} onPress={() => start()} disabled={!stack.length}>
@@ -80,7 +83,7 @@ export function BlindBoxHome({ records, loading, hasMore, onLoadMore, onStart, v
     <View style={styles.stage}>
       {loading && !stack.length ? <ActivityIndicator color={theme.colors.textSecondary} /> : !stack.length ? <View style={styles.empty}>
         <OioMascot size={72} />
-        <Text style={styles.emptyText}>{t(history || !records.length ? "blind_box.empty" : "blind_box.empty_filtered")}</Text>
+        <Text style={styles.emptyText}>{t("blind_box.empty")}</Text>
       </View> : <View style={styles.stack}>
         {[...stack].reverse().map((record) => {
           const slot = stack.indexOf(record);
@@ -90,7 +93,7 @@ export function BlindBoxHome({ records, loading, hasMore, onLoadMore, onStart, v
     </View>
     {stack.length ? <View style={styles.footer}>
       <Text style={styles.hint}>{t("blind_box.tap_to_start")}</Text>
-      <Text style={styles.subHint}>{history ? tf("history_day.ready", { count: playable.length }) : tf("blind_box.ready", { count: Math.min(count, playable.reduce((sum, record) => sum + blindBoxCapacity(record.practiceSummary, settings.tones), 0)) })}</Text>
+      <Text style={styles.subHint}>{history ? tf("history_day.ready", { count: playable.length }) : tf("blind_box.ready", { count: Math.min(count, playable.reduce((sum, record) => { const capacity = capacityOf(record); return sum + capacity.preferred + capacity.extra; }, 0)) })}</Text>
     </View> : null}
     {history ? null : <BlindBoxSettingsSheet visible={settingsOpen} onClose={() => setSettingsOpen(false)} />}
   </Pressable>;

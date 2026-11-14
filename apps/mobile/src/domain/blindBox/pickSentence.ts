@@ -46,13 +46,14 @@ export function parseBlindBoxEntry(entry: string): { recordId: string; occurrenc
 
 /**
  * Deal a 盲盒 set (2026-11, round 4: freshness — "what is the next card?").
- * Every distinct card first, one sentence each. Only when distinct cards
- * cannot fill `count` do cards contribute further sentences (up to their
- * `capacity`, the number of matching blanks), in later rounds. Two neighbours
- * come from the same card only when nothing else is left.
+ * Two passes: first the sentences with the chosen blanks (`preferred`, by
+ * default 未填 / 填错), then — only if the set is still short — the rest
+ * (`extra`, e.g. 填对). Within each pass every distinct card comes first, one
+ * sentence each, and cards alternate; a card follows itself only when it is
+ * the only one left.
  */
 export function buildBlindBoxSet(
-  cards: ReadonlyArray<{ id: string; capacity: number }>,
+  cards: ReadonlyArray<{ id: string; preferred: number; extra?: number }>,
   first: string | null,
   count: number,
   random: () => number = Math.random,
@@ -67,26 +68,29 @@ export function buildBlindBoxSet(
     }
     return items;
   };
-  const remaining = new Map(unique.map((card) => [card.id, Math.max(1, Math.floor(card.capacity))]));
   const used = new Map<string, number>();
   const entries: string[] = [];
   let previous: string | null = null;
-  for (let round = 0; entries.length < size; round += 1) {
-    const available = unique.map((card) => card.id).filter((id) => (remaining.get(id) ?? 0) > 0);
-    if (!available.length) break;
-    const roundIds = shuffle(available);
-    if (round === 0 && first && roundIds.includes(first)) roundIds.splice(0, roundIds.length, first, ...roundIds.filter((id) => id !== first));
-    // Keep a round boundary from putting the same card twice in a row.
-    if (roundIds.length > 1 && roundIds[0] === previous) [roundIds[0], roundIds[1]] = [roundIds[1]!, roundIds[0]!];
-    for (const id of roundIds) {
-      if (entries.length >= size) break;
-      const occurrence = (used.get(id) ?? 0) + 1;
-      used.set(id, occurrence);
-      remaining.set(id, remaining.get(id)! - 1);
-      entries.push(blindBoxEntryId(id, occurrence));
-      previous = id;
+  const pass = (capacityOf: (card: { preferred: number; extra?: number }) => number, lead: string | null) => {
+    const remaining = new Map(unique.map((card) => [card.id, Math.max(0, Math.floor(capacityOf(card)))]));
+    for (let round = 0; entries.length < size; round += 1) {
+      const roundIds = shuffle(unique.map((card) => card.id).filter((id) => (remaining.get(id) ?? 0) > 0));
+      if (!roundIds.length) return;
+      if (round === 0 && lead && roundIds.includes(lead)) roundIds.splice(0, roundIds.length, lead, ...roundIds.filter((id) => id !== lead));
+      // Keep a round boundary from putting the same card twice in a row.
+      if (roundIds.length > 1 && roundIds[0] === previous) [roundIds[0], roundIds[1]] = [roundIds[1]!, roundIds[0]!];
+      for (const id of roundIds) {
+        if (entries.length >= size) return;
+        const occurrence = (used.get(id) ?? 0) + 1;
+        used.set(id, occurrence);
+        remaining.set(id, remaining.get(id)! - 1);
+        entries.push(blindBoxEntryId(id, occurrence));
+        previous = id;
+      }
     }
-  }
+  };
+  pass((card) => card.preferred, first);
+  pass((card) => card.extra ?? 0, entries.length ? null : first);
   return entries;
 }
 
@@ -101,11 +105,21 @@ export function blindBoxToneCounts(summary: PracticeCounts | null | undefined): 
   return { unanswered: total - answered, incorrect: answered - correct, correct };
 }
 
-/** How many sentences a card can give for these tones (≤ matching blanks; at least 1 when playable). */
-export function blindBoxCapacity(summary: PracticeCounts | null | undefined, tones: readonly BlindBoxTone[] = BLIND_BOX_TONES): number {
+/**
+ * How many sentences a card can give (≤ its blanks): `preferred` from the
+ * chosen tones, `extra` from the others (used only to fill a short set).
+ */
+export function blindBoxCapacity(summary: PracticeCounts | null | undefined, tones: readonly BlindBoxTone[] = DEFAULT_BLIND_BOX_TONES): { preferred: number; extra: number } {
   const counts = blindBoxToneCounts(summary);
-  if (!counts) return 1;
-  return Math.max(1, tones.reduce((sum, tone) => sum + counts[tone], 0));
+  if (!counts) {
+    // Older summary without counts: assume one unanswered sentence.
+    const playable = summary?.status === "clozed" || summary?.status === "completed";
+    if (!playable) return { preferred: 0, extra: 0 };
+    return tones.includes("unanswered") ? { preferred: 1, extra: 0 } : { preferred: 0, extra: 1 };
+  }
+  const preferred = tones.reduce((sum, tone) => sum + counts[tone], 0);
+  const total = counts.unanswered + counts.incorrect + counts.correct;
+  return { preferred, extra: total - preferred };
 }
 
 /** Cards that can be played in 盲盒: they have at least one blank of a chosen tone. */

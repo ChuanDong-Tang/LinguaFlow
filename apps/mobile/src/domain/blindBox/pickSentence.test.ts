@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { blindBoxEntryId, blindBoxOrder, blindBoxToneCounts, buildBlindBoxSet, isBlindBoxPlayable, parseBlindBoxEntry, pickBlindBoxSentence } from "./pickSentence";
+import { blindBoxCapacity, blindBoxEntryId, blindBoxOrder, blindBoxToneCounts, buildBlindBoxSet, isBlindBoxPlayable, parseBlindBoxEntry, pickBlindBoxSentence } from "./pickSentence";
 
 const segments = ["s1", "s2", "s3"];
 
@@ -78,7 +78,7 @@ test("entries round-trip", () => {
 });
 
 test("sets use every distinct card before repeating any (round 4)", () => {
-  const set = buildBlindBoxSet([{ id: "A", capacity: 5 }, { id: "B", capacity: 5 }, { id: "C", capacity: 5 }], "B", 3, () => 0.5);
+  const set = buildBlindBoxSet([{ id: "A", preferred: 5 }, { id: "B", preferred: 5 }, { id: "C", preferred: 5 }], "B", 3, () => 0.5);
   assert.equal(set.length, 3);
   assert.equal(set[0], "B");
   assert.equal(new Set(set).size, 3);
@@ -86,7 +86,7 @@ test("sets use every distinct card before repeating any (round 4)", () => {
 
 test("repeats only fill a short set, and never sit next to each other when avoidable", () => {
   const rnd = (() => { let i = 0; const seq = [0.1, 0.9, 0.4, 0.7, 0.2]; return () => seq[i++ % seq.length]!; })();
-  const set = buildBlindBoxSet([{ id: "A", capacity: 3 }, { id: "B", capacity: 2 }, { id: "C", capacity: 1 }], "A", 10, rnd);
+  const set = buildBlindBoxSet([{ id: "A", preferred: 3 }, { id: "B", preferred: 2 }, { id: "C", preferred: 1 }], "A", 10, rnd);
   // 6 sentences exist in total.
   assert.equal(set.length, 6);
   const ids = set.map((entry) => parseBlindBoxEntry(entry).recordId);
@@ -97,5 +97,23 @@ test("repeats only fill a short set, and never sit next to each other when avoid
 });
 
 test("one card left: it may repeat back to back (nothing else to show)", () => {
-  assert.deepEqual(buildBlindBoxSet([{ id: "A", capacity: 2 }], "A", 5), ["A", "A~2"]);
+  assert.deepEqual(buildBlindBoxSet([{ id: "A", preferred: 2 }], "A", 5), ["A", "A~2"]);
+});
+
+test("answered-right sentences only fill in after the open ones run out, still alternating", () => {
+  const set = buildBlindBoxSet([
+    { id: "A", preferred: 1, extra: 2 },
+    { id: "B", preferred: 0, extra: 2 },
+    { id: "C", preferred: 1, extra: 0 },
+  ], null, 6, () => 0.3);
+  const ids = set.map((entry) => parseBlindBoxEntry(entry).recordId);
+  // Open sentences (A, C) come first.
+  assert.deepEqual(new Set(ids.slice(0, 2)), new Set(["A", "C"]));
+  assert.equal(set.length, 6);
+  for (let i = 1; i < ids.length; i += 1) assert.notEqual(ids[i], ids[i - 1], set.join(","));
+});
+
+test("capacity splits chosen blanks from the rest", () => {
+  assert.deepEqual(blindBoxCapacity({ totalBlanks: 5, answeredBlanks: 3, accuracy: 67 }, ["unanswered", "incorrect"]), { preferred: 3, extra: 2 });
+  assert.deepEqual(blindBoxCapacity({ totalBlanks: 4, answeredBlanks: 4, accuracy: 100 }, ["unanswered", "incorrect"]), { preferred: 0, extra: 4 });
 });

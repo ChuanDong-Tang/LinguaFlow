@@ -1942,12 +1942,12 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
       <PracticeSetSummary summary={blindBoxSummary} onClose={() => setBlindBoxSummary(null)} onAgain={() => {
         setBlindBoxSummary(null);
         const { tones, setSize } = getBlindBoxSettings();
-        const pool = records.filter((record) => record.status === "completed" && !record.isSample && isBlindBoxPlayable(record.practiceSummary, tones));
+        const pool = records.filter((record) => record.status === "completed" && !record.isSample && isBlindBoxPlayable(record.practiceSummary));
         // Cards not in the last set first; fall back to all when that is too few.
         const previous = new Set(lastBlindBoxIdsRef.current.map((entry) => parseBlindBoxEntry(entry).recordId));
         const fresh = pool.filter((record) => !previous.has(record.id));
         const source = fresh.length >= Math.min(setSize, pool.length) ? fresh : pool;
-        startBlindBoxSet(buildBlindBoxSet(source.map((record) => ({ id: record.id, capacity: blindBoxCapacity(record.practiceSummary, tones) })), null, setSize));
+        startBlindBoxSet(buildBlindBoxSet(source.map((record) => ({ id: record.id, ...blindBoxCapacity(record.practiceSummary, tones) })), null, setSize));
       }} />
       <PhotoSourceMenu visible={photoSourceMenuVisible} bottomInset={screenInsets.bottom} onClose={() => setPhotoSourceMenuVisible(false)} onPick={(mode) => { setPhotoSourceMenuVisible(false); setPhotoBrowserHidden(false); setPhotoBrowser(mode); }} />
       {selectingRecords && selectedRecordIds.size ? <View style={[styles.batchActionBar, libraryView === TRASH_VIEW && styles.batchActionBarCentered, { paddingBottom: Math.max(screenInsets.bottom, 10) }]}>{libraryView !== TRASH_VIEW ? <Pressable style={styles.batchAction} onPress={() => setBatchMoveVisible(true)}><Icon name="folder-open-outline" size={22} color={theme.colors.text} /><Text style={styles.batchActionText}>{t("library.move")}</Text></Pressable> : null}<Pressable style={styles.batchAction} onPress={confirmBatchDelete}><Icon name="trash-outline" size={22} color={theme.colors.danger} /><Text style={[styles.batchActionText, { color: theme.colors.danger }]}>{libraryView === TRASH_VIEW ? "彻底删除" : t("common.delete")}</Text></Pressable></View> : null}
