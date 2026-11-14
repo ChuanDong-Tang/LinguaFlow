@@ -67,6 +67,7 @@ export interface CardEntryEntity {
   /** Catchy display title; `topic` stays the summary used for relations. */
   headline?: string | null;
   themeKeyword?: string | null;
+  dialogue?: boolean;
   encounterCount?: number;
   lastEncounteredAt?: Date | null;
   favoritedAt?: Date | null;

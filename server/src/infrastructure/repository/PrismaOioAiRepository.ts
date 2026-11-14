@@ -39,7 +39,16 @@ export class PrismaOioAiRepository {
   }
 
   async listThreads(userId: string, limit: number) {
-    return this.prisma.aiThread.findMany({ where: { userId }, orderBy: { updatedAt: "desc" }, take: limit, select: { id: true, title: true, contextCardId: true, updatedAt: true } });
+    return this.prisma.aiThread.findMany({ where: { userId }, orderBy: { updatedAt: "desc" }, take: limit, select: { id: true, title: true, contextCardId: true, cardId: true, updatedAt: true } });
+  }
+
+  /** One 对话卡 per conversation: remember it on the thread and flag the card. */
+  async linkDialogueCard(userId: string, threadId: string, recordId: string): Promise<void> {
+    const ref = parseCardRecordId(recordId);
+    await this.prisma.$transaction([
+      this.prisma.aiThread.updateMany({ where: { id: threadId, userId }, data: { cardId: recordId } }),
+      ...(ref?.source === "card" ? [this.prisma.card.updateMany({ where: { id: ref.sourceId, userId }, data: { dialogue: true } })] : []),
+    ]);
   }
 
   async listMessages(userId: string, threadId: string, limit: number): Promise<OioAiStoredMessage[]> {

@@ -25,6 +25,9 @@ function isStreamBody(value: unknown): value is StreamBody {
 const ERROR_STATUS: Record<string, number> = {
   OIO_AI_MEMBERS_ONLY: 403,
   OIO_AI_THREAD_NOT_FOUND: 404,
+  OIO_AI_NOTHING_TO_SAVE: 400,
+  OIO_AI_CARD_FAILED: 502,
+  CARD_VALIDATION_FAILED: 400,
   TOKEN_QUOTA_EXCEEDED: 402,
   CONTENT_BLOCKED: 400,
   REQUEST_INVALID: 400,
@@ -60,9 +63,8 @@ export function registerOioAiRoutes(app: FastifyInstance, deps: OioAiRouteDeps):
     if (!isStreamBody(body)) return reply.status(400).send({ ok: false, error: { code: "REQUEST_INVALID", message: "Invalid OIO AI request" } });
     let userId: string;
     try {
+      // Open to everyone (2026-11): usage is billed in tokens like any AI feature.
       userId = (await authenticate(req.headers.authorization)).userId;
-      // Membership is checked here as well, before the stream opens (the app's own check is not enough).
-      await deps.oioAiService.assertMember(userId);
     } catch (error) {
       const auth = authError(error);
       if (auth) return reply.status(auth.status).send({ ok: false, error: { code: auth.code, message: auth.message } });
@@ -122,13 +124,30 @@ export function registerOioAiRoutes(app: FastifyInstance, deps: OioAiRouteDeps):
     try {
       const { userId } = await authenticate(req.headers.authorization);
       const { threadId } = req.params as { threadId: string };
-      return { ok: true, data: { messages: await deps.oioAiService.listMessages(userId, threadId) } };
+      return { ok: true, data: await deps.oioAiService.listMessages(userId, threadId) };
     } catch (error) {
       const auth = authError(error);
       if (auth) return reply.status(auth.status).send({ ok: false, error: { code: auth.code, message: auth.message } });
       const code = errorCode(error);
       if (ERROR_STATUS[code]) return reply.status(ERROR_STATUS[code]!).send({ ok: false, error: { code, message: code } });
       throw error;
+    }
+  });
+
+  // 对话卡: save the whole conversation as one card (idempotent per thread).
+  app.post("/ai/threads/:threadId/card", async (req, reply) => {
+    const requestId = resolveRequestId(req.headers["x-request-id"]);
+    try {
+      const { userId } = await authenticate(req.headers.authorization);
+      const { threadId } = req.params as { threadId: string };
+      return { ok: true, data: await deps.oioAiService.saveThreadAsCard({ userId, requestId, threadId }) };
+    } catch (error) {
+      const auth = authError(error);
+      if (auth) return reply.status(auth.status).send({ ok: false, error: { code: auth.code, message: auth.message } });
+      const code = error instanceof Error && error.name === "CardValidationError" ? "CARD_VALIDATION_FAILED" : errorCode(error);
+      if (ERROR_STATUS[code]) return reply.status(ERROR_STATUS[code]!).send({ ok: false, error: { code, message: code } });
+      req.log.error({ requestId, code, err: error }, "oio ai card failed");
+      return reply.status(500).send({ ok: false, error: { code: "INTERNAL_ERROR", message: "INTERNAL_ERROR" } });
     }
   });
 }

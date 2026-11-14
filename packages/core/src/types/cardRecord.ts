@@ -133,6 +133,8 @@ export interface CardRecordSummaryView {
   topic: string | null;
   /** Short life-theme keyword shown by 相关回忆 (topic prompt v4). */
   themeKeyword?: string | null;
+  /** OIO AI 对话卡: rewrite lines are the user's, reply lines OIO's, paired by line. */
+  dialogue?: boolean;
   collectionId: string | null;
   source: CardRecordSource;
   dateKey: string;

@@ -457,7 +457,8 @@ export function createApp() {
     createAgentProvider(runtimeConfig),
     recallService,
     usageV2Service,
-    subscriptionService,
+    cardService,
+    userPreferenceRepository,
     contentSafetyService,
   );
   const ttsProvider = new AzureGlobalTtsProvider();

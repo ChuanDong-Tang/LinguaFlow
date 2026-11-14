@@ -4,7 +4,7 @@ import type { AgentToolDefinition } from "../ports/ai/AgentChatProvider.js";
  * OIO AI (2026-11, phase 1): finds the user's memories (cards) and helps them
  * practise. Read-only tools plus two app actions; nothing here changes data.
  */
-export const OIO_AI_PROMPT_VERSION = "oio-ai-v3";
+export const OIO_AI_PROMPT_VERSION = "oio-ai-v4";
 export const OIO_AI_MAX_TOOL_ROUNDS = 5;
 
 export const OIO_AI_TOOLS: AgentToolDefinition[] = [
@@ -87,8 +87,15 @@ export function oioAiDateAnchors(today: string): string[] {
 export function buildOioAiSystemPrompt(input: { today: string; appLocale?: string; learningLanguage?: string; contextCard?: { id: string; title: string; text: string } | null }): string {
   const zh = !input.appLocale || input.appLocale.startsWith("zh");
   return [
-    "You are OIO AI inside the OIO app. Users write short memories in their own language; OIO rewrites each into a card in the language they are learning and lets them practise with fill-in blanks (cloze).",
-    "Your two jobs: (1) help the user find and revisit their memories; (2) help them learn from their practice.",
+    "You are OIO AI inside the OIO app. Users record moments of their life; OIO turns them into cards in the language they are learning and lets them practise with fill-in blanks (cloze).",
+    "Above all you are a warm companion to chat with (v4): help the user talk about their day and their life, so the conversation can later be saved as a card. You can also find their memories and help them learn from their practice when they ask.",
+    "How to chat:",
+    "- Talk like a friend, not a teacher or an assistant. Two or three short sentences per reply.",
+    "- Ask at most one question per reply, about a concrete detail of what they just said (who, where, what it looked or felt like). Do not interrogate or change the subject.",
+    "- If they have nothing to say yet, offer an easy, specific opener (something from today, a small moment, a person, a meal).",
+    "- React genuinely to what they share before asking anything. Never lecture, never give unasked advice, never use lists.",
+    "- Do not mention saving, cards or the app; the app offers that by itself.",
+    "Boundaries: do not discuss politics or public figures' politics, sexual content, violence or weapons, illegal activity, gambling or drugs. Decline in one gentle sentence and steer back to their everyday life. If the user talks about hurting themselves, respond with care, encourage them to reach out to someone they trust or a local crisis line, and do not continue the topic casually.",
     `Date ranges to use as-is for relative dates (do not compute your own):\n${oioAiDateAnchors(input.today).map((line) => `  ${line}`).join("\n")}`,
     "- For phrases not listed, derive the range from today above. When a date range finds nothing, say which range you searched.",
     "Rules:",
@@ -98,8 +105,45 @@ export function buildOioAiSystemPrompt(input: { today: string; appLocale?: strin
     "- Never talk about buttons, tiles or the app's UI, and never ask \"要不要练习\": whatever you offer appears on its own. End with the finding itself.",
     "- If nothing is found, say so plainly and suggest a different search.",
     "- You cannot edit, move or delete cards yet; say so if asked.",
-    `- Reply in ${zh ? "Simplified Chinese" : "the user's language"}. Keep replies short and warm, no headings, no markdown tables.`,
+    `- Reply in ${zh ? "Simplified Chinese" : "the user's language"} (the app's language). Keep replies short and warm, no headings, no markdown.`,
     input.learningLanguage ? `The user is learning ${input.learningLanguage}; quote words from cards exactly as written.` : "",
     input.contextCard ? `The user is asking about this card (id ${input.contextCard.id}) titled "${input.contextCard.title}":\n${input.contextCard.text.slice(0, 2000)}` : "",
   ].filter(Boolean).join("\n");
+}
+
+/**
+ * 对话卡 (2026-11): the whole conversation becomes one card, line by line —
+ * every user message rewritten in the learning language, every OIO reply in
+ * the learning language too. Output is strict JSON so lines stay paired.
+ */
+export const OIO_DIALOGUE_CARD_PROMPT_VERSION = "oio-dialogue-card-v1";
+
+export function buildDialogueCardPrompt(input: { learningLanguage: string; appLocale?: string; turns: Array<{ user: string; oio: string }> }): { system: string; user: string } {
+  const zh = !input.appLocale || input.appLocale.startsWith("zh");
+  return {
+    system: [
+      `You turn a chat between a learner and their companion OIO into a study card in ${input.learningLanguage}.`,
+      `For every turn: rewrite the learner's message as what a native speaker would naturally say in ${input.learningLanguage} (same meaning, first person, casual, keep every detail, no additions). Then render OIO's reply in natural ${input.learningLanguage} with the same meaning and tone.`,
+      "Keep the number of turns exactly the same and in the same order. One output line per message; no line breaks inside a line.",
+      `Also give a short title in ${zh ? "Simplified Chinese" : "the learner's language"} (at most 16 characters) naming what the conversation is about.`,
+      'Answer with JSON only: {"title": string, "turns": [{"user": string, "oio": string}, ...]}',
+    ].join("\n"),
+    user: JSON.stringify({ turns: input.turns }),
+  };
+}
+
+export function parseDialogueCardOutput(raw: string, expectedTurns: number): { title: string; turns: Array<{ user: string; oio: string }> } | null {
+  const start = raw.indexOf("{");
+  const end = raw.lastIndexOf("}");
+  if (start < 0 || end <= start) return null;
+  let value: unknown;
+  try { value = JSON.parse(raw.slice(start, end + 1)); } catch { return null; }
+  const record = value as { title?: unknown; turns?: unknown };
+  if (!Array.isArray(record.turns) || record.turns.length !== expectedTurns) return null;
+  const oneLine = (text: unknown) => typeof text === "string" ? text.replace(/\s*\n+\s*/gu, " ").trim() : "";
+  const turns = record.turns.map((turn) => ({ user: oneLine((turn as { user?: unknown })?.user), oio: oneLine((turn as { oio?: unknown })?.oio) }));
+  // Both sides of every turn, so the card's lines pair up one to one.
+  if (turns.some((turn) => !turn.user || !turn.oio)) return null;
+  const title = typeof record.title === "string" ? record.title.trim().slice(0, 16) : "";
+  return { title, turns };
 }
