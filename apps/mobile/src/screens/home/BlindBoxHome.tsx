@@ -10,11 +10,10 @@ import { t, tf } from "../../i18n";
 import { theme } from "../../theme";
 import { createStyles } from "../../styles";
 import type { CardRecordSummary } from "../../services/api/cardApi";
-import { isBlindBoxPlayable } from "../../domain/blindBox/pickSentence";
+import { blindBoxCapacity, buildBlindBoxSet, isBlindBoxPlayable } from "../../domain/blindBox/pickSentence";
 import { useBlindBoxSettings } from "../../services/practice/blindBoxSettings";
 import { motion } from "../../motion";
 import { BlindBoxSettingsSheet } from "./BlindBoxSettingsSheet";
-import { memoryArchiveSet } from "./memoryArchiveSet";
 
 /**
  * 盲盒 home (2026-11, round 4): a calm entry screen. Three cards float in once
@@ -66,8 +65,8 @@ export function BlindBoxHome({ records, loading, hasMore, onLoadMore, onStart, v
       onStart([...ids.slice(index), ...ids.slice(0, index)]);
       return;
     }
-    const rest = memoryArchiveSet(playable.filter((record) => record.id !== first.id), Math.max(0, count - 1));
-    onStart([first.id, ...rest]);
+    // Distinct cards first; a card repeats (another sentence) only to fill a short set.
+    onStart(buildBlindBoxSet(playable.map((record) => ({ id: record.id, capacity: blindBoxCapacity(record.practiceSummary, settings.tones) })), first.id, count));
   };
 
   return <Pressable accessibilityRole="button" accessibilityLabel={t("blind_box.start")} style={styles.page} onPress={() => start()} disabled={!stack.length}>
@@ -91,7 +90,7 @@ export function BlindBoxHome({ records, loading, hasMore, onLoadMore, onStart, v
     </View>
     {stack.length ? <View style={styles.footer}>
       <Text style={styles.hint}>{t("blind_box.tap_to_start")}</Text>
-      <Text style={styles.subHint}>{history ? tf("history_day.ready", { count: playable.length }) : tf("blind_box.ready", { count: Math.min(count, playable.length) })}</Text>
+      <Text style={styles.subHint}>{history ? tf("history_day.ready", { count: playable.length }) : tf("blind_box.ready", { count: Math.min(count, playable.reduce((sum, record) => sum + blindBoxCapacity(record.practiceSummary, settings.tones), 0)) })}</Text>
     </View> : null}
     {history ? null : <BlindBoxSettingsSheet visible={settingsOpen} onClose={() => setSettingsOpen(false)} />}
   </Pressable>;

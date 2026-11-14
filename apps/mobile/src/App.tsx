@@ -1,3 +1,4 @@
+import { parseBlindBoxEntry } from "./domain/blindBox/pickSentence";
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Alert, Animated, AppState, DevSettings, Image, Linking, Modal, Pressable, StatusBar, StyleSheet, View } from "react-native";
 import { subscribeAppearance, watchSystemAppearance } from "./appearance/switch";
@@ -1055,11 +1056,12 @@ export default function App() {
           onExtendBrowse={(recordIds) => setCardDetailRequest((current) => current?.browseRecordIds
             ? { ...current, browseRecordIds: [...current.browseRecordIds, ...recordIds.filter((id) => !current.browseRecordIds!.includes(id))] }
             : current)}
-          onBrowseRecord={(recordId) => {
-            if (!cardDetailRequest?.browseRecordIds?.includes(recordId)) return;
+          onBrowseRecord={(entry) => {
+            if (!cardDetailRequest?.browseRecordIds?.includes(entry)) return;
             // Intra-round navigation changes content, not the reader session.
-            setCardDetailRequest(current => current?.browseRecordIds?.includes(recordId)
-              ? { ...current, recordId, origin: undefined, initialTab: "review" }
+            // A 盲盒 entry may be `id~2` (the card's next sentence).
+            setCardDetailRequest(current => current?.browseRecordIds?.includes(entry)
+              ? { ...current, recordId: parseBlindBoxEntry(entry).recordId, browseEntry: entry, origin: undefined, initialTab: "review" }
               : current);
           }}
           prefetchRecordId={memoryRoundVisible ? memoryRoundCurrentRecordId : null}

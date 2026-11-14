@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { blindBoxOrder, blindBoxToneCounts, isBlindBoxPlayable, pickBlindBoxSentence } from "./pickSentence";
+import { blindBoxEntryId, blindBoxOrder, blindBoxToneCounts, buildBlindBoxSet, isBlindBoxPlayable, parseBlindBoxEntry, pickBlindBoxSentence } from "./pickSentence";
 
 const segments = ["s1", "s2", "s3"];
 
@@ -57,4 +57,45 @@ test("tone counts and playability follow the card summary", () => {
   assert.equal(isBlindBoxPlayable({ totalBlanks: 3, answeredBlanks: 3, accuracy: 33 }, ["incorrect"]), true);
   assert.equal(isBlindBoxPlayable({ status: "clozed" }, ["unanswered"]), true);
   assert.equal(isBlindBoxPlayable({ status: "clozed" }, ["correct"]), false);
+});
+
+test("a repeated card gives its next sentence, never the same one", () => {
+  const blanks = [
+    { id: "a", segmentId: "s1", startUtf16: 0, lastResult: "incorrect" as const },
+    { id: "b", segmentId: "s2", startUtf16: 0 },
+    { id: "c", segmentId: "s3", startUtf16: 0, lastResult: "correct" as const },
+  ];
+  assert.equal(pickBlindBoxSentence(segments, blanks, ["unanswered", "incorrect"], 1), "s1");
+  assert.equal(pickBlindBoxSentence(segments, blanks, ["unanswered", "incorrect"], 2), "s2");
+  // Past the matching ones: another sentence with blanks.
+  assert.equal(pickBlindBoxSentence(segments, blanks, ["unanswered", "incorrect"], 3), "s3");
+});
+
+test("entries round-trip", () => {
+  assert.equal(blindBoxEntryId("card:x", 1), "card:x");
+  assert.deepEqual(parseBlindBoxEntry(blindBoxEntryId("card:x", 3)), { recordId: "card:x", occurrence: 3 });
+  assert.deepEqual(parseBlindBoxEntry("card:x"), { recordId: "card:x", occurrence: 1 });
+});
+
+test("sets use every distinct card before repeating any (round 4)", () => {
+  const set = buildBlindBoxSet([{ id: "A", capacity: 5 }, { id: "B", capacity: 5 }, { id: "C", capacity: 5 }], "B", 3, () => 0.5);
+  assert.equal(set.length, 3);
+  assert.equal(set[0], "B");
+  assert.equal(new Set(set).size, 3);
+});
+
+test("repeats only fill a short set, and never sit next to each other when avoidable", () => {
+  const rnd = (() => { let i = 0; const seq = [0.1, 0.9, 0.4, 0.7, 0.2]; return () => seq[i++ % seq.length]!; })();
+  const set = buildBlindBoxSet([{ id: "A", capacity: 3 }, { id: "B", capacity: 2 }, { id: "C", capacity: 1 }], "A", 10, rnd);
+  // 6 sentences exist in total.
+  assert.equal(set.length, 6);
+  const ids = set.map((entry) => parseBlindBoxEntry(entry).recordId);
+  assert.deepEqual(new Set(ids.slice(0, 3)), new Set(["A", "B", "C"]));
+  for (let i = 1; i < ids.length - 1; i += 1) assert.notEqual(ids[i], ids[i - 1], `adjacent at ${i}: ${set.join(",")}`);
+  // Each card's sentences are numbered without gaps.
+  assert.deepEqual(set.filter((entry) => entry.startsWith("A")), ["A", "A~2", "A~3"]);
+});
+
+test("one card left: it may repeat back to back (nothing else to show)", () => {
+  assert.deepEqual(buildBlindBoxSet([{ id: "A", capacity: 2 }], "A", 5), ["A", "A~2"]);
 });

@@ -1,3 +1,4 @@
+import { parseBlindBoxEntry } from "../domain/blindBox/pickSentence";
 import { pickedImageSource, type PickedImageSource } from "../services/card/photoCaptureTime";
 import { ensureImageUploadQuota } from "../services/usage/imageUploadQuota";
 import { quotaExhaustionKindForCode } from "../services/usage/quotaExhaustion";
@@ -48,6 +49,8 @@ export type CardDetailRequest = {
   origin?: { x: number; y: number; width: number; height: number };
   returnLabel?: string;
   browseRecordIds?: string[];
+  /** The current set entry when it differs from `recordId`: 盲盒 may show one card twice (`id~2`, its next sentence). */
+  browseEntry?: string;
   onBrowseSetFinished?: () => void;
   /** Leaving the last card (next swipe or button) also closes the reader. */
   closeOnBrowseFinish?: boolean;
@@ -147,21 +150,23 @@ export function CardDetailNavigator({
   const detailCacheRef = useRef(new Map<string, CachedCardDetail>());
   const detailLoadsRef = useRef(new Map<string, Promise<CardDetailSnapshot>>());
   const [browseNeighbors, setBrowseNeighbors] = useState<{ previous?: CardRecordDetail; next?: CardRecordDetail }>({});
+  // Position in a set is by entry; a card may appear twice in a 盲盒 set (`id~2`).
+  const browseEntry = request ? request.browseEntry ?? request.recordId : null;
   const browsePosition = request && detail?.id === request.recordId
-    ? memoryBrowsePosition(request.browseRecordIds, request.recordId)
+    ? memoryBrowsePosition(request.browseRecordIds, browseEntry!)
     : null;
   useEffect(() => {
     let active = true;
     setBrowseNeighbors({});
-    const position = request ? memoryBrowsePosition(request.browseRecordIds, request.recordId) : null;
+    const position = request ? memoryBrowsePosition(request.browseRecordIds, request.browseEntry ?? request.recordId) : null;
     for (const direction of ["previous", "next"] as const) {
-      const id = position?.[direction];
+      const id = position?.[direction] ? parseBlindBoxEntry(position[direction]!).recordId : undefined;
       if (id) void fetchDetailSnapshot(id).then((snapshot) => {
         if (active) setBrowseNeighbors((current) => ({ ...current, [direction]: snapshot.detail }));
       }).catch(() => undefined);
     }
     return () => { active = false; };
-  }, [request?.key, request?.recordId, request?.browseRecordIds?.length]);
+  }, [request?.key, request?.recordId, request?.browseEntry, request?.browseRecordIds?.length]);
 
   // Endless browsing: two cards before the end, ask the opener for more ids.
   const extendingBrowseRef = useRef(false);
@@ -169,7 +174,7 @@ export function CardDetailNavigator({
     const ids = request?.browseRecordIds;
     const needMore = request?.onBrowseNeedMore;
     if (!request || !ids?.length || !needMore || !onExtendBrowse || extendingBrowseRef.current) return;
-    const index = ids.indexOf(request.recordId);
+    const index = ids.indexOf(request.browseEntry ?? request.recordId);
     if (index < 0 || index < ids.length - 2) return;
     extendingBrowseRef.current = true;
     void needMore(ids)
@@ -224,8 +229,9 @@ export function CardDetailNavigator({
     void loadDetail(request.recordId);
   }, [request?.key, request?.recordId]);
 
-  async function browseTo(recordId: string): Promise<void> {
+  async function browseTo(entry: string): Promise<void> {
     if (loading || browseLoadingRef.current || !onBrowseRecord) return;
+    const recordId = parseBlindBoxEntry(entry).recordId;
     browseLoadingRef.current = true;
     const sequence = requestSequenceRef.current;
     setLoading(true);
@@ -233,7 +239,7 @@ export function CardDetailNavigator({
       // Keep the current reader visible until the target is actually ready.
       const cached = detailCacheRef.current.get(recordId);
       if (!cached || Date.now() - cached.loadedAt >= CARD_DETAIL_PREFETCH_FRESH_MS) await fetchDetailSnapshot(recordId);
-      if (sequence === requestSequenceRef.current) onBrowseRecord(recordId);
+      if (sequence === requestSequenceRef.current) onBrowseRecord(entry);
     } catch {
       if (sequence === requestSequenceRef.current) Alert.alert(t("card_practice.error.open"), t("card_detail.error.try_again"));
     } finally {
@@ -526,6 +532,9 @@ export function CardDetailNavigator({
       canGoForward={false}
       recallPosition={browsePosition ? { ...browsePosition, kind: "browse" } : undefined}
       sentencePractice={request.practice === "sentence"}
+      sentenceOccurrence={parseBlindBoxEntry(browseEntry ?? request.recordId).occurrence}
+      recallPreviousOccurrence={browsePosition?.previous ? parseBlindBoxEntry(browsePosition.previous).occurrence : 1}
+      recallNextOccurrence={browsePosition?.next ? parseBlindBoxEntry(browsePosition.next).occurrence : 1}
       recallPreviousDetail={browseNeighbors.previous}
       recallNextDetail={browseNeighbors.next}
       onRecallPrevious={browsePosition?.previous && onBrowseRecord ? () => { void browseTo(browsePosition.previous!); } : undefined}

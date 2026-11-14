@@ -28,7 +28,7 @@ import { Camera, Eye, Gift, ImagesSquare, SunHorizon } from "phosphor-react-nati
 import OioRecall from "../../assets/app/oio-recall.svg";
 import { ProgressRing } from "../components/ProgressRing";
 import { cardProgressRing } from "../domain/practice/cardProgressRing";
-import { isBlindBoxPlayable } from "../domain/blindBox/pickSentence";
+import { blindBoxCapacity, buildBlindBoxSet, isBlindBoxPlayable, parseBlindBoxEntry } from "../domain/blindBox/pickSentence";
 import { OioAiScreen } from "./ai/OioAiScreen";
 import { getBlindBoxSettings } from "../services/practice/blindBoxSettings";
 import { BlindBoxHome } from "./home/BlindBoxHome";
@@ -1423,7 +1423,7 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
       practice: "sentence",
       closeOnBrowseFinish: true,
       onBrowseSetFinished: () => undefined,
-      onBrowseClosed: () => { const summary = endPracticeSession(); if (summary) setTimeout(() => setBlindBoxSummary({ ...summary, setSize: ids.length }), 300); },
+      onBrowseClosed: () => { const summary = endPracticeSession(); if (summary) setTimeout(() => setBlindBoxSummary({ ...summary, setSize: new Set(ids.map((entry) => parseBlindBoxEntry(entry).recordId)).size }), 300); },
     });
   }
 
@@ -1941,11 +1941,13 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
       />
       <PracticeSetSummary summary={blindBoxSummary} onClose={() => setBlindBoxSummary(null)} onAgain={() => {
         setBlindBoxSummary(null);
-        const pool = records.filter((record) => record.status === "completed" && !record.isSample && isBlindBoxPlayable(record.practiceSummary, getBlindBoxSettings().tones)).map((record) => record.id);
-        const previous = new Set(lastBlindBoxIdsRef.current);
-        const fresh = pool.filter((id) => !previous.has(id));
-        const source = fresh.length ? fresh : pool;
-        startBlindBoxSet([...source].sort(() => Math.random() - 0.5).slice(0, Math.max(1, lastBlindBoxIdsRef.current.length)));
+        const { tones, setSize } = getBlindBoxSettings();
+        const pool = records.filter((record) => record.status === "completed" && !record.isSample && isBlindBoxPlayable(record.practiceSummary, tones));
+        // Cards not in the last set first; fall back to all when that is too few.
+        const previous = new Set(lastBlindBoxIdsRef.current.map((entry) => parseBlindBoxEntry(entry).recordId));
+        const fresh = pool.filter((record) => !previous.has(record.id));
+        const source = fresh.length >= Math.min(setSize, pool.length) ? fresh : pool;
+        startBlindBoxSet(buildBlindBoxSet(source.map((record) => ({ id: record.id, capacity: blindBoxCapacity(record.practiceSummary, tones) })), null, setSize));
       }} />
       <PhotoSourceMenu visible={photoSourceMenuVisible} bottomInset={screenInsets.bottom} onClose={() => setPhotoSourceMenuVisible(false)} onPick={(mode) => { setPhotoSourceMenuVisible(false); setPhotoBrowserHidden(false); setPhotoBrowser(mode); }} />
       {selectingRecords && selectedRecordIds.size ? <View style={[styles.batchActionBar, libraryView === TRASH_VIEW && styles.batchActionBarCentered, { paddingBottom: Math.max(screenInsets.bottom, 10) }]}>{libraryView !== TRASH_VIEW ? <Pressable style={styles.batchAction} onPress={() => setBatchMoveVisible(true)}><Icon name="folder-open-outline" size={22} color={theme.colors.text} /><Text style={styles.batchActionText}>{t("library.move")}</Text></Pressable> : null}<Pressable style={styles.batchAction} onPress={confirmBatchDelete}><Icon name="trash-outline" size={22} color={theme.colors.danger} /><Text style={[styles.batchActionText, { color: theme.colors.danger }]}>{libraryView === TRASH_VIEW ? "彻底删除" : t("common.delete")}</Text></Pressable></View> : null}
