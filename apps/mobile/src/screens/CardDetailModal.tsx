@@ -1696,7 +1696,7 @@ function DraftComposerToolbar({ collectionLabel, onCollection, hasLink = false, 
     </Pressable> : null}
     <RealtimeSttButton status={sttStatus} audioLevel={sttAudioLevel} disabled={disabled} style={[styles.draftComposerTool, compact && styles.draftComposerToolCompact]} onPress={onStt} />
     <View style={styles.draftComposerSpacer} />
-    {typeof characterCount === "number" && typeof characterLimit === "number" ? <Text accessibilityLabel={`${characterCount}/${characterLimit}`} style={[styles.draftCharacterCount, characterCount > characterLimit && styles.draftCharacterCountOver]}>{compact ? characterCount : `${characterCount}/${characterLimit}`}</Text> : null}
+    {typeof characterCount === "number" && typeof characterLimit === "number" ? <Text accessibilityLabel={`${characterCount}/${characterLimit}`} style={[styles.draftCharacterCount, characterCount > characterLimit && styles.draftCharacterCountOver]}>{compact || (collectionLabel && characterCount < characterLimit * 0.9) ? characterCount : `${characterCount}/${characterLimit}`}</Text> : null}
     {onSave ? <Pressable accessibilityLabel={t("card_detail.done")} disabled={disabled || (!canSave && !onInvalidSave)} style={[styles.draftPublishButton, compact && styles.draftPublishButtonCompact, (disabled || !canSave) && styles.draftPublishButtonDisabled]} onPress={canSave ? onSave : onInvalidSave}>
       <Text style={[styles.draftPublishButtonText, (disabled || !canSave) && styles.draftPublishButtonTextDisabled]}>{actionLabel ?? t("card_detail.done")}</Text>
     </Pressable> : null}
@@ -5719,7 +5719,8 @@ const styles = createStyles(() => ({
   readingLinkCard: { marginTop: 14, minHeight: 52, paddingHorizontal: 14, borderRadius: 10, backgroundColor: theme.colors.fill1, flexDirection: "row", alignItems: "center", gap: 10 },
   readingLinkProvider: { color: theme.colors.textMuted, fontSize: 12, fontWeight: "600" },
   readingLinkTitle: { flex: 1, color: theme.colors.text, fontSize: 14, fontWeight: "600" },
-  draftFolderTag: { minWidth: 36, maxWidth: 120, height: 34, paddingHorizontal: 10, borderRadius: 17, backgroundColor: theme.colors.fill2, alignItems: "center", justifyContent: "center" },
+  // flexShrink: a long folder name gives way (ellipsis) so 改写 always stays on screen.
+  draftFolderTag: { minWidth: 36, maxWidth: 120, flexShrink: 1, height: 34, paddingHorizontal: 10, borderRadius: 17, backgroundColor: theme.colors.fill2, alignItems: "center", justifyContent: "center" },
   draftFolderTagOn: { backgroundColor: theme.colors.accentSoft },
   draftFolderTagText: { color: theme.colors.textSecondary, fontSize: 15, fontWeight: "700" },
   draftFolderTagTextOn: { color: theme.colors.accent, fontSize: 13 },
@@ -6137,12 +6138,12 @@ const styles = createStyles(() => ({
   draftComposerToolbarCompact: { paddingHorizontal: 6, gap: 4 },
   draftComposerTool: { width: 42, height: 38, borderRadius: 10, alignItems: "center", justifyContent: "center" },
   draftComposerToolCompact: { width: 40 },
-  draftComposerSpacer: { flex: 1 },
+  draftComposerSpacer: { flexGrow: 1, flexShrink: 1, minWidth: 4 },
   draftCharacterCount: { color: theme.colors.textMuted, fontSize: 12, fontVariant: ["tabular-nums"] },
   draftCharacterCountOver: { color: theme.colors.danger, fontWeight: "600" },
   draftComposerBadge: { position: "absolute", top: 2, right: 2, minWidth: 15, height: 15, paddingHorizontal: 3, borderRadius: 8, backgroundColor: theme.colors.accent, alignItems: "center", justifyContent: "center" },
   draftComposerBadgeText: { color: theme.colors.surface, fontSize: 9, fontWeight: "700" },
-  draftPublishButton: { minWidth: 78, height: 40, paddingHorizontal: 18, borderRadius: 20, backgroundColor: theme.colors.text, alignItems: "center", justifyContent: "center" },
+  draftPublishButton: { flexShrink: 0, minWidth: 78, height: 40, paddingHorizontal: 18, borderRadius: 20, backgroundColor: theme.colors.text, alignItems: "center", justifyContent: "center" },
   draftPublishButtonCompact: { minWidth: 68, paddingHorizontal: 14 },
   draftPublishButtonDisabled: { backgroundColor: theme.colors.surfaceMuted },
   draftPublishButtonText: { color: theme.colors.surface, fontSize: 14, fontWeight: "700" },
