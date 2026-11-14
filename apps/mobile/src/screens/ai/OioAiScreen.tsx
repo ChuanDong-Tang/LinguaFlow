@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { ActivityIndicator, FlatList, Image, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, TextInput, View } from "react-native";
+import { ActivityIndicator, Alert, FlatList, Image, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, TextInput, View } from "react-native";
 import Reanimated, { FadeIn, FadeInDown } from "react-native-reanimated";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
 import { Text } from "../../components/Typography";
@@ -13,13 +13,14 @@ import { createStyles } from "../../styles";
 import { motion } from "../../motion";
 import { useAndroidBack } from "../../hooks/useAndroidBack";
 import {
-  listOioAiMessages, listOioAiThreads, OioAiError, streamOioAi,
+  listOioAiMessages, listOioAiThreads, OioAiError, saveOioAiThreadAsCard, streamOioAi,
   type OioAiAction, type OioAiBlock, type OioAiCard, type OioAiThread,
 } from "../../services/ai/oioAiApi";
 
 type Turn = { id: string; role: "user" | "assistant"; text: string; blocks: OioAiBlock[]; tool?: string | null; pending?: boolean; error?: string | null };
 
-const SUGGESTIONS = ["oio_ai.suggest.last_week_photos", "oio_ai.suggest.weak_words", "oio_ai.suggest.this_time_last_year", "oio_ai.suggest.where_did_i_write"] as const;
+// Chat first (v4); finding memories and practice stay one tap away.
+const SUGGESTIONS = ["oio_ai.suggest.chat_today", "oio_ai.suggest.chat_happy", "oio_ai.suggest.weak_words", "oio_ai.suggest.this_time_last_year"] as const;
 const TOOL_LABEL: Record<string, string> = {
   search_cards: "oio_ai.tool.search",
   get_card: "oio_ai.tool.read",
@@ -53,12 +54,34 @@ export function OioAiScreen({ visible, onClose, onOpenCard, onStartBlindBox, con
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  // 对话卡: the card this conversation was saved as (one per conversation).
+  const [cardId, setCardId] = useState<string | null>(null);
+  const [savingCard, setSavingCard] = useState(false);
   const listRef = useRef<FlatList<Turn>>(null);
   const abortRef = useRef<AbortController | null>(null);
   useAndroidBack(visible && historyOpen, () => setHistoryOpen(false));
   useEffect(() => () => abortRef.current?.abort(), []);
   // A new card context starts a new conversation.
-  useEffect(() => { if (visible && contextCard) { setThreadId(null); setTurns([]); } }, [contextCard, visible]);
+  useEffect(() => { if (visible && contextCard) { setThreadId(null); setTurns([]); setCardId(null); } }, [contextCard, visible]);
+  const hasExchange = turns.some((turn) => turn.role === "assistant" && !turn.pending && turn.text);
+
+  const saveCard = useCallback(async () => {
+    if (!threadId || savingCard) return;
+    if (cardId) { haptic.light(); onOpenCard(cardId); return; }
+    haptic.medium();
+    setSavingCard(true);
+    try {
+      const saved = await saveOioAiThreadAsCard(threadId);
+      setCardId(saved.recordId);
+      haptic.success();
+    } catch (error) {
+      haptic.warning();
+      const code = error instanceof OioAiError ? error.code : "NETWORK_ERROR";
+      Alert.alert(t("oio_ai.save_failed_title"), code === "CONTENT_BLOCKED" ? t("oio_ai.error.blocked") : code === "TOKEN_QUOTA_EXCEEDED" ? t("oio_ai.error.quota") : t("oio_ai.error.generic"));
+    } finally {
+      setSavingCard(false);
+    }
+  }, [cardId, onOpenCard, savingCard, threadId]);
 
   const send = useCallback(async (raw: string) => {
     const message = raw.trim();
@@ -83,7 +106,8 @@ export function OioAiScreen({ visible, onClose, onOpenCard, onStartBlindBox, con
     } catch (error) {
       const code = error instanceof OioAiError ? error.code : "NETWORK_ERROR";
       if (code !== "ABORTED") haptic.warning();
-      update((turn) => ({ ...turn, pending: false, tool: null, error: code === "ABORTED" ? null : errorText(code) }));
+      // A reply that failed review is not kept: clear what already streamed.
+      update((turn) => ({ ...turn, pending: false, tool: null, ...(code === "CONTENT_BLOCKED" ? { text: "", blocks: [] } : {}), error: code === "ABORTED" ? null : errorText(code) }));
     } finally {
       abortRef.current = null;
       setBusy(false);
@@ -95,14 +119,16 @@ export function OioAiScreen({ visible, onClose, onOpenCard, onStartBlindBox, con
     abortRef.current?.abort();
     setThreadId(thread.id);
     setTurns([]);
+    setCardId(thread.cardId ?? null);
     try {
-      const messages = await listOioAiMessages(thread.id);
+      const { messages, cardId: savedCardId } = await listOioAiMessages(thread.id);
+      setCardId(savedCardId);
       setTurns(messages.map((message) => ({ id: message.id, role: message.role, text: message.text, blocks: message.blocks ?? [] })));
     } catch {
       setTurns([{ id: "load-error", role: "assistant", text: "", blocks: [], error: t("oio_ai.error.generic") }]);
     }
   };
-  const newThread = () => { haptic.select(); abortRef.current?.abort(); setThreadId(null); setTurns([]); };
+  const newThread = () => { haptic.select(); abortRef.current?.abort(); setThreadId(null); setTurns([]); setCardId(null); };
 
   return <Modal visible={visible} animationType="slide" presentationStyle="fullScreen" onRequestClose={historyOpen ? () => setHistoryOpen(false) : onClose}>
     <SafeAreaProvider><SafeAreaView style={styles.page} edges={["top", "bottom"]}>
@@ -110,6 +136,10 @@ export function OioAiScreen({ visible, onClose, onOpenCard, onStartBlindBox, con
         <Pressable accessibilityRole="button" accessibilityLabel={t("common.cancel")} hitSlop={8} style={styles.headerButton} onPress={onClose}><Icon name="close-outline" size={24} color={theme.colors.text} /></Pressable>
         <View style={styles.headerTitle}><OioMascot size={22} idle={false} /><Text style={styles.title}>OIO AI</Text></View>
         <View style={styles.headerActions}>
+          {threadId && hasExchange ? <Pressable accessibilityRole="button" accessibilityLabel={t(cardId ? "oio_ai.saved_card" : "oio_ai.save_card")} disabled={savingCard || busy} hitSlop={6} style={({ pressed }) => [styles.saveChip, cardId && styles.saveChipDone, pressed && { opacity: 0.7 }]} onPress={() => void saveCard()}>
+            {savingCard ? <ActivityIndicator size="small" color={theme.colors.accent} /> : <Icon name={cardId ? "checkmark-outline" : "albums-outline"} size={15} color={theme.colors.accent} />}
+            <Text style={styles.saveChipText}>{t(cardId ? "oio_ai.saved_short" : "oio_ai.save_short")}</Text>
+          </Pressable> : null}
           {turns.length ? <Pressable accessibilityRole="button" accessibilityLabel={t("oio_ai.new_chat")} hitSlop={8} style={styles.headerButton} onPress={newThread}><Icon name="create-outline" size={21} color={theme.colors.textSecondary} /></Pressable> : null}
           <Pressable accessibilityRole="button" accessibilityLabel={t("oio_ai.history")} hitSlop={8} style={styles.headerButton} onPress={() => { haptic.light(); setHistoryOpen(true); }}><Icon name="chatbubble-ellipses-outline" size={21} color={theme.colors.textSecondary} /></Pressable>
         </View>
@@ -124,7 +154,11 @@ export function OioAiScreen({ visible, onClose, onOpenCard, onStartBlindBox, con
           keyboardShouldPersistTaps="handled"
           renderItem={({ item }) => item.role === "user"
             ? <View style={styles.userBubble}><Text style={styles.userText}>{item.text}</Text></View>
-            : <AssistantTurn turn={item} onOpenCard={onOpenCard} onAction={(action) => { haptic.medium(); onStartBlindBox(action.cardIds); }} />}
+            : <AssistantTurn turn={item} onOpenCard={onOpenCard} savedCardId={cardId} savingCard={savingCard} onAction={(action) => {
+              if (action.kind === "save_card") { void saveCard(); return; }
+              haptic.medium();
+              onStartBlindBox(action.cardIds);
+            }} />}
         /> : <ScrollView contentContainerStyle={styles.empty} keyboardShouldPersistTaps="handled">
           <OioMascot size={64} />
           <Text style={styles.emptyTitle}>{contextCard ? tf("oio_ai.empty_card", { title: contextCard.title }) : t("oio_ai.empty_title")}</Text>
@@ -159,7 +193,7 @@ export function OioAiScreen({ visible, onClose, onOpenCard, onStartBlindBox, con
   </Modal>;
 }
 
-function AssistantTurn({ turn, onOpenCard, onAction }: { turn: Turn; onOpenCard: (recordId: string) => void; onAction: (action: OioAiAction) => void }) {
+function AssistantTurn({ turn, onOpenCard, onAction, savedCardId, savingCard }: { turn: Turn; onOpenCard: (recordId: string) => void; onAction: (action: OioAiAction) => void; savedCardId: string | null; savingCard: boolean }) {
   return <View style={styles.assistant}>
     {turn.text ? <Text selectable style={styles.assistantText}>{turn.text}</Text> : null}
     {turn.pending && !turn.text ? <View style={styles.thinking}>
@@ -170,12 +204,21 @@ function AssistantTurn({ turn, onOpenCard, onAction }: { turn: Turn; onOpenCard:
       ? <ScrollView key={index} horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.cardRow}>
         {block.cards.map((card, cardIndex) => <CardTile key={card.recordId} card={card} index={cardIndex} onPress={() => { haptic.light(); onOpenCard(card.recordId); }} />)}
       </ScrollView>
-      : <Reanimated.View key={index} entering={FadeIn.duration(motion.duration.quick)}>
-        <Pressable accessibilityRole="button" style={({ pressed }) => [styles.action, pressed && { opacity: 0.85, transform: [{ scale: 0.98 }] }]} onPress={() => onAction(block.action)}>
-          <Icon name="play-circle-outline" size={18} color={theme.colors.onAccent} />
-          <Text style={styles.actionText}>{block.action.label}</Text>
-        </Pressable>
-      </Reanimated.View>)}
+      : block.action.kind === "save_card"
+        // 存成卡片 offer; once saved it becomes 已存为卡片 · 查看.
+        ? <Reanimated.View key={index} entering={FadeIn.duration(motion.duration.quick)}>
+          <Pressable accessibilityRole="button" disabled={savingCard} style={({ pressed }) => [styles.saveOffer, savedCardId && styles.saveOfferDone, pressed && { opacity: 0.85, transform: [{ scale: 0.98 }] }]} onPress={() => savedCardId ? onOpenCard(savedCardId) : onAction(block.action)}>
+            {savingCard ? <ActivityIndicator size="small" color={theme.colors.accent} /> : <Icon name={savedCardId ? "checkmark-circle" : "albums-outline"} size={18} color={theme.colors.accent} />}
+            <Text style={styles.saveOfferText}>{savedCardId ? t("oio_ai.saved_card") : savingCard ? t("oio_ai.saving_card") : block.action.label}</Text>
+            {savedCardId ? <Icon name="chevron-forward" size={15} color={theme.colors.accent} /> : null}
+          </Pressable>
+        </Reanimated.View>
+        : <Reanimated.View key={index} entering={FadeIn.duration(motion.duration.quick)}>
+          <Pressable accessibilityRole="button" style={({ pressed }) => [styles.action, pressed && { opacity: 0.85, transform: [{ scale: 0.98 }] }]} onPress={() => onAction(block.action)}>
+            <Icon name="play-circle-outline" size={18} color={theme.colors.onAccent} />
+            <Text style={styles.actionText}>{block.action.label}</Text>
+          </Pressable>
+        </Reanimated.View>)}
     {turn.error ? <Text style={styles.errorText}>{turn.error}</Text> : null}
   </View>;
 }
@@ -217,7 +260,7 @@ const styles = createStyles(() => ({
   header: { minHeight: 52, flexDirection: "row", alignItems: "center", paddingHorizontal: 8 },
   headerButton: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
   headerTitle: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 },
-  headerActions: { flexDirection: "row", minWidth: 44, justifyContent: "flex-end" },
+  headerActions: { flexDirection: "row", alignItems: "center", minWidth: 44, justifyContent: "flex-end" },
   title: { color: theme.colors.text, fontSize: 17, fontWeight: "700" },
   empty: { flexGrow: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 24, paddingBottom: 40, gap: 8 },
   emptyTitle: { marginTop: 10, color: theme.colors.text, fontSize: 19, fontWeight: "700", textAlign: "center" },
@@ -241,6 +284,12 @@ const styles = createStyles(() => ({
   tileDate: { color: theme.colors.textMuted, fontSize: 11 },
   action: { alignSelf: "flex-start", minHeight: 44, borderRadius: 22, backgroundColor: theme.colors.accent, paddingHorizontal: 18, flexDirection: "row", alignItems: "center", gap: 6 },
   actionText: { color: theme.colors.onAccent, fontSize: 15, fontWeight: "700" },
+  saveOffer: { alignSelf: "flex-start", minHeight: 44, borderRadius: 22, backgroundColor: theme.colors.accentSoft, paddingHorizontal: 16, flexDirection: "row", alignItems: "center", gap: 6 },
+  saveOfferDone: { backgroundColor: theme.colors.fill1 },
+  saveOfferText: { color: theme.colors.accent, fontSize: 15, fontWeight: "700" },
+  saveChip: { minHeight: 32, paddingHorizontal: 10, borderRadius: 16, backgroundColor: theme.colors.accentSoft, flexDirection: "row", alignItems: "center", gap: 4, marginRight: 2 },
+  saveChipDone: { backgroundColor: theme.colors.fill1 },
+  saveChipText: { color: theme.colors.accent, fontSize: 13, fontWeight: "700" },
   errorText: { color: theme.colors.textSecondary, fontSize: 14, lineHeight: 21, backgroundColor: theme.colors.fill1, borderRadius: 10, padding: 10 },
   composer: { flexDirection: "row", alignItems: "flex-end", gap: 8, paddingHorizontal: 12, paddingTop: 8, paddingBottom: 8, borderTopWidth: 1, borderTopColor: theme.colors.border, backgroundColor: theme.colors.canvas },
   input: { flex: 1, minHeight: 44, maxHeight: 120, borderRadius: 22, backgroundColor: theme.colors.fill1, paddingHorizontal: 16, paddingTop: 11, paddingBottom: 11, color: theme.colors.text, fontSize: 16 },

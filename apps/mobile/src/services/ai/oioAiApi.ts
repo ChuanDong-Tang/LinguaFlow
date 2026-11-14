@@ -15,7 +15,7 @@ export type OioAiCard = {
   thumbnail: { url: string; width: number; height: number } | null;
 };
 
-export type OioAiAction = { kind: "start_blind_box"; cardIds: string[]; label: string };
+export type OioAiAction = { kind: "start_blind_box"; cardIds: string[]; label: string } | { kind: "save_card"; label: string };
 
 export type OioAiBlock = { type: "cards"; cards: OioAiCard[] } | { type: "action"; action: OioAiAction };
 
@@ -29,7 +29,7 @@ export type OioAiEvent =
   | { type: "error"; code: string };
 
 export type OioAiMessage = { id: string; role: "user" | "assistant"; text: string; blocks?: OioAiBlock[] | null; createdAt: string };
-export type OioAiThread = { id: string; title: string | null; contextCardId: string | null; updatedAt: string };
+export type OioAiThread = { id: string; title: string | null; contextCardId: string | null; cardId: string | null; updatedAt: string };
 
 export class OioAiError extends Error {
   constructor(readonly code: string) { super(code); }
@@ -112,6 +112,23 @@ export async function listOioAiThreads(): Promise<OioAiThread[]> {
   return (await get<{ threads: OioAiThread[] }>("/ai/threads")).threads;
 }
 
-export async function listOioAiMessages(threadId: string): Promise<OioAiMessage[]> {
-  return (await get<{ messages: OioAiMessage[] }>(`/ai/threads/${encodeURIComponent(threadId)}/messages`)).messages;
+export async function listOioAiMessages(threadId: string): Promise<{ messages: OioAiMessage[]; cardId: string | null }> {
+  const data = await get<{ messages: OioAiMessage[]; cardId?: string | null }>(`/ai/threads/${encodeURIComponent(threadId)}/messages`);
+  return { messages: data.messages, cardId: data.cardId ?? null };
+}
+
+/** 对话卡: save the whole conversation as one card (the same card if already saved). */
+export async function saveOioAiThreadAsCard(threadId: string): Promise<{ recordId: string; created: boolean }> {
+  const response = await fetchWithTimeout(`${BASE_URL}/ai/threads/${encodeURIComponent(threadId)}/card`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-lf-usage-api": "v2", ...(await getAuthHeaders()) },
+    body: "{}",
+  }, 90_000);
+  const result = await response.json() as { ok: true; data: { recordId: string; created: boolean } } | { ok: false; error: { code: string } };
+  if (!result.ok) {
+    const quota = quotaExhaustionKindForCode(result.error.code);
+    if (quota) notifyQuotaExhaustion(quota);
+    throw new OioAiError(result.error.code);
+  }
+  return result.data;
 }

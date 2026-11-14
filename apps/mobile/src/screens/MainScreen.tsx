@@ -1752,24 +1752,10 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
   }
 
   const assistantAvailable = sidebarEntitlement?.tier === "plus" || sidebarEntitlement?.tier === "pro";
-  // OIO 2.0: the mascot opens OIO AI (members); the old rewrite chat is browse-only from the sidebar.
+  // OIO 2.0: the mascot opens OIO AI — open to everyone (billed in tokens);
+  // the old rewrite chat is browse-only from the sidebar.
   const [oioAiVisible, setOioAiVisible] = useState(false);
-  const openAssistant = async () => {
-    if (assistantAvailable) {
-      setOioAiVisible(true);
-      return;
-    }
-    const entitlement = await getCurrentEntitlement().catch(() => null);
-    if (entitlement) {
-      setSidebarEntitlement(entitlement);
-      await setCachedEntitlement(entitlement).catch(() => undefined);
-    }
-    if (entitlement?.tier === "plus" || entitlement?.tier === "pro") {
-      setOioAiVisible(true);
-      return;
-    }
-    Alert.alert(t("sidebar.assistant_members_only_title"), t("sidebar.assistant_members_only_message"));
-  };
+  const openAssistant = async () => { setOioAiVisible(true); };
 
   // Left / right swipe switches home tabs. A gesture-handler pan runs alongside
   // the lists' native vertical scrolling (a PanResponder never got the touch).
@@ -2691,8 +2677,7 @@ function LibrarySidebar({ visible, activeView, collections, profile, entitlement
             <SidebarRow
               leading={<OioCharacter width={25} height={24} />}
               label="OIO AI"
-              muted={!assistantAvailable}
-              onPress={assistantAvailable ? onOpenAssistant : () => Alert.alert(t("sidebar.assistant_members_only_title"), t("sidebar.assistant_members_only_message"))}
+              onPress={onOpenAssistant}
             />
             {/* The earlier icons the team preferred: OIO's recall clock and a document. */}
             <SidebarRow leading={<OioRecall width={27} height={25} />} label={t("sidebar.recall")} onPress={onOpenRecall} />

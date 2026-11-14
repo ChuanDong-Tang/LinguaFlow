@@ -6,6 +6,7 @@ import { resolveCardSecondaryContent } from "../services/card/cardSecondaryConte
 import { alignCardSpeechMarks } from "@lf/core/text/cardSpeechText";
 import React, { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ClozeToneContext } from "./cardDetail/clozeToneContext";
+import { dialoguePairs } from "../domain/card/dialogueLines";
 import { pickBlindBoxSentence } from "../domain/blindBox/pickSentence";
 import { getBlindBoxSettings } from "../services/practice/blindBoxSettings";
 import { homeCoverAspect } from "../domain/card/coverAspect";
@@ -2230,6 +2231,15 @@ function Review({ sentencePractice = false, sentenceOccurrence = 1, onSentenceDo
   const originalBlock = detail.contentBlocks.find((candidate) => candidate.contentType === "original") ?? null;
   const primaryTextBlock = rewriteBlock ?? originalBlock;
   const replyBlock = detail.contentBlocks.find((candidate) => candidate.contentType === "reply");
+  // 对话卡 (OIO AI): the user's lines and OIO's replies read as one conversation, pair by pair.
+  const dialogueLayout = detail.dialogue && rewriteBlock && !sentencePractice
+    ? dialoguePairs({ text: rewriteBlock.text, segments: rewriteBlock.segments }, replyBlock ? { text: replyBlock.text, segments: replyBlock.segments } : null)
+    : null;
+  const dialogueLineOf = (block: CardRecordDetail["contentBlocks"][number], segmentId: string): number | null => {
+    if (!dialogueLayout || (block.contentType !== "rewrite" && block.contentType !== "reply")) return null;
+    const pair = dialogueLayout.find((item) => (block.contentType === "rewrite" ? item.user : item.oio).includes(segmentId));
+    return pair ? pair.line : null;
+  };
   const firstImageBlock = images[0] ? detail.contentBlocks.find((block) => block.contentType === `image:${images[0]!.id}`) : null;
   // Playback reads the memory and the reply; image descriptions are opt-in reading only.
   const playbackBlocks = useMemo(() => [primaryTextBlock, replyBlock]
@@ -2733,8 +2743,13 @@ function Review({ sentencePractice = false, sentenceOccurrence = 1, onSentenceDo
       .flatMap((blank) => {
         const segment = block.segments.find((candidate) => candidate.id === blank.segmentId);
         if (!segment) return [];
-        return [{ ownerKey: `${block.contentType}:${block.contentVersion}`, blankId: blank.id }];
-      }));
+        // 对话卡: each line is its own practice owner (`key#line`), practised in reading order.
+        const line = dialogueLineOf(block, segment.id);
+        return [{ ownerKey: `${block.contentType}:${block.contentVersion}${line === null ? "" : `#${line}`}`, blankId: blank.id, line, side: block.contentType === "reply" ? 1 : 0 }];
+      }))
+    .map((item, index) => ({ ...item, index }))
+    .sort((a, b) => a.line === null || b.line === null ? a.index - b.index : a.line - b.line || a.side - b.side || a.index - b.index)
+    .map(({ ownerKey, blankId }) => ({ ownerKey, blankId }));
   // 盲盒 one-sentence practice: the chosen sentence of the primary learning content.
   const sentenceBlock = sentencePractice ? orderedPracticeBlocks.find((block) => block.contentType === "rewrite" || block.contentType === "original") ?? null : null;
   const focusSegmentId = sentenceBlock
@@ -3752,14 +3767,15 @@ function Review({ sentencePractice = false, sentenceOccurrence = 1, onSentenceDo
       practice: block.practice,
     };
   };
-  const renderLearningBlock = (block: CardRecordDetail["contentBlocks"][number]) => {
-    const ownerKey = learningBlockKey(block);
+  /** `part`: one 对话卡 line of this block — its own owner key, only its sentences. */
+  const renderLearningBlock = (block: CardRecordDetail["contentBlocks"][number], part?: { line: number; segmentIds: string[] }) => {
+    const ownerKey = part ? `${learningBlockKey(block)}#${part.line}` : learningBlockKey(block);
     const state = learningBlockState(block);
     const version = learningBlockVersion(block);
     const binding = { contentType: block.contentType, contentVersion: block.contentVersion };
     return <Cloze
       key={ownerKey}
-      onlySegmentIds={focusSegmentId && sentenceBlock && block.contentType === sentenceBlock.contentType ? [focusSegmentId] : undefined}
+      onlySegmentIds={part ? part.segmentIds : focusSegmentId && sentenceBlock && block.contentType === sentenceBlock.contentType ? [focusSegmentId] : undefined}
       embedded
       detail={learningBlockDetail(block)}
       contentBinding={binding}
@@ -3951,12 +3967,21 @@ function Review({ sentencePractice = false, sentenceOccurrence = 1, onSentenceDo
           </View> : null}
           {rewriteBlock || originalBlock || expressionPending || expressionFailed ? <View ref={contentBinding.contentType === "rewrite" || contentBinding.contentType === "original" ? learningTargetRef : undefined} style={styles.readingBody} onLayout={contentBinding.contentType === "rewrite" || contentBinding.contentType === "original" ? (event) => { learningTargetLocalYRef.current = event.nativeEvent.layout.y; learningTargetContentYRef.current = readingBodyYRef.current + learningTargetLocalYRef.current; } : undefined}>
             {rewriteBlock || frontLearningReady
-              ? primaryTextBlock ? renderLearningBlock(primaryTextBlock) : <Text selectable style={styles.rewrite}>{detail.originalText}</Text>
+              ? dialogueLayout && rewriteBlock
+                // 对话卡: 我 → OIO, line by line, like the chat it came from.
+                ? <View style={styles.dialogue}>{dialogueLayout.map((pair) => <View key={pair.line} style={styles.dialoguePair}>
+                  {pair.user.length ? <View style={styles.dialogueUser}>{renderLearningBlock(rewriteBlock, { line: pair.line, segmentIds: pair.user })}</View> : null}
+                  {pair.oio.length && replyBlock && displayMode !== "auxiliary" ? <View style={styles.dialogueOio}>
+                    <OioMascot size={22} idle={false} />
+                    <View style={{ flex: 1, minWidth: 0 }}>{renderLearningBlock(replyBlock, { line: pair.line, segmentIds: pair.oio })}</View>
+                  </View> : null}
+                </View>)}</View>
+                : primaryTextBlock ? renderLearningBlock(primaryTextBlock) : <Text selectable style={styles.rewrite}>{detail.originalText}</Text>
               : expressionPending
                 ? <PendingGenerationSection target="expression" />
                 : <FailedGenerationSection target="expression" retrying={retryingGenerationTarget === "expression"} onRetry={onRetryGeneration} />}
           </View> : null}
-          {detail.replyText && replyBlock && displayMode !== "auxiliary" && !focusSegmentId ? <View style={styles.replyBubble}>
+          {detail.replyText && replyBlock && displayMode !== "auxiliary" && !focusSegmentId && !dialogueLayout ? <View style={styles.replyBubble}>
             {/* Avatar on its own row inside the bubble; the reply gets the full width below. */}
             <OioMascot size={26} idle={false} />
             {renderLearningBlock(replyBlock)}
@@ -5869,7 +5894,7 @@ const styles = createStyles(() => ({
   collectionMetaText: { flexShrink: 1, color: theme.colors.textMuted, fontSize: 13 },
   metadataPressed: { opacity: 0.58 },
   articlePlayButton: { width: 36, height: 32, marginTop: -1, alignItems: "flex-end", justifyContent: "center" },
-  loader: { marginTop: 40 }, recallDetailPage: { flex: 1, backgroundColor: theme.colors.canvas }, recallAdjacentPage: { position: "absolute", top: 0, bottom: 0, width: "100%", backgroundColor: theme.colors.canvas }, recallAdjacentSafeArea: { flex: 1, backgroundColor: theme.colors.canvas }, reviewPage: { flex: 1, backgroundColor: theme.colors.canvas }, content: { paddingHorizontal: 22, paddingTop: 10, paddingBottom: 88 }, flipCardStage: { flex: 1, marginHorizontal: 0, marginTop: 0, marginBottom: 0 }, flipCardShell: { flex: 1, position: "relative", backgroundColor: theme.colors.canvas, overflow: "hidden" }, flipCardFace: { ...StyleSheet.absoluteFill, backgroundColor: theme.colors.canvas }, flipCardScroll: { flex: 1 }, flipCardContent: { paddingHorizontal: 24, paddingTop: 14, paddingBottom: 40 }, sentenceOnlyContent: { flexGrow: 1, justifyContent: "center", paddingBottom: 80 }, flipCardTextBlock: { marginTop: 2 }, flipCardSection: { marginTop: 30 }, cardSectionCopyButton: { width: 34, height: 32, marginTop: 5, marginRight: -5, alignSelf: "flex-end", alignItems: "center", justifyContent: "center", borderRadius: 16 }, cardDisplayTitle: { marginBottom: 4, color: theme.colors.text, fontSize: 26, lineHeight: 34, fontWeight: "700", letterSpacing: -0.3 }, date: { color: theme.colors.textMuted, fontSize: 12, fontWeight: "400" }, imageCarousel: { marginTop: 18, borderRadius: 10, backgroundColor: theme.colors.surfaceMuted }, image: { width: "100%", aspectRatio: CARD_IMAGE_ASPECT_RATIO, borderRadius: 10, backgroundColor: theme.colors.surfaceMuted }, carouselImagePage: { borderRadius: 10, overflow: "hidden", backgroundColor: theme.colors.surfaceMuted }, carouselImageLayer: { ...StyleSheet.absoluteFill, width: "100%", height: "100%" }, coverMoveHint: { position: "absolute", left: 10, bottom: 10, width: 30, height: 30, borderRadius: 15, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(20,28,24,0.56)" }, imageDots: { height: 18, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 }, imageDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: theme.colors.disabled }, imageDotActive: { backgroundColor: theme.colors.text }, reviewImageActions: { minHeight: 30, flexDirection: "row", justifyContent: "flex-end", alignItems: "center" }, reviewAddImage: { minHeight: 30, flexDirection: "row", alignItems: "center", gap: 3, paddingLeft: 10 }, reviewAddImageText: { color: theme.colors.accentStrong, fontSize: 14 }, sectionLabel: { marginTop: 22, color: theme.colors.textMuted, fontSize: 12, fontWeight: "500" }, original: { marginTop: 8, color: theme.colors.textMuted, fontSize: 17, lineHeight: 28, fontWeight: "400" }, secondaryContent: { marginTop: 8, color: theme.colors.textSecondary, fontSize: 17, lineHeight: 28, fontWeight: "400" }, rewrite: { marginTop: 5, color: theme.colors.text, fontSize: 18, lineHeight: 30, fontWeight: "400" }, divider: { marginTop: 28, height: StyleSheet.hairlineWidth, backgroundColor: theme.colors.border },
+  loader: { marginTop: 40 }, recallDetailPage: { flex: 1, backgroundColor: theme.colors.canvas }, recallAdjacentPage: { position: "absolute", top: 0, bottom: 0, width: "100%", backgroundColor: theme.colors.canvas }, recallAdjacentSafeArea: { flex: 1, backgroundColor: theme.colors.canvas }, reviewPage: { flex: 1, backgroundColor: theme.colors.canvas }, content: { paddingHorizontal: 22, paddingTop: 10, paddingBottom: 88 }, flipCardStage: { flex: 1, marginHorizontal: 0, marginTop: 0, marginBottom: 0 }, flipCardShell: { flex: 1, position: "relative", backgroundColor: theme.colors.canvas, overflow: "hidden" }, flipCardFace: { ...StyleSheet.absoluteFill, backgroundColor: theme.colors.canvas }, flipCardScroll: { flex: 1 }, flipCardContent: { paddingHorizontal: 24, paddingTop: 14, paddingBottom: 40 }, dialogue: { gap: 14 }, dialoguePair: { gap: 8 }, dialogueUser: { paddingLeft: 28 }, dialogueOio: { flexDirection: "row", alignItems: "flex-start", gap: 8, borderRadius: 14, backgroundColor: theme.colors.fill1, paddingHorizontal: 10, paddingVertical: 8, marginRight: 20 }, sentenceOnlyContent: { flexGrow: 1, justifyContent: "center", paddingBottom: 80 }, flipCardTextBlock: { marginTop: 2 }, flipCardSection: { marginTop: 30 }, cardSectionCopyButton: { width: 34, height: 32, marginTop: 5, marginRight: -5, alignSelf: "flex-end", alignItems: "center", justifyContent: "center", borderRadius: 16 }, cardDisplayTitle: { marginBottom: 4, color: theme.colors.text, fontSize: 26, lineHeight: 34, fontWeight: "700", letterSpacing: -0.3 }, date: { color: theme.colors.textMuted, fontSize: 12, fontWeight: "400" }, imageCarousel: { marginTop: 18, borderRadius: 10, backgroundColor: theme.colors.surfaceMuted }, image: { width: "100%", aspectRatio: CARD_IMAGE_ASPECT_RATIO, borderRadius: 10, backgroundColor: theme.colors.surfaceMuted }, carouselImagePage: { borderRadius: 10, overflow: "hidden", backgroundColor: theme.colors.surfaceMuted }, carouselImageLayer: { ...StyleSheet.absoluteFill, width: "100%", height: "100%" }, coverMoveHint: { position: "absolute", left: 10, bottom: 10, width: 30, height: 30, borderRadius: 15, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(20,28,24,0.56)" }, imageDots: { height: 18, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 }, imageDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: theme.colors.disabled }, imageDotActive: { backgroundColor: theme.colors.text }, reviewImageActions: { minHeight: 30, flexDirection: "row", justifyContent: "flex-end", alignItems: "center" }, reviewAddImage: { minHeight: 30, flexDirection: "row", alignItems: "center", gap: 3, paddingLeft: 10 }, reviewAddImageText: { color: theme.colors.accentStrong, fontSize: 14 }, sectionLabel: { marginTop: 22, color: theme.colors.textMuted, fontSize: 12, fontWeight: "500" }, original: { marginTop: 8, color: theme.colors.textMuted, fontSize: 17, lineHeight: 28, fontWeight: "400" }, secondaryContent: { marginTop: 8, color: theme.colors.textSecondary, fontSize: 17, lineHeight: 28, fontWeight: "400" }, rewrite: { marginTop: 5, color: theme.colors.text, fontSize: 18, lineHeight: 30, fontWeight: "400" }, divider: { marginTop: 28, height: StyleSheet.hairlineWidth, backgroundColor: theme.colors.border },
   recallFinishButton: { height: 42, marginHorizontal: 18, marginBottom: 8, paddingHorizontal: 18, borderRadius: 21, backgroundColor: theme.colors.text, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 }, recallFinishButtonText: { color: theme.colors.surface, fontSize: 15, fontWeight: "600" },
   imagePreviewPage: { flex: 1, backgroundColor: "transparent" },
   imagePreviewBackdrop: { backgroundColor: theme.colors.canvas },

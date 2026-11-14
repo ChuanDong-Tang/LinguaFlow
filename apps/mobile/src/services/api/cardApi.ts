@@ -42,6 +42,8 @@ export type CardRecordSummary = {
   topic?: string | null;
   /** Short theme keyword for 相关回忆 (new cards only). */
   themeKeyword?: string | null;
+  /** OIO AI 对话卡: text lines are the user's, reply lines OIO's, paired by line. */
+  dialogue?: boolean;
   collectionId?: string | null;
   source: "card";
   dateKey: string;
