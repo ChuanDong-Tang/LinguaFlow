@@ -3868,7 +3868,7 @@ function Review({ sentencePractice = false, sentenceOccurrence = 1, onSentenceDo
             setImageIndex(index);
             const image = images[index];
             if (image) onSelectLearningContent?.(`image:${image.id}`);
-          }} renderBottomRightAction={currentImage && !detail.isSample ? () => <Pressable accessibilityRole="button" accessibilityState={{ expanded: imageDescriptionOpen }} style={({ pressed }) => [styles.imageDescriptionChip, imageDescriptionOpen && styles.imageDescriptionChipOn, pressed && { opacity: 0.8 }]} onPress={() => {
+          }} renderBottomRightAction={currentImage && !detail.isSample && !focusSegmentId /* 盲盒: photo only, no 图片描述 */ ? () => <Pressable accessibilityRole="button" accessibilityState={{ expanded: imageDescriptionOpen }} style={({ pressed }) => [styles.imageDescriptionChip, imageDescriptionOpen && styles.imageDescriptionChipOn, pressed && { opacity: 0.8 }]} onPress={() => {
             haptic.select();
             const opening = !imageDescriptionOpen;
             setImageDescriptionOpen(opening);
