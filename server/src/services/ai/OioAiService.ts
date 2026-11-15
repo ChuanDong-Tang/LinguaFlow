@@ -116,7 +116,8 @@ export class OioAiService {
       const pool = input.appLocale && !input.appLocale.startsWith("zh") ? FALLBACK_OPENERS.en : FALLBACK_OPENERS.zh;
       opener = pool.find((item) => !recent.includes(item.greeting)) ?? pool[0]!;
     }
-    this.openers.set(input.userId, { at: Date.now(), opener, recent: [opener.greeting, ...recent].slice(0, 6) });
+    // Remember greetings and topics, so the next ones differ.
+    this.openers.set(input.userId, { at: Date.now(), opener, recent: [opener.greeting, ...opener.topics, ...recent].slice(0, 16) });
     return opener;
   }
 

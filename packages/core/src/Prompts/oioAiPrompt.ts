@@ -177,7 +177,7 @@ export function parseDialogueCardOutput(raw: string, expectedTurns: number): { t
  * Personal opener (2026-11): the greeting OIO starts a chat with, plus a few
  * topics to tap — drawn from what the user records, varied every time.
  */
-export const OIO_AI_OPENER_PROMPT_VERSION = "oio-ai-opener-v1";
+export const OIO_AI_OPENER_PROMPT_VERSION = "oio-ai-opener-v2";
 
 export function buildOioAiOpenerPrompt(input: { appLocale?: string; today: string; hour: number; profile: OioAiProfile; avoid: string[] }): { system: string; user: string } {
   const zh = !input.appLocale || input.appLocale.startsWith("zh");
@@ -188,7 +188,8 @@ export function buildOioAiOpenerPrompt(input: { appLocale?: string; today: strin
       "Write ONE short greeting (at most 30 characters) that opens today's chat, and 3 short topic buttons (each at most 10 characters) the user can tap.",
       "Make them personal and fresh: pick from the user's life below (a pet by name, a project, a place, a person), and vary the angle each time — today's state, a small detail, a feeling, what's next. Use the time of day naturally (morning, after work, late night).",
       "The greeting ends with exactly one question. Topic buttons read like what the user would say to start (e.g. 聊聊豆豆, 说说装修进度, 今天有件小事). If the user has no history, use light everyday openers.",
-      "Never repeat or closely echo the recent openers listed. No emoji spam (at most one), no markdown.",
+      "Variety (v2): the 3 topics come from 3 different areas of life — at most one about work or a project, and one light everyday topic (food, sleep, weather, a small moment, weekend). Do not center everything on the latest memory.",
+      "Never repeat or closely echo the recent openers and topics listed. No emoji spam (at most one), no markdown.",
       'Answer with JSON only: {"greeting": string, "topics": [string, string, string]}',
     ].join("\n"),
     user: JSON.stringify({ today: input.today, hour: input.hour, themes: input.profile.themes, latest: input.profile.recentTitles, recentOpeners: input.avoid }),
