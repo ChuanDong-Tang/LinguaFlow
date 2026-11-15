@@ -1,5 +1,5 @@
 import type { AgentChatProvider, AgentMessage, AgentToolCall } from "@lf/core/ports/ai/AgentChatProvider.js";
-import { buildDialogueCardPrompt, buildOioAiSystemPrompt, OIO_AI_MAX_TOOL_ROUNDS, OIO_AI_PROMPT_VERSION, OIO_AI_TOOLS, OIO_DIALOGUE_CARD_PROMPT_VERSION, parseDialogueCardOutput } from "@lf/core/Prompts/oioAiPrompt.js";
+import { buildDialogueCardPrompt, buildOioAiOpenerPrompt, buildOioAiSystemPrompt, OIO_AI_MAX_TOOL_ROUNDS, OIO_AI_PROMPT_VERSION, OIO_AI_THREAD_MAX_CHARS, OIO_AI_TOOLS, OIO_DIALOGUE_CARD_PROMPT_VERSION, oioAiProfile, parseDialogueCardOutput, parseOioAiOpener, type OioAiProfile } from "@lf/core/Prompts/oioAiPrompt.js";
 import { practiceStats } from "@lf/core/text/practiceStats.js";
 import type { OioAiCardSummary, PrismaOioAiRepository } from "../../infrastructure/repository/PrismaOioAiRepository.js";
 import type { RecallService } from "../card/RecallService.js";
@@ -18,15 +18,28 @@ export type OioAiStreamEvent =
   | { type: "action"; action: OioAiAction }
   | { type: "done"; messageId: string; threadId: string };
 
-/** start_blind_box: practise these cards; save_card: offer to save this conversation as a 对话卡. */
-export type OioAiAction = { kind: "start_blind_box"; cardIds: string[]; label: string } | { kind: "save_card"; label: string };
+/** start_blind_box: practise these cards; save_card: offer to save this conversation as a 对话卡; thread_full: the 1 万字 limit was reached. */
+export type OioAiAction = { kind: "start_blind_box"; cardIds: string[]; label: string } | { kind: "save_card"; label: string } | { kind: "thread_full"; label: string };
 
 type Block = { type: "cards"; cards: OioAiCard[] } | { type: "action"; action: OioAiAction };
 
 const HISTORY_MESSAGES = 12;
 /** 对话卡: the conversation's turns kept on the card (newest kept when longer). */
-const DIALOGUE_MAX_TURNS = 24;
-const DIALOGUE_MAX_CHARS = 4_000;
+const DIALOGUE_MAX_TURNS = 60;
+/** The user's lines on the card stay within the card's content limit (5000). */
+const DIALOGUE_MAX_USER_CHARS = 4_500;
+/** Openers: regenerated at most this often per user; recent ones are avoided. */
+const OPENER_TTL_MS = 2 * 3_600_000;
+const FALLBACK_OPENERS = {
+  zh: [
+    { greeting: "今天过得怎么样？", topics: ["今天有件小事", "最近在忙什么", "说说心情"] },
+    { greeting: "最近有什么让你开心的事吗？", topics: ["一件开心事", "最近在追的剧", "周末计划"] },
+    { greeting: "今天吃了什么好吃的？", topics: ["聊聊吃的", "今天的天气", "一个人"] },
+  ],
+  en: [
+    { greeting: "How was your day?", topics: ["A small moment", "What I'm up to", "How I feel"] },
+  ],
+};
 /** Offer 存成卡片 after this many of the user's messages, or earlier when they wrap up. */
 const SAVE_OFFER_TURNS = 3;
 const WRAP_UP = /(晚安|拜拜|再见|先这样|就这样|好了|不聊了|睡了|good ?night|bye)/iu;
@@ -69,21 +82,68 @@ export class OioAiService {
     private readonly contentSafety?: ContentSafetyService,
   ) {}
 
+  /** Served openers per user: accepted back from the app only if we served them. */
+  private readonly openers = new Map<string, { at: number; opener: { greeting: string; topics: string[] }; recent: string[] }>();
+
+  private async profile(userId: string): Promise<OioAiProfile> {
+    return oioAiProfile(await this.repository.profileFacts(userId, new Date(Date.now() - 60 * 86_400_000)));
+  }
+
+  /**
+   * A personal greeting and three topics to start a chat (2026-11): drawn from
+   * what the user records, varied each time (recent ones avoided), regenerated
+   * at most every 2 hours. A small platform-owned call, not billed; falls back
+   * to light everyday openers.
+   */
+  async opener(input: { userId: string; appLocale?: string; today: string; hour: number; refresh?: boolean }): Promise<{ greeting: string; topics: string[] }> {
+    const cached = this.openers.get(input.userId);
+    if (cached && !input.refresh && Date.now() - cached.at < OPENER_TTL_MS) return cached.opener;
+    const recent = cached?.recent ?? [];
+    let opener: { greeting: string; topics: string[] } | null = null;
+    try {
+      const profile = await this.profile(input.userId);
+      const prompt = buildOioAiOpenerPrompt({ appLocale: input.appLocale, today: input.today, hour: input.hour, profile, avoid: recent });
+      let raw = "";
+      await this.agent.streamRound({ messages: [{ role: "system", content: prompt.system }, { role: "user", content: prompt.user }], tools: [], maxOutputTokens: 200, temperature: 0.9 }, (event) => {
+        if (event.type === "delta") raw += event.text;
+      });
+      opener = parseOioAiOpener(raw);
+      if (opener) this.contentSafety?.assertAllowed(`${opener.greeting}\n${opener.topics.join("\n")}`, "output");
+    } catch {
+      opener = null;
+    }
+    if (!opener) {
+      const pool = input.appLocale && !input.appLocale.startsWith("zh") ? FALLBACK_OPENERS.en : FALLBACK_OPENERS.zh;
+      opener = pool.find((item) => !recent.includes(item.greeting)) ?? pool[0]!;
+    }
+    this.openers.set(input.userId, { at: Date.now(), opener, recent: [opener.greeting, ...recent].slice(0, 6) });
+    return opener;
+  }
+
   listThreads(userId: string) {
     return this.repository.listThreads(userId, 30);
+  }
+
+  async deleteThread(userId: string, threadId: string): Promise<void> {
+    if (!await this.repository.deleteThread(userId, threadId)) throw oioAiError("OIO_AI_THREAD_NOT_FOUND");
   }
 
   async listMessages(userId: string, threadId: string) {
     const thread = await this.repository.findThread(userId, threadId);
     if (!thread) throw oioAiError("OIO_AI_THREAD_NOT_FOUND");
-    const messages = await this.repository.listMessages(userId, threadId, 60);
-    return { cardId: thread.cardId ?? null, messages: messages.map(({ trace: _trace, ...message }) => message) };
+    const messages = await this.repository.listMessages(userId, threadId, 200);
+    const chars = messages.reduce((sum, message) => sum + Array.from(message.text).length, 0);
+    // A deleted 对话卡 no longer counts: the conversation can be saved again.
+    const cardId = await this.repository.liveCardId(userId, thread.cardId);
+    return { cardId, full: chars >= OIO_AI_THREAD_MAX_CHARS, messages: messages.map(({ trace: _trace, ...message }) => message) };
   }
 
   async chatStream(input: {
     userId: string;
     requestId: string;
     text: string;
+    /** The greeting the chat was opened with (kept only if we served it). */
+    opener?: string;
     threadId?: string;
     contextCardId?: string;
     appLocale?: string;
@@ -98,17 +158,29 @@ export class OioAiService {
     let threadId = input.threadId;
     const thread = threadId ? await this.repository.findThread(input.userId, threadId) : null;
     if (threadId && !thread) throw oioAiError("OIO_AI_THREAD_NOT_FOUND");
+    // 1 万字 per conversation: past it, save it as a card or start a new chat.
+    const usedChars = threadId ? await this.repository.threadChars(input.userId, threadId) : 0;
+    if (usedChars >= OIO_AI_THREAD_MAX_CHARS) throw oioAiError("OIO_AI_THREAD_FULL");
     const contextCard = input.contextCardId ? await this.repository.getCard(input.userId, input.contextCardId) : null;
     const history = threadId ? await this.repository.listMessages(input.userId, threadId, HISTORY_MESSAGES) : [];
-    threadId ??= await this.repository.createThread(input.userId, { title: text.slice(0, 40), contextCardId: contextCard?.recordId ?? null });
+    const servedOpener = this.openers.get(input.userId)?.opener.greeting;
+    const opener = !threadId && input.opener && input.opener === servedOpener ? input.opener : null;
+    if (!threadId) {
+      threadId = await this.repository.createThread(input.userId, { title: text.slice(0, 40), contextCardId: contextCard?.recordId ?? null });
+      // The chat starts with OIO's greeting, so the reply has its context.
+      if (opener) await this.repository.appendMessage(input.userId, threadId, { role: "assistant", text: opener, promptVersion: "oio-ai-opener-v1" });
+    }
     await emit({ type: "thread", threadId });
+    const profile = await this.profile(input.userId).catch(() => null);
 
     const messages: AgentMessage[] = [
       { role: "system", content: buildOioAiSystemPrompt({
         today: input.today,
         appLocale: input.appLocale,
         contextCard: contextCard ? { id: contextCard.recordId, title: contextCard.title, text: contextCard.rewrite || contextCard.original } : null,
+        profile,
       }) },
+      ...(opener ? [{ role: "assistant" as const, content: opener }] : []),
       ...history.map((message): AgentMessage => message.role === "user"
         ? { role: "user", content: message.text }
         // Keep which cards were shown, so "练这几张" works on the next turn.
@@ -182,8 +254,13 @@ export class OioAiService {
     // 存成卡片: offered once per conversation, by the server (not left to the model).
     const userTurns = history.filter((message) => message.role === "user").length + 1;
     const offeredBefore = history.some((message) => Array.isArray(message.blocks) && (message.blocks as Block[]).some((block) => block.type === "action" && block.action.kind === "save_card"));
-    if (!thread?.cardId && !offeredBefore && answer.trim() && (userTurns >= SAVE_OFFER_TURNS || (userTurns >= 2 && WRAP_UP.test(text)))) {
-      const block: Block = { type: "action", action: { kind: "save_card", label: input.appLocale && !input.appLocale.startsWith("zh") ? "Save this chat as a card" : "把这段对话存成卡片" } };
+    const zh = !input.appLocale || input.appLocale.startsWith("zh");
+    if (usedChars + Array.from(text).length + Array.from(answer).length >= OIO_AI_THREAD_MAX_CHARS) {
+      const block: Block = { type: "action", action: { kind: "thread_full", label: zh ? "这段对话已经很长啦，存成卡片，或者开个新对话接着聊" : "This chat is getting long — save it as a card or start a new one" } };
+      blocks.push(block);
+      await emit({ type: "action", action: block.action });
+    } else if (!thread?.cardId && !offeredBefore && answer.trim() && (userTurns >= SAVE_OFFER_TURNS || (userTurns >= 2 && WRAP_UP.test(text)))) {
+      const block: Block = { type: "action", action: { kind: "save_card", label: zh ? "把这段对话存成卡片" : "Save this chat as a card" } };
       blocks.push(block);
       await emit({ type: "action", action: block.action });
     }
@@ -202,7 +279,10 @@ export class OioAiService {
   async saveThreadAsCard(input: { userId: string; requestId: string; threadId: string }): Promise<{ recordId: string; created: boolean }> {
     const thread = await this.repository.findThread(input.userId, input.threadId);
     if (!thread) throw oioAiError("OIO_AI_THREAD_NOT_FOUND");
-    if (thread.cardId) return { recordId: thread.cardId, created: false };
+    const existing = await this.repository.liveCardId(input.userId, thread.cardId);
+    if (existing) return { recordId: existing, created: false };
+    // The saved card was deleted: save the conversation again as a new card.
+    if (thread.cardId) await this.repository.clearThreadCard(input.userId, input.threadId);
     const turns = dialogueTurns(await this.repository.listMessages(input.userId, input.threadId, 200));
     if (!turns.length) throw oioAiError("OIO_AI_NOTHING_TO_SAVE");
     const preference = await this.preferences.getByUserId(input.userId);
@@ -243,7 +323,8 @@ export class OioAiService {
       userId: input.userId,
       requestId: input.requestId,
       body: {
-        clientId: `oio-ai:${input.threadId}`,
+        // Unique per save, so a conversation whose card was deleted can be saved again.
+        clientId: `oio-ai:${input.threadId}:${Date.now()}`,
         title: parsed.title || thread.title?.slice(0, 16) || null,
         originalText: turns.map((turn) => turn.user).join("\n"),
         rewrittenText: parsed.turns.map((turn) => turn.user).join("\n"),
@@ -356,11 +437,12 @@ export function dialogueTurns(messages: Array<{ role: "user" | "assistant"; text
     turns.push({ user: pending.join(" "), oio: text });
     pending = [];
   }
+  // The whole conversation when it fits the card; otherwise its newest turns.
   const kept: typeof turns = [];
   let chars = 0;
   for (const turn of turns.reverse()) {
-    chars += turn.user.length + turn.oio.length;
-    if (kept.length >= DIALOGUE_MAX_TURNS || (kept.length && chars > DIALOGUE_MAX_CHARS)) break;
+    chars += Array.from(turn.user).length;
+    if (kept.length >= DIALOGUE_MAX_TURNS || (kept.length && chars > DIALOGUE_MAX_USER_CHARS)) break;
     kept.unshift(turn);
   }
   return kept;

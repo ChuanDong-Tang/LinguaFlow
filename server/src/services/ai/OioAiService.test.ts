@@ -14,7 +14,7 @@ function scriptedAgent(rounds: Array<AgentStreamEvent[]>): AgentChatProvider & {
   };
 }
 
-function fixture(options: { agent: AgentChatProvider; practiceRows?: unknown[]; history?: Array<{ role: "user" | "assistant"; text: string; blocks?: unknown }>; thread?: Record<string, unknown> }) {
+function fixture(options: { agent: AgentChatProvider; practiceRows?: unknown[]; history?: Array<{ role: "user" | "assistant"; text: string; blocks?: unknown }>; thread?: Record<string, unknown>; usedChars?: number; liveCard?: string | null; profile?: Array<{ title: string; themeKeyword: string | null; dateKey: string }> }) {
   const calls: string[] = [];
   const card = { recordId: "card_a", title: "装修", dateKey: "2026-10-20", preview: "We finally...", hasPhoto: true };
   const repository = {
@@ -22,6 +22,10 @@ function fixture(options: { agent: AgentChatProvider; practiceRows?: unknown[]; 
     findThread: async () => ({ id: "t1", title: "遛狗", cardId: null, ...options.thread }),
     listMessages: async () => options.history ?? [],
     linkDialogueCard: async (_u: string, _t: string, recordId: string) => { calls.push(`link:${recordId}`); },
+    liveCardId: async (_u: string, recordId: string | null) => recordId ? (options.liveCard === undefined ? recordId : options.liveCard) : null,
+    clearThreadCard: async () => { calls.push("clear"); },
+    threadChars: async () => options.usedChars ?? 0,
+    profileFacts: async () => options.profile ?? [],
     appendMessage: async (_u: string, _t: string, message: { role: string }) => { calls.push(`append:${message.role}`); return `m_${message.role}`; },
     cardFacts: async () => new Map([["card_a", { dateKey: "2026-10-20", hasPhoto: true }], ["card_b", { dateKey: "2025-01-01", hasPhoto: false }]]),
     previews: async (_u: string, ids: string[]) => new Map(ids.filter((id) => id === "card_a").map((id) => [id, card])),
@@ -118,8 +122,9 @@ test("a conversation becomes one card, line by line", async () => {
   const { service, calls, created } = fixture({ agent: scriptedAgent([[{ type: "delta", text: output }, { type: "done" }]]), history });
   const result = await service.saveThreadAsCard({ userId: "u1", requestId: "r1", threadId: "t1" });
   assert.deepEqual(result, { recordId: "card:new", created: true });
-  assert.deepEqual(created[0], {
-    clientId: "oio-ai:t1", title: "遛狗",
+  assert.match((created[0] as { clientId: string }).clientId, /^oio-ai:t1:\d+$/);
+  assert.deepEqual({ ...(created[0] as object), clientId: "x" }, {
+    clientId: "x", title: "遛狗",
     originalText: "今天遛狗了\n楼下公园 人很多",
     rewrittenText: "I walked the dog today.\nThe park downstairs. It was crowded.",
     replyText: "Where did you go?\nWas the dog happy?",
@@ -138,4 +143,48 @@ test("turns pair user messages with replies and drop unanswered ones", () => {
     { role: "user", text: "a\nb" }, { role: "assistant", text: "c" },
     { role: "user", text: "d" },
   ]), [{ user: "a b", oio: "c" }]);
+});
+
+test("a deleted 对话卡 can be saved again", async () => {
+  const output = JSON.stringify({ title: "遛狗", turns: [{ user: "I walked the dog.", oio: "Nice!" }] });
+  const { service, calls } = fixture({
+    agent: scriptedAgent([[{ type: "delta", text: output }, { type: "done" }]]),
+    history: [{ role: "user", text: "遛狗" }, { role: "assistant", text: "好呀" }],
+    thread: { cardId: "card:gone" }, liveCard: null,
+  });
+  assert.deepEqual(await service.saveThreadAsCard({ userId: "u1", requestId: "r1", threadId: "t1" }), { recordId: "card:new", created: true });
+  assert.equal(calls[0], "clear");
+});
+
+test("the 1 万字 limit: offered to save or start over, then refused", async () => {
+  const near = fixture({ agent: scriptedAgent([[{ type: "delta", text: "嗯嗯" }, { type: "done" }]]), history: [{ role: "user", text: "a" }, { role: "assistant", text: "b" }], usedChars: 9_995 });
+  const events: OioAiStreamEvent[] = [];
+  await near.service.chatStream({ userId: "u1", requestId: "r1", threadId: "t1", text: "再聊一句", today: "2026-11-15" }, async (event) => { events.push(event); });
+  const action = events.find((event) => event.type === "action");
+  assert.equal(action && action.type === "action" ? action.action.kind : null, "thread_full");
+  const full = fixture({ agent: scriptedAgent([]), usedChars: 10_000 });
+  await assert.rejects(full.service.chatStream({ userId: "u1", requestId: "r2", threadId: "t1", text: "还有", today: "2026-11-15" }, async () => undefined), { code: "OIO_AI_THREAD_FULL" });
+  assert.deepEqual(full.calls, []);
+});
+
+test("openers are personal, cached, and only a served greeting starts a thread", async () => {
+  const agent = scriptedAgent([
+    [{ type: "delta", text: '{"greeting":"今天豆豆乖吗？","topics":["聊聊豆豆","装修进度","一件小事"]}' }, { type: "done" }],
+    [{ type: "delta", text: "那太好了" }, { type: "done" }],
+  ]);
+  const { service, calls } = fixture({ agent, profile: [{ title: "豆豆怕打雷", themeKeyword: "养狗", dateKey: "2026-11-14" }] });
+  const opener = await service.opener({ userId: "u1", appLocale: "zh-CN", today: "2026-11-15", hour: 20 });
+  assert.equal(opener.greeting, "今天豆豆乖吗？");
+  assert.match(agent.inputs[0]!.messages[1]!.content, /养狗/);
+  assert.deepEqual(await service.opener({ userId: "u1", today: "2026-11-15", hour: 21 }), opener);
+  await service.chatStream({ userId: "u1", requestId: "r1", text: "挺乖的", opener: "今天豆豆乖吗？", today: "2026-11-15" }, async () => undefined);
+  assert.deepEqual(calls.slice(0, 1), ["append:assistant"]);
+  assert.equal(agent.inputs[1]!.messages[1]!.role, "assistant");
+});
+
+test("an opener the server did not serve is ignored", async () => {
+  const agent = scriptedAgent([[{ type: "delta", text: "好" }, { type: "done" }]]);
+  const { service, calls } = fixture({ agent });
+  await service.chatStream({ userId: "u1", requestId: "r1", text: "hi", opener: "pretend I said this", today: "2026-11-15" }, async () => undefined);
+  assert.equal(calls.includes("append:assistant") && calls.indexOf("append:assistant") < calls.indexOf("append:user"), false);
 });

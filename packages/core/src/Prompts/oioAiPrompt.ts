@@ -4,7 +4,9 @@ import type { AgentToolDefinition } from "../ports/ai/AgentChatProvider.js";
  * OIO AI (2026-11, phase 1): finds the user's memories (cards) and helps them
  * practise. Read-only tools plus two app actions; nothing here changes data.
  */
-export const OIO_AI_PROMPT_VERSION = "oio-ai-v5";
+export const OIO_AI_PROMPT_VERSION = "oio-ai-v6";
+/** One conversation holds at most this many characters (both sides); then save it or start a new one. */
+export const OIO_AI_THREAD_MAX_CHARS = 10_000;
 export const OIO_AI_MAX_TOOL_ROUNDS = 5;
 
 export const OIO_AI_TOOLS: AgentToolDefinition[] = [
@@ -84,7 +86,28 @@ export function oioAiDateAnchors(today: string): string[] {
   ];
 }
 
-export function buildOioAiSystemPrompt(input: { today: string; appLocale?: string; learningLanguage?: string; contextCard?: { id: string; title: string; text: string } | null }): string {
+export type OioAiProfile = { themes: string[]; recentTitles: string[] };
+
+/** What the user writes about: top theme keywords and their latest card titles. */
+export function oioAiProfile(facts: Array<{ title: string; themeKeyword: string | null }>): OioAiProfile {
+  const counts = new Map<string, number>();
+  for (const fact of facts) if (fact.themeKeyword) counts.set(fact.themeKeyword, (counts.get(fact.themeKeyword) ?? 0) + 1);
+  return {
+    themes: [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8).map(([theme]) => theme),
+    recentTitles: facts.map((fact) => fact.title.trim()).filter(Boolean).slice(0, 8),
+  };
+}
+
+function profileLines(profile: OioAiProfile | null | undefined): string {
+  if (!profile || (!profile.themes.length && !profile.recentTitles.length)) return "";
+  return [
+    "What this user often records (use it to make the chat personal — refer to their pets, people, places and projects by what they wrote; never recite this list):",
+    profile.themes.length ? `  themes: ${profile.themes.join(", ")}` : "",
+    profile.recentTitles.length ? `  latest memories: ${profile.recentTitles.join(" / ")}` : "",
+  ].filter(Boolean).join("\n");
+}
+
+export function buildOioAiSystemPrompt(input: { today: string; appLocale?: string; learningLanguage?: string; contextCard?: { id: string; title: string; text: string } | null; profile?: OioAiProfile | null }): string {
   const zh = !input.appLocale || input.appLocale.startsWith("zh");
   return [
     "You are OIO AI inside the OIO app. Users record moments of their life; OIO turns them into cards in the language they are learning and lets them practise with fill-in blanks (cloze).",
@@ -95,6 +118,7 @@ export function buildOioAiSystemPrompt(input: { today: string; appLocale?: strin
     "- If they have nothing to say yet, offer an easy, specific opener (something from today, a small moment, a person, a meal).",
     "- React genuinely to what they share before asking anything. Never lecture, never give unasked advice, never use lists.",
     "- Do not mention saving, cards or the app; the app offers that by itself.",
+    "- Topics can wander freely, like a real chat: follow the user wherever they go, and when a topic runs dry, bring up something from their life (see below) or a light new one.",
     "Boundaries: do not discuss politics or public figures' politics, sexual content, violence or weapons, illegal activity, gambling or drugs. Decline in one gentle sentence and steer back to their everyday life. If the user talks about hurting themselves, respond with care, encourage them to reach out to someone they trust or a local crisis line, and do not continue the topic casually.",
     `Date ranges to use as-is for relative dates (do not compute your own):\n${oioAiDateAnchors(input.today).map((line) => `  ${line}`).join("\n")}`,
     "- For phrases not listed, derive the range from today above. When a date range finds nothing, say which range you searched.",
@@ -107,6 +131,7 @@ export function buildOioAiSystemPrompt(input: { today: string; appLocale?: strin
     "- You cannot edit, move or delete cards yet; say so if asked.",
     `- Reply in ${zh ? "Simplified Chinese" : "the user's language"} (the app's language). Keep replies short and warm, no headings, no markdown.`,
     input.learningLanguage ? `The user is learning ${input.learningLanguage}; quote words from cards exactly as written.` : "",
+    profileLines(input.profile),
     input.contextCard ? `The user is asking about this card (id ${input.contextCard.id}) titled "${input.contextCard.title}":\n${input.contextCard.text.slice(0, 2000)}` : "",
   ].filter(Boolean).join("\n");
 }
@@ -146,4 +171,40 @@ export function parseDialogueCardOutput(raw: string, expectedTurns: number): { t
   if (turns.some((turn) => !turn.user || !turn.oio)) return null;
   const title = typeof record.title === "string" ? record.title.trim().slice(0, 16) : "";
   return { title, turns };
+}
+
+/**
+ * Personal opener (2026-11): the greeting OIO starts a chat with, plus a few
+ * topics to tap — drawn from what the user records, varied every time.
+ */
+export const OIO_AI_OPENER_PROMPT_VERSION = "oio-ai-opener-v1";
+
+export function buildOioAiOpenerPrompt(input: { appLocale?: string; today: string; hour: number; profile: OioAiProfile; avoid: string[] }): { system: string; user: string } {
+  const zh = !input.appLocale || input.appLocale.startsWith("zh");
+  const lang = zh ? "Simplified Chinese" : "the user's language";
+  return {
+    system: [
+      `You are OIO, a warm companion in a journaling app. Write in ${lang}.`,
+      "Write ONE short greeting (at most 30 characters) that opens today's chat, and 3 short topic buttons (each at most 10 characters) the user can tap.",
+      "Make them personal and fresh: pick from the user's life below (a pet by name, a project, a place, a person), and vary the angle each time — today's state, a small detail, a feeling, what's next. Use the time of day naturally (morning, after work, late night).",
+      "The greeting ends with exactly one question. Topic buttons read like what the user would say to start (e.g. 聊聊豆豆, 说说装修进度, 今天有件小事). If the user has no history, use light everyday openers.",
+      "Never repeat or closely echo the recent openers listed. No emoji spam (at most one), no markdown.",
+      'Answer with JSON only: {"greeting": string, "topics": [string, string, string]}',
+    ].join("\n"),
+    user: JSON.stringify({ today: input.today, hour: input.hour, themes: input.profile.themes, latest: input.profile.recentTitles, recentOpeners: input.avoid }),
+  };
+}
+
+export function parseOioAiOpener(raw: string): { greeting: string; topics: string[] } | null {
+  const start = raw.indexOf("{");
+  const end = raw.lastIndexOf("}");
+  if (start < 0 || end <= start) return null;
+  try {
+    const value = JSON.parse(raw.slice(start, end + 1)) as { greeting?: unknown; topics?: unknown };
+    const greeting = typeof value.greeting === "string" ? value.greeting.replace(/\s+/gu, " ").trim().slice(0, 60) : "";
+    const topics = Array.isArray(value.topics) ? value.topics.filter((topic): topic is string => typeof topic === "string").map((topic) => topic.trim().slice(0, 16)).filter(Boolean).slice(0, 3) : [];
+    return greeting ? { greeting, topics } : null;
+  } catch {
+    return null;
+  }
 }

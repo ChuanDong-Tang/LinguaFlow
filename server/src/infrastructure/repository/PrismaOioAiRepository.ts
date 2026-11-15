@@ -42,6 +42,41 @@ export class PrismaOioAiRepository {
     return this.prisma.aiThread.findMany({ where: { userId }, orderBy: { updatedAt: "desc" }, take: limit, select: { id: true, title: true, contextCardId: true, cardId: true, updatedAt: true } });
   }
 
+  /** The saved 对话卡 if it still exists (deleted cards can be saved again). */
+  async liveCardId(userId: string, recordId: string | null | undefined): Promise<string | null> {
+    const ref = recordId ? parseCardRecordId(recordId) : null;
+    if (ref?.source !== "card") return null;
+    const row = await this.prisma.card.findFirst({ where: { id: ref.sourceId, userId, deletedAt: null, status: "completed" }, select: { id: true } });
+    return row ? recordId! : null;
+  }
+
+  async clearThreadCard(userId: string, threadId: string): Promise<void> {
+    await this.prisma.aiThread.updateMany({ where: { id: threadId, userId }, data: { cardId: null } });
+  }
+
+  /** Total characters of a conversation (for the 1 万字 limit). */
+  async threadChars(userId: string, threadId: string): Promise<number> {
+    const rows = await this.prisma.aiMessage.findMany({ where: { threadId, userId }, select: { text: true }, take: 400 });
+    return rows.reduce((sum, row) => sum + Array.from(row.text).length, 0);
+  }
+
+  /** What the user writes about lately: recent card titles and theme keywords (for openers and chat context). */
+  async profileFacts(userId: string, since: Date, limit = 60): Promise<Array<{ title: string; themeKeyword: string | null; dateKey: string }>> {
+    const rows = await this.prisma.card.findMany({
+      where: { userId, status: "completed", deletedAt: null, isSample: false, recordedAt: { gte: since } },
+      orderBy: { recordedAt: "desc" },
+      take: limit,
+      select: { title: true, topic: true, originalText: true, themeKeyword: true, dateKey: true },
+    });
+    return rows.map((row) => ({ title: cardTitle(row), themeKeyword: row.themeKeyword?.trim() || null, dateKey: row.dateKey }));
+  }
+
+  /** Delete a conversation and its messages (a saved 对话卡 stays). */
+  async deleteThread(userId: string, threadId: string): Promise<boolean> {
+    const result = await this.prisma.aiThread.deleteMany({ where: { id: threadId, userId } });
+    return result.count > 0;
+  }
+
   /** One 对话卡 per conversation: remember it on the thread and flag the card. */
   async linkDialogueCard(userId: string, threadId: string, recordId: string): Promise<void> {
     const ref = parseCardRecordId(recordId);

@@ -15,7 +15,7 @@ export type OioAiCard = {
   thumbnail: { url: string; width: number; height: number } | null;
 };
 
-export type OioAiAction = { kind: "start_blind_box"; cardIds: string[]; label: string } | { kind: "save_card"; label: string };
+export type OioAiAction = { kind: "start_blind_box"; cardIds: string[]; label: string } | { kind: "save_card"; label: string } | { kind: "thread_full"; label: string };
 
 export type OioAiBlock = { type: "cards"; cards: OioAiCard[] } | { type: "action"; action: OioAiAction };
 
@@ -42,7 +42,7 @@ function localToday(): string {
 
 /** Streams one OIO AI turn. Resolves on `done`; rejects with OioAiError on failure. */
 export function streamOioAi(
-  input: { text: string; threadId?: string | null; contextCardId?: string | null; appLocale: string; signal?: AbortSignal },
+  input: { text: string; opener?: string | null; threadId?: string | null; contextCardId?: string | null; appLocale: string; signal?: AbortSignal },
   onEvent: (event: OioAiEvent) => void,
 ): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -72,6 +72,7 @@ export function streamOioAi(
         headers: { "Content-Type": "application/json", "x-lf-usage-api": "v2", ...headers },
         body: JSON.stringify({
           text: input.text,
+          ...(input.opener && !input.threadId ? { opener: input.opener } : {}),
           ...(input.threadId ? { threadId: input.threadId } : {}),
           ...(input.contextCardId ? { contextCardId: input.contextCardId } : {}),
           appLocale: input.appLocale,
@@ -112,9 +113,16 @@ export async function listOioAiThreads(): Promise<OioAiThread[]> {
   return (await get<{ threads: OioAiThread[] }>("/ai/threads")).threads;
 }
 
-export async function listOioAiMessages(threadId: string): Promise<{ messages: OioAiMessage[]; cardId: string | null }> {
-  const data = await get<{ messages: OioAiMessage[]; cardId?: string | null }>(`/ai/threads/${encodeURIComponent(threadId)}/messages`);
-  return { messages: data.messages, cardId: data.cardId ?? null };
+export async function listOioAiMessages(threadId: string): Promise<{ messages: OioAiMessage[]; cardId: string | null; full: boolean }> {
+  const data = await get<{ messages: OioAiMessage[]; cardId?: string | null; full?: boolean }>(`/ai/threads/${encodeURIComponent(threadId)}/messages`);
+  return { messages: data.messages, cardId: data.cardId ?? null, full: data.full === true };
+}
+
+/** A personal greeting and topics to start a chat (fresh each time; `refresh` for another). */
+export async function getOioAiOpener(appLocale: string, refresh = false): Promise<{ greeting: string; topics: string[] }> {
+  const now = new Date();
+  const params = new URLSearchParams({ appLocale, today: localToday(), hour: String(now.getHours()), ...(refresh ? { refresh: "1" } : {}) });
+  return get<{ greeting: string; topics: string[] }>(`/ai/opener?${params.toString()}`);
 }
 
 /** 对话卡: save the whole conversation as one card (the same card if already saved). */
@@ -131,4 +139,9 @@ export async function saveOioAiThreadAsCard(threadId: string): Promise<{ recordI
     throw new OioAiError(result.error.code);
   }
   return result.data;
+}
+
+export async function deleteOioAiThread(threadId: string): Promise<void> {
+  const response = await fetchWithTimeout(`${BASE_URL}/ai/threads/${encodeURIComponent(threadId)}`, { method: "DELETE", headers: await getAuthHeaders() });
+  if (response.status !== 204 && response.status !== 404) throw new OioAiError("DELETE_FAILED");
 }

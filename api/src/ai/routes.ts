@@ -12,19 +12,20 @@ export interface OioAiRouteDeps {
   systemEventLogRepository: SystemEventLogWriter;
 }
 
-type StreamBody = { text: string; threadId?: string; contextCardId?: string; appLocale?: string; today?: string };
+type StreamBody = { text: string; opener?: string; threadId?: string; contextCardId?: string; appLocale?: string; today?: string };
 
 function isStreamBody(value: unknown): value is StreamBody {
   if (!value || typeof value !== "object") return false;
   const body = value as Record<string, unknown>;
   const optional = (key: string, max: number) => body[key] === undefined || body[key] === null || (typeof body[key] === "string" && (body[key] as string).length <= max);
   return typeof body.text === "string" && body.text.trim().length > 0 && body.text.length <= 1_000
-    && optional("threadId", 64) && optional("contextCardId", 200) && optional("appLocale", 20) && optional("today", 10);
+    && optional("threadId", 64) && optional("opener", 120) && optional("contextCardId", 200) && optional("appLocale", 20) && optional("today", 10);
 }
 
 const ERROR_STATUS: Record<string, number> = {
   OIO_AI_MEMBERS_ONLY: 403,
   OIO_AI_THREAD_NOT_FOUND: 404,
+  OIO_AI_THREAD_FULL: 409,
   OIO_AI_NOTHING_TO_SAVE: 400,
   OIO_AI_CARD_FAILED: 502,
   CARD_VALIDATION_FAILED: 400,
@@ -88,6 +89,7 @@ export function registerOioAiRoutes(app: FastifyInstance, deps: OioAiRouteDeps):
         userId,
         requestId,
         text: body.text,
+        opener: body.opener ?? undefined,
         threadId: body.threadId ?? undefined,
         contextCardId: body.contextCardId ?? undefined,
         appLocale: body.appLocale ?? undefined,
@@ -109,6 +111,26 @@ export function registerOioAiRoutes(app: FastifyInstance, deps: OioAiRouteDeps):
     return reply;
   });
 
+  // A personal greeting + topics to start a chat (cached per user ~2h; ?refresh=1 for a new one).
+  app.get("/ai/opener", async (req, reply) => {
+    try {
+      const { userId } = await authenticate(req.headers.authorization);
+      const query = req.query as { appLocale?: string; today?: string; hour?: string; refresh?: string };
+      const hour = Number.parseInt(query.hour ?? "", 10);
+      return { ok: true, data: await deps.oioAiService.opener({
+        userId,
+        appLocale: typeof query.appLocale === "string" ? query.appLocale.slice(0, 20) : undefined,
+        today: /^\d{4}-\d{2}-\d{2}$/u.test(query.today ?? "") ? query.today! : serverToday(),
+        hour: Number.isFinite(hour) && hour >= 0 && hour < 24 ? hour : new Date(Date.now() + 8 * 3_600_000).getUTCHours(),
+        refresh: query.refresh === "1",
+      }) };
+    } catch (error) {
+      const auth = authError(error);
+      if (auth) return reply.status(auth.status).send({ ok: false, error: { code: auth.code, message: auth.message } });
+      throw error;
+    }
+  });
+
   app.get("/ai/threads", async (req, reply) => {
     try {
       const { userId } = await authenticate(req.headers.authorization);
@@ -125,6 +147,21 @@ export function registerOioAiRoutes(app: FastifyInstance, deps: OioAiRouteDeps):
       const { userId } = await authenticate(req.headers.authorization);
       const { threadId } = req.params as { threadId: string };
       return { ok: true, data: await deps.oioAiService.listMessages(userId, threadId) };
+    } catch (error) {
+      const auth = authError(error);
+      if (auth) return reply.status(auth.status).send({ ok: false, error: { code: auth.code, message: auth.message } });
+      const code = errorCode(error);
+      if (ERROR_STATUS[code]) return reply.status(ERROR_STATUS[code]!).send({ ok: false, error: { code, message: code } });
+      throw error;
+    }
+  });
+
+  app.delete("/ai/threads/:threadId", async (req, reply) => {
+    try {
+      const { userId } = await authenticate(req.headers.authorization);
+      const { threadId } = req.params as { threadId: string };
+      await deps.oioAiService.deleteThread(userId, threadId);
+      return reply.status(204).send();
     } catch (error) {
       const auth = authError(error);
       if (auth) return reply.status(auth.status).send({ ok: false, error: { code: auth.code, message: auth.message } });

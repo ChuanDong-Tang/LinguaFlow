@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildOioAiSystemPrompt, oioAiDateAnchors, parseDialogueCardOutput } from "./oioAiPrompt.js";
+import { buildOioAiSystemPrompt, oioAiDateAnchors, oioAiProfile, parseDialogueCardOutput, parseOioAiOpener } from "./oioAiPrompt.js";
 
 test("date anchors are computed, not left to the model", () => {
   const anchors = oioAiDateAnchors("2026-11-14"); // a Saturday
@@ -36,4 +36,20 @@ test("chat prompt v4 is a companion with boundaries", () => {
   assert.match(prompt, /companion/);
   assert.match(prompt, /Never stack two questions/);
   assert.match(prompt, /Boundaries/);
+});
+
+test("profile ranks themes and the chat prompt carries it", () => {
+  const profile = oioAiProfile([
+    { title: "豆豆怕打雷", themeKeyword: "养狗" }, { title: "柜子设计", themeKeyword: "装修" },
+    { title: "遛狗", themeKeyword: "养狗" }, { title: "没关键词", themeKeyword: null },
+  ]);
+  assert.deepEqual(profile.themes, ["养狗", "装修"]);
+  assert.deepEqual(profile.recentTitles, ["豆豆怕打雷", "柜子设计", "遛狗", "没关键词"]);
+  assert.match(buildOioAiSystemPrompt({ today: "2026-11-15", profile }), /themes: 养狗, 装修/);
+});
+
+test("opener output is parsed and bounded", () => {
+  assert.deepEqual(parseOioAiOpener('ok {"greeting":"今天豆豆乖吗？","topics":["聊聊豆豆","说说装修进度","今天有件小事","多余"]}'), { greeting: "今天豆豆乖吗？", topics: ["聊聊豆豆", "说说装修进度", "今天有件小事"] });
+  assert.equal(parseOioAiOpener('{"topics":["a"]}'), null);
+  assert.equal(parseOioAiOpener("nope"), null);
 });
