@@ -18,6 +18,31 @@
     groupDialog.addEventListener("click", (event) => { if (event.target === groupDialog) groupDialog.close(); });
   }
 
+  // In-page links scroll by script (no CSS smooth scrolling, no hash left in
+  // the address bar: Safari could get stuck at an anchor). 下载 glows its buttons.
+  const jumpTo = (id) => {
+    const target = document.getElementById(id);
+    if (!target) return;
+    target.classList.add("in");
+    target.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "start" });
+    if (id === "download") {
+      target.classList.remove("arrived");
+      void target.offsetWidth;
+      setTimeout(() => target.classList.add("arrived"), reduce ? 0 : 450);
+    }
+  };
+  document.querySelectorAll('a[href^="#"]').forEach((link) => link.addEventListener("click", (event) => {
+    const id = link.getAttribute("href").slice(1);
+    if (!id || !document.getElementById(id)) return;
+    event.preventDefault();
+    jumpTo(id);
+  }));
+  if (location.hash) {
+    const id = location.hash.slice(1);
+    history.replaceState(null, "", location.pathname + location.search);
+    setTimeout(() => jumpTo(id), 60);
+  }
+
   // Reveal on scroll.
   const revealer = new IntersectionObserver((entries) => {
     for (const entry of entries) if (entry.isIntersecting) { entry.target.classList.add("in"); revealer.unobserve(entry.target); }

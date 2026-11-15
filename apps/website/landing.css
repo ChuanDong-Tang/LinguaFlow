@@ -23,7 +23,6 @@
 }
 
 * { box-sizing: border-box; }
-html { scroll-behavior: smooth; }
 body {
   margin: 0;
   background: var(--bg);
@@ -396,3 +395,9 @@ a { color: inherit; }
   .reveal { opacity: 1; transform: none; }
   .demo-en .w, .bubble, .save-offer, .mem { opacity: 1; transform: none; }
 }
+
+/* 下载 in the header lands on the download block, clear of the sticky header,
+   and the buttons glow once so the eye finds them. */
+#download, #features, #how, #faq { scroll-margin-top: 80px; }
+@keyframes store-glow { 0%, 100% { box-shadow: 0 0 0 0 rgba(168, 214, 94, 0); } 40% { box-shadow: 0 0 0 8px rgba(168, 214, 94, .55); } }
+.lp-cta.arrived .lp-store { animation: store-glow 1.2s var(--ease) 2; }
