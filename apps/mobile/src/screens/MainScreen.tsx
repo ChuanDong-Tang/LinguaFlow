@@ -3443,14 +3443,9 @@ function FocusedCardThumbnail({ thumbnail, onError }: {
   thumbnail: NonNullable<CardRecordSummary["thumbnail"]>;
   onError: () => void;
 }) {
-  const frameWidth = 108;
-  const frameHeight = 72;
-  const scale = Math.max(frameWidth / Math.max(1, thumbnail.width), frameHeight / Math.max(1, thumbnail.height));
-  const width = thumbnail.width * scale;
-  const height = thumbnail.height * scale;
-  const focusX = Math.max(0, Math.min(1, thumbnail.focusX ?? 0.5));
-  const focusY = Math.max(0, Math.min(1, thumbnail.focusY ?? 0.5));
-  return <Image source={{ uri: thumbnail.url }} resizeMode="stretch" style={{ position: "absolute", left: -(width - frameWidth) * focusX, top: -(height - frameHeight) * focusY, width, height }} onError={onError} />;
+  // Same centre-on-the-picked-point rule as every other cover.
+  const rect = focusedCoverRect(thumbnail, { width: 108, height: 72 }, { x: thumbnail.focusX, y: thumbnail.focusY });
+  return <Image source={{ uri: thumbnail.url }} resizeMode="stretch" style={{ position: "absolute", ...rect }} onError={onError} />;
 }
 
 function countGraphemes(value: string): number {

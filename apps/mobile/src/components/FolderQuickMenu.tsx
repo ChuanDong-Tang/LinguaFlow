@@ -14,6 +14,8 @@ import { collectionPathName } from "../screens/shared/CollectionPickerModal";
 /**
  * Lightweight folder chooser for the composer's # tag (2026-11): pops up above
  * the toolbar like a WeChat menu — 新建文件夹 first, then existing folders.
+ * Round 4: no 未分类 row (confusing when you came to pick a folder); tap the
+ * chosen folder again, or 取消选择, to leave the card without one.
  * Managing folders (rename / delete) stays in the sidebar.
  */
 export function FolderQuickMenu({ visible, collections, value, bottomOffset = 72, onClose, onSelect, onCreateCollection }: {
@@ -58,8 +60,11 @@ export function FolderQuickMenu({ visible, collections, value, bottomOffset = 72
             </Pressable> : null}
           <View style={styles.divider} />
           <ScrollView style={styles.list} keyboardShouldPersistTaps="handled">
-            <Row label={t("sidebar.unclassified")} selected={!value} onPress={() => choose(null)} />
-            {sorted.map((collection) => <Row key={collection.id} label={collectionPathName(collection, collections)} selected={value === collection.id} onPress={() => choose(collection.id)} />)}
+            {sorted.map((collection) => <Row key={collection.id} label={collectionPathName(collection, collections)} selected={value === collection.id} onPress={() => choose(value === collection.id ? null : collection.id)} />)}
+            {value ? <Pressable accessibilityRole="button" style={({ pressed }) => [styles.item, pressed && styles.pressed]} onPress={() => choose(null)}>
+              <Icon name="close-outline" size={18} color={theme.colors.textMuted} />
+              <Text style={[styles.itemText, { color: theme.colors.textSecondary }]}>{t("folder_menu.clear")}</Text>
+            </Pressable> : null}
           </ScrollView>
         </Pressable>
       </Reanimated.View>

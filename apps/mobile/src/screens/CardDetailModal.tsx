@@ -9,7 +9,6 @@ import { ClozeToneContext } from "./cardDetail/clozeToneContext";
 import { dialoguePairs } from "../domain/card/dialogueLines";
 import { pickBlindBoxSentence } from "../domain/blindBox/pickSentence";
 import { getBlindBoxSettings } from "../services/practice/blindBoxSettings";
-import { homeCoverAspect } from "../domain/card/coverAspect";
 import { recordPracticeAttempt } from "../services/practice/practiceSession";
 import { ClozeSummarySheet } from "../components/ClozeSummarySheet";
 import { FolderQuickMenu } from "../components/FolderQuickMenu";
@@ -1775,7 +1774,7 @@ function PreviewCoverCropOverlay({ image, width, height, onCommit }: {
   image: GalleryImage;
   width: number;
   height: number;
-  onCommit: (focusY: number) => Promise<void>;
+  onCommit: (focusX: number, focusY: number) => Promise<void>;
 }) {
   const sourceWidth = Math.max(1, image.width ?? width);
   const sourceHeight = Math.max(1, image.height ?? height);
@@ -1784,45 +1783,51 @@ function PreviewCoverCropOverlay({ image, width, height, onCommit }: {
   const displayHeight = sourceHeight * scale;
   const displayX = (width - displayWidth) / 2;
   // The preview item is explicitly top-aligned (`justifyContent: flex-start`).
-  // Keep the crop geometry in that same coordinate system.
   const displayY = 0;
-  // Same frame shape as the home grid cover, so the picked window is what shows there.
-  const coverAspect = homeCoverAspect(sourceWidth, sourceHeight);
-  const frameHeightFromWidth = displayWidth / coverAspect;
-  const frameWidth = frameHeightFromWidth <= displayHeight ? displayWidth : displayHeight * coverAspect;
-  const frameHeight = frameWidth / coverAspect;
-  const frameX = displayX + (displayWidth - frameWidth) / 2;
-  const travel = Math.max(0, displayHeight - frameHeight);
-  const [focusY, setFocusY] = useState(clampUnit(image.focusY ?? 0.5));
-  const focusRef = useRef(focusY);
-  const dragStartRef = useRef(focusY);
+  // Round 4: a square window — the 方格 cover — dragged in both directions. The
+  // focus is the window's centre (0–1 of the photo); every cover centres on it.
+  const size = Math.min(displayWidth, displayHeight);
+  const travelX = Math.max(0, displayWidth - size);
+  const travelY = Math.max(0, displayHeight - size);
+  const toOffset = (focus: number, extent: number, travel: number) => Math.max(0, Math.min(travel, focus * extent - size / 2));
+  const toFocus = (offset: number, extent: number) => clampUnit((offset + size / 2) / Math.max(1, extent));
+  const [focus, setFocus] = useState({ x: clampUnit(image.focusX ?? 0.5), y: clampUnit(image.focusY ?? 0.5) });
+  const focusRef = useRef(focus);
+  const dragStartRef = useRef({ x: 0, y: 0 });
   useEffect(() => {
-    const next = clampUnit(image.focusY ?? 0.5);
+    const next = { x: clampUnit(image.focusX ?? 0.5), y: clampUnit(image.focusY ?? 0.5) };
     focusRef.current = next;
-    setFocusY(next);
-  }, [image.focusY, image.key]);
+    setFocus(next);
+  }, [image.focusX, image.focusY, image.key]);
+  const movable = travelX > 1 || travelY > 1;
   const responder = useMemo(() => PanResponder.create({
-    onStartShouldSetPanResponderCapture: () => travel > 1,
-    onStartShouldSetPanResponder: () => travel > 1,
-    onMoveShouldSetPanResponderCapture: (_event, gesture) => travel > 1 && Math.abs(gesture.dy) > 3 && Math.abs(gesture.dy) > Math.abs(gesture.dx),
-    onMoveShouldSetPanResponder: (_event, gesture) => travel > 1 && Math.abs(gesture.dy) > 3 && Math.abs(gesture.dy) > Math.abs(gesture.dx),
+    onStartShouldSetPanResponderCapture: () => movable,
+    onStartShouldSetPanResponder: () => movable,
+    onMoveShouldSetPanResponderCapture: (_event, gesture) => movable && Math.hypot(gesture.dx, gesture.dy) > 3,
+    onMoveShouldSetPanResponder: (_event, gesture) => movable && Math.hypot(gesture.dx, gesture.dy) > 3,
     onPanResponderTerminationRequest: () => false,
-    onPanResponderGrant: () => { dragStartRef.current = focusRef.current; },
-    onPanResponderMove: (_event, gesture) => {
-      const next = clampUnit(dragStartRef.current + gesture.dy / Math.max(1, travel));
-      focusRef.current = next;
-      setFocusY(next);
+    onPanResponderGrant: () => {
+      dragStartRef.current = { x: toOffset(focusRef.current.x, displayWidth, travelX), y: toOffset(focusRef.current.y, displayHeight, travelY) };
     },
-    onPanResponderRelease: () => { void onCommit(focusRef.current).catch(() => undefined); },
-    onPanResponderTerminate: () => { void onCommit(focusRef.current).catch(() => undefined); },
-  }), [onCommit, travel]);
-  const frameY = displayY + focusY * travel;
+    onPanResponderMove: (_event, gesture) => {
+      const left = Math.max(0, Math.min(travelX, dragStartRef.current.x + gesture.dx));
+      const top = Math.max(0, Math.min(travelY, dragStartRef.current.y + gesture.dy));
+      const next = { x: travelX > 1 ? toFocus(left, displayWidth) : focusRef.current.x, y: travelY > 1 ? toFocus(top, displayHeight) : focusRef.current.y };
+      focusRef.current = next;
+      setFocus(next);
+    },
+    onPanResponderRelease: () => { void onCommit(focusRef.current.x, focusRef.current.y).catch(() => undefined); },
+    onPanResponderTerminate: () => { void onCommit(focusRef.current.x, focusRef.current.y).catch(() => undefined); },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), [onCommit, movable, displayWidth, displayHeight, travelX, travelY, size]);
+  const frameX = displayX + toOffset(focus.x, displayWidth, travelX);
+  const frameY = displayY + toOffset(focus.y, displayHeight, travelY);
   return <View pointerEvents="box-none" style={[StyleSheet.absoluteFill, styles.previewCropOverlay]}>
     <View pointerEvents="none" style={[styles.cropShade, { left: displayX, top: displayY, width: displayWidth, height: Math.max(0, frameY - displayY) }]} />
-    <View pointerEvents="none" style={[styles.cropShade, { left: displayX, top: frameY + frameHeight, width: displayWidth, height: Math.max(0, displayY + displayHeight - frameY - frameHeight) }]} />
-    <View pointerEvents="none" style={[styles.cropShade, { left: displayX, top: frameY, width: Math.max(0, frameX - displayX), height: frameHeight }]} />
-    <View pointerEvents="none" style={[styles.cropShade, { left: frameX + frameWidth, top: frameY, width: Math.max(0, displayX + displayWidth - frameX - frameWidth), height: frameHeight }]} />
-    <View accessibilityRole="adjustable" {...responder.panHandlers} style={[styles.previewCropFrame, { left: frameX, top: frameY, width: frameWidth, height: frameHeight }]} />
+    <View pointerEvents="none" style={[styles.cropShade, { left: displayX, top: frameY + size, width: displayWidth, height: Math.max(0, displayY + displayHeight - frameY - size) }]} />
+    <View pointerEvents="none" style={[styles.cropShade, { left: displayX, top: frameY, width: Math.max(0, frameX - displayX), height: size }]} />
+    <View pointerEvents="none" style={[styles.cropShade, { left: frameX + size, top: frameY, width: Math.max(0, displayX + displayWidth - frameX - size), height: size }]} />
+    <View accessibilityRole="adjustable" {...responder.panHandlers} style={[styles.previewCropFrame, { left: frameX, top: frameY, width: size, height: size }]} />
   </View>;
 }
 
@@ -2117,7 +2122,7 @@ function CardImagePreview({ images, initialIndex, visible, origin, dateLabel, on
           setIndex(nextIndex);
           if (nextIndex !== initialIndex) handoffOpacity.setValue(0);
         }}
-      />{index === 0 && images[0] && onCoverPositionChange ? <PreviewCoverCropOverlay image={images[0]} width={width} height={imageAreaHeight} onCommit={(focusY) => onCoverPositionChange(images[0]!.key, images[0]!.focusX ?? 0.5, focusY)} /> : null}</Animated.View>
+      />{index === 0 && images[0] && onCoverPositionChange ? <PreviewCoverCropOverlay image={images[0]} width={width} height={imageAreaHeight} onCommit={(focusX, focusY) => onCoverPositionChange(images[0]!.key, focusX, focusY)} /> : null}</Animated.View>
       <Animated.View style={[styles.imagePreviewFooter, { opacity: chromeOpacity }]}><Text style={styles.imagePreviewDate}>{dateLabel ?? ""}</Text></Animated.View>
       {openingImage ? <Animated.View
         pointerEvents="none"
@@ -2553,7 +2558,8 @@ function Review({ sentencePractice = false, sentenceOccurrence = 1, onSentenceDo
   const memoryTime = detail.capturedAt ?? recordedAt;
   const memoryDateKey = detail.capturedAt ? localDateKey(new Date(detail.capturedAt)) : detail.dateKey;
   const selectedCollection = collections.find((collection) => collection.id === detail.collectionId);
-  const collectionLabel = selectedCollection ? collectionPathName(selectedCollection, collections) : detail.collectionId ? "…" : t("sidebar.unclassified");
+  // No folder: an invitation (＋ 放进文件夹), not a 未分类 "folder".
+  const collectionLabel = selectedCollection ? collectionPathName(selectedCollection, collections) : detail.collectionId ? "…" : null;
   const primaryText = primaryTextBlock?.text ?? (detail.mode === "corpus" ? detail.originalText : detail.rewrittenText || detail.originalText);
   const rewriteIsPrimary = contentBinding.contentType === "rewrite" || expressionPending || expressionFailed;
   const rewriteIsReady = contentBinding.contentType === "rewrite";
@@ -3629,7 +3635,7 @@ function Review({ sentencePractice = false, sentenceOccurrence = 1, onSentenceDo
           {!detail.isSample ? <View style={styles.readingMeta}>
             <View style={styles.readingTagRow}>
               <Pressable disabled={!onUpdateMetadata || metadataSaving} accessibilityRole="button" style={({ pressed }) => [styles.readingTag, pressed && styles.metadataPressed]} onPress={() => setCollectionPickerVisible(true)}>
-                <Text numberOfLines={1} style={styles.readingTagText}># {collectionLabel}</Text>
+                <Text numberOfLines={1} style={[styles.readingTagText, !collectionLabel && styles.readingTagEmpty]}>{collectionLabel ? `# ${collectionLabel}` : t("card_detail.add_to_folder")}</Text>
               </Pressable>
               {/* No reply yet: tap OIO to get one. */}
               {!detail.replyText && detail.originalText.trim() ? <Pressable accessibilityRole="button" accessibilityLabel={t(replyFailed ? "common.retry" : "chat.settings.generate_reply")} hitSlop={8} disabled={!onRetryGeneration || replyGenerating || retryingGenerationTarget !== null} style={({ pressed }) => [styles.replyAsk, pressed && styles.metadataPressed]} onPress={() => { haptic.light(); onRetryGeneration?.("reply"); }}>
@@ -5894,7 +5900,7 @@ const styles = createStyles(() => ({
   collectionMetaText: { flexShrink: 1, color: theme.colors.textMuted, fontSize: 13 },
   metadataPressed: { opacity: 0.58 },
   articlePlayButton: { width: 36, height: 32, marginTop: -1, alignItems: "flex-end", justifyContent: "center" },
-  loader: { marginTop: 40 }, recallDetailPage: { flex: 1, backgroundColor: theme.colors.canvas }, recallAdjacentPage: { position: "absolute", top: 0, bottom: 0, width: "100%", backgroundColor: theme.colors.canvas }, recallAdjacentSafeArea: { flex: 1, backgroundColor: theme.colors.canvas }, reviewPage: { flex: 1, backgroundColor: theme.colors.canvas }, content: { paddingHorizontal: 22, paddingTop: 10, paddingBottom: 88 }, flipCardStage: { flex: 1, marginHorizontal: 0, marginTop: 0, marginBottom: 0 }, flipCardShell: { flex: 1, position: "relative", backgroundColor: theme.colors.canvas, overflow: "hidden" }, flipCardFace: { ...StyleSheet.absoluteFill, backgroundColor: theme.colors.canvas }, flipCardScroll: { flex: 1 }, flipCardContent: { paddingHorizontal: 24, paddingTop: 14, paddingBottom: 40 }, dialogue: { gap: 14 }, dialoguePair: { gap: 8 }, dialogueUser: { paddingLeft: 28 }, dialogueOio: { flexDirection: "row", alignItems: "flex-start", gap: 8, borderRadius: 14, backgroundColor: theme.colors.fill1, paddingHorizontal: 10, paddingVertical: 8, marginRight: 20 }, sentenceOnlyContent: { flexGrow: 1, justifyContent: "center", paddingBottom: 80 }, flipCardTextBlock: { marginTop: 2 }, flipCardSection: { marginTop: 30 }, cardSectionCopyButton: { width: 34, height: 32, marginTop: 5, marginRight: -5, alignSelf: "flex-end", alignItems: "center", justifyContent: "center", borderRadius: 16 }, cardDisplayTitle: { marginBottom: 4, color: theme.colors.text, fontSize: 26, lineHeight: 34, fontWeight: "700", letterSpacing: -0.3 }, date: { color: theme.colors.textMuted, fontSize: 12, fontWeight: "400" }, imageCarousel: { marginTop: 18, borderRadius: 10, backgroundColor: theme.colors.surfaceMuted }, image: { width: "100%", aspectRatio: CARD_IMAGE_ASPECT_RATIO, borderRadius: 10, backgroundColor: theme.colors.surfaceMuted }, carouselImagePage: { borderRadius: 10, overflow: "hidden", backgroundColor: theme.colors.surfaceMuted }, carouselImageLayer: { ...StyleSheet.absoluteFill, width: "100%", height: "100%" }, coverMoveHint: { position: "absolute", left: 10, bottom: 10, width: 30, height: 30, borderRadius: 15, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(20,28,24,0.56)" }, imageDots: { height: 18, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 }, imageDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: theme.colors.disabled }, imageDotActive: { backgroundColor: theme.colors.text }, reviewImageActions: { minHeight: 30, flexDirection: "row", justifyContent: "flex-end", alignItems: "center" }, reviewAddImage: { minHeight: 30, flexDirection: "row", alignItems: "center", gap: 3, paddingLeft: 10 }, reviewAddImageText: { color: theme.colors.accentStrong, fontSize: 14 }, sectionLabel: { marginTop: 22, color: theme.colors.textMuted, fontSize: 12, fontWeight: "500" }, original: { marginTop: 8, color: theme.colors.textMuted, fontSize: 17, lineHeight: 28, fontWeight: "400" }, secondaryContent: { marginTop: 8, color: theme.colors.textSecondary, fontSize: 17, lineHeight: 28, fontWeight: "400" }, rewrite: { marginTop: 5, color: theme.colors.text, fontSize: 18, lineHeight: 30, fontWeight: "400" }, divider: { marginTop: 28, height: StyleSheet.hairlineWidth, backgroundColor: theme.colors.border },
+  loader: { marginTop: 40 }, recallDetailPage: { flex: 1, backgroundColor: theme.colors.canvas }, recallAdjacentPage: { position: "absolute", top: 0, bottom: 0, width: "100%", backgroundColor: theme.colors.canvas }, recallAdjacentSafeArea: { flex: 1, backgroundColor: theme.colors.canvas }, reviewPage: { flex: 1, backgroundColor: theme.colors.canvas }, content: { paddingHorizontal: 22, paddingTop: 10, paddingBottom: 88 }, flipCardStage: { flex: 1, marginHorizontal: 0, marginTop: 0, marginBottom: 0 }, flipCardShell: { flex: 1, position: "relative", backgroundColor: theme.colors.canvas, overflow: "hidden" }, flipCardFace: { ...StyleSheet.absoluteFill, backgroundColor: theme.colors.canvas }, flipCardScroll: { flex: 1 }, flipCardContent: { paddingHorizontal: 24, paddingTop: 14, paddingBottom: 40 }, readingTagEmpty: { color: theme.colors.textMuted, fontWeight: "500" }, dialogue: { gap: 14 }, dialoguePair: { gap: 8 }, dialogueUser: { paddingLeft: 28 }, dialogueOio: { flexDirection: "row", alignItems: "flex-start", gap: 8, borderRadius: 14, backgroundColor: theme.colors.fill1, paddingHorizontal: 10, paddingVertical: 8, marginRight: 20 }, sentenceOnlyContent: { flexGrow: 1, justifyContent: "center", paddingBottom: 80 }, flipCardTextBlock: { marginTop: 2 }, flipCardSection: { marginTop: 30 }, cardSectionCopyButton: { width: 34, height: 32, marginTop: 5, marginRight: -5, alignSelf: "flex-end", alignItems: "center", justifyContent: "center", borderRadius: 16 }, cardDisplayTitle: { marginBottom: 4, color: theme.colors.text, fontSize: 26, lineHeight: 34, fontWeight: "700", letterSpacing: -0.3 }, date: { color: theme.colors.textMuted, fontSize: 12, fontWeight: "400" }, imageCarousel: { marginTop: 18, borderRadius: 10, backgroundColor: theme.colors.surfaceMuted }, image: { width: "100%", aspectRatio: CARD_IMAGE_ASPECT_RATIO, borderRadius: 10, backgroundColor: theme.colors.surfaceMuted }, carouselImagePage: { borderRadius: 10, overflow: "hidden", backgroundColor: theme.colors.surfaceMuted }, carouselImageLayer: { ...StyleSheet.absoluteFill, width: "100%", height: "100%" }, coverMoveHint: { position: "absolute", left: 10, bottom: 10, width: 30, height: 30, borderRadius: 15, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(20,28,24,0.56)" }, imageDots: { height: 18, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 }, imageDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: theme.colors.disabled }, imageDotActive: { backgroundColor: theme.colors.text }, reviewImageActions: { minHeight: 30, flexDirection: "row", justifyContent: "flex-end", alignItems: "center" }, reviewAddImage: { minHeight: 30, flexDirection: "row", alignItems: "center", gap: 3, paddingLeft: 10 }, reviewAddImageText: { color: theme.colors.accentStrong, fontSize: 14 }, sectionLabel: { marginTop: 22, color: theme.colors.textMuted, fontSize: 12, fontWeight: "500" }, original: { marginTop: 8, color: theme.colors.textMuted, fontSize: 17, lineHeight: 28, fontWeight: "400" }, secondaryContent: { marginTop: 8, color: theme.colors.textSecondary, fontSize: 17, lineHeight: 28, fontWeight: "400" }, rewrite: { marginTop: 5, color: theme.colors.text, fontSize: 18, lineHeight: 30, fontWeight: "400" }, divider: { marginTop: 28, height: StyleSheet.hairlineWidth, backgroundColor: theme.colors.border },
   recallFinishButton: { height: 42, marginHorizontal: 18, marginBottom: 8, paddingHorizontal: 18, borderRadius: 21, backgroundColor: theme.colors.text, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 }, recallFinishButtonText: { color: theme.colors.surface, fontSize: 15, fontWeight: "600" },
   imagePreviewPage: { flex: 1, backgroundColor: "transparent" },
   imagePreviewBackdrop: { backgroundColor: theme.colors.canvas },
@@ -5907,7 +5913,8 @@ const styles = createStyles(() => ({
   imagePreviewImage: { backgroundColor: theme.colors.canvas },
   cropShade: { position: "absolute", backgroundColor: "rgba(0,0,0,0.48)" },
   previewCropOverlay: { zIndex: 20, elevation: 20 },
-  previewCropFrame: { position: "absolute", zIndex: 20, elevation: 20, borderWidth: 2, borderColor: theme.colors.surface, shadowColor: "#000000", shadowOpacity: 0.28, shadowRadius: 5, shadowOffset: { width: 0, height: 1 } },
+  // No elevation: on Android an elevated, transparent frame paints a pale inner rectangle.
+  previewCropFrame: { position: "absolute", zIndex: 20, borderWidth: 2, borderColor: theme.colors.surface },
   imagePreviewTransitionImage: { position: "absolute", overflow: "hidden", backgroundColor: theme.colors.surfaceMuted },
   imagePreviewTransitionFill: { ...StyleSheet.absoluteFill, width: "100%", height: "100%" },
   imagePreviewFooter: { minHeight: 76, paddingHorizontal: 24, paddingTop: 18, alignItems: "center" },

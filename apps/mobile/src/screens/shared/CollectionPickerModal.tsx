@@ -105,7 +105,7 @@ export function CollectionPickerModal({ visible, title, collections, value, incl
     const hasChildren = collections.some((candidate) => candidate.parentId === collection.id);
     return <View key={collection.id} style={styles.row}>
       {!showPath ? hasChildren ? <Pressable style={[styles.disclosure, { marginLeft: depth * 20 }]} disabled={selecting !== undefined} onPress={() => setExpandedIds((current) => { const next = new Set(current); if (next.has(collection.id)) next.delete(collection.id); else next.add(collection.id); return next; })}><Icon name={expandedIds.has(collection.id) ? "chevron-down" : "chevron-forward"} size={18} color={theme.colors.textMuted} /></Pressable> : <View style={[styles.disclosure, { marginLeft: depth * 20 }]} /> : null}
-      <Pressable style={[styles.target, showPath && styles.searchTarget]} disabled={selecting !== undefined} onPress={() => void select(collection.id)}>
+      <Pressable style={[styles.target, showPath && styles.searchTarget]} disabled={selecting !== undefined} onPress={() => void select(value === collection.id ? null : collection.id)}>
         <Icon name="folder-outline" size={20} color={theme.colors.textSecondary} />
         <Text numberOfLines={1} style={styles.name}>{showPath ? collectionPathName(collection, collections) : collection.name}</Text>
         {value === collection.id ? <Icon name="checkmark" size={20} color={theme.colors.accentStrong} /> : null}
@@ -173,15 +173,16 @@ export function CollectionPickerModal({ visible, title, collections, value, incl
               <Text style={styles.name}>{t("sidebar.collections")}</Text>
             </View>
           )}
-          <View style={styles.row}>
+          {/* Round 4: no 未分类 "folder". Leaving a folder is an action, shown only when
+              there is one to leave; tapping the chosen folder again does the same. */}
+          {value ? <View style={styles.row}>
             <View style={styles.disclosure} />
             <Pressable style={styles.target} disabled={selecting !== undefined} onPress={() => void select(null)}>
-              <Icon name="folder-outline" size={20} color={theme.colors.textSecondary} />
-              <Text style={styles.name}>{t("sidebar.unclassified")}</Text>
-              {value === null ? <Icon name="checkmark" size={20} color={theme.colors.accentStrong} /> : null}
+              <Icon name="close-outline" size={20} color={theme.colors.textSecondary} />
+              <Text style={[styles.name, { color: theme.colors.textSecondary }]}>{t("collection_picker.no_folder")}</Text>
               {selecting === null ? <ActivityIndicator size="small" color={theme.colors.accentStrong} /> : null}
             </Pressable>
-          </View>
+          </View> : null}
           {treeRows.map(({ collection, depth }) => renderTarget(collection, false, depth))}
         </>}
       </ScrollView>
