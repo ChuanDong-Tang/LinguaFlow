@@ -30,7 +30,7 @@ Options:
   --yes         Skip the confirmation prompt.
   --build-only  Build and validate the release package (the default behavior).
   --check       Run local preflight checks without building.
-  --validate FILE  Validate an existing China APK without rebuilding it.
+  --validate FILE  Validate an existing China APK, or a built Google AAB (then give it its final name), without rebuilding.
   --submit-only FILE  Upload an accepted Google AAB to internal testing.
   --submit-direct FILE  Upload an accepted Google AAB directly to internal testing.
   --acceptance FILE  Required artifact-bound candidate acceptance record for any upload.
@@ -216,12 +216,23 @@ validate_aab() {
   [[ -n "$manifest_version_code" ]] || fail "Version code not found in AAB manifest."
   [[ -n "$manifest_version_name" ]] || fail "Version name not found in AAB manifest."
   ! grep -Fx 'debuggable' "$manifest_dump" >/dev/null || fail "AAB manifest contains a debuggable attribute."
-  for permission in \
-    android.permission.READ_MEDIA_IMAGES \
-    android.permission.READ_MEDIA_VIDEO \
-    android.permission.READ_MEDIA_VISUAL_USER_SELECTED \
-    android.permission.READ_EXTERNAL_STORAGE \
-    android.permission.WRITE_EXTERNAL_STORAGE; do
+  # Photo reads exist from 1.2.0 (灵感照片流); the owner chose to keep them on
+  # Google Play with a Photo and video permissions declaration (2026-11-15).
+  # Video, audio and storage writes stay forbidden on every version.
+  local forbidden_permissions=(
+    android.permission.READ_MEDIA_VIDEO
+    android.permission.READ_MEDIA_AUDIO
+    android.permission.WRITE_EXTERNAL_STORAGE
+    android.permission.MANAGE_EXTERNAL_STORAGE
+  )
+  if ! node -e 'const [a,b]=process.argv[1].split(".").map(Number);process.exit(a>1||(a===1&&b>=2)?0:1)' "$manifest_version_name"; then
+    forbidden_permissions+=(
+      android.permission.READ_MEDIA_IMAGES
+      android.permission.READ_MEDIA_VISUAL_USER_SELECTED
+      android.permission.READ_EXTERNAL_STORAGE
+    )
+  fi
+  for permission in "${forbidden_permissions[@]}"; do
     ! grep -F "$permission" "$manifest_dump" >/dev/null || fail "AAB contains forbidden media permission: $permission"
   done
   AAB_PACKAGE_ID="$EXPECTED_PACKAGE_ID"
@@ -296,6 +307,20 @@ validate_apk() {
 
 preflight
 if $CHECK_ONLY; then
+  exit 0
+fi
+if [[ -n "$VALIDATE_ONLY_PACKAGE" && "$ANDROID_TARGET" == "google" ]]; then
+  # Re-validate a built AAB (e.g. one a stale validation rule rejected) and
+  # give it its final name without allocating another versionCode.
+  [[ -s "$VALIDATE_ONLY_PACKAGE" ]] || fail "AAB not found: $VALIDATE_ONLY_PACKAGE"
+  validate_aab "$VALIDATE_ONLY_PACKAGE"
+  final_package="$ARTIFACT_DIR/OIO-$AAB_VERSION_NAME-$AAB_VERSION_CODE.aab"
+  if [[ "$(cd "$(dirname "$VALIDATE_ONLY_PACKAGE")" && pwd)/$(basename "$VALIDATE_ONLY_PACKAGE")" != "$final_package" ]]; then
+    [[ ! -e "$final_package" ]] || fail "Refusing to overwrite $final_package"
+    mv "$VALIDATE_ONLY_PACKAGE" "$final_package"
+  fi
+  shasum -a 256 "$final_package"
+  printf 'AAB: %s\n' "$final_package"
   exit 0
 fi
 if [[ -n "$VALIDATE_ONLY_PACKAGE" ]]; then

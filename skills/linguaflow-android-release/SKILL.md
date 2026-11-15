@@ -77,6 +77,21 @@ Every `--submit-only` or `--submit-direct` command also requires
 `--acceptance <record>`. Retry a failed transfer with the identical artifact and
 record so no additional build/version number is allocated.
 
+Store screenshots are listing metadata, not a release: replace them only when
+asked, with `scripts/store-screenshots.mjs` (`--list-ios`/`--list-play` to
+inspect or download; `--upload-ios --version X` while that version is editable,
+`--upload-play` for the live listing). Only locales with a `<locale>/` folder in
+`--dir` are replaced; the rest keep their current images. Never put the test
+account's own Cards in public screenshots; use clearly named demo content and
+delete it afterwards.
+
+From 1.2.0 both Android packages request photo reads (READ_MEDIA_IMAGES,
+READ_MEDIA_VISUAL_USER_SELECTED, READ_EXTERNAL_STORAGE ≤ API 32) for the
+灵感照片流. Google Play rejects any edit commit until the owner completes the
+Play Console "Photo and video permissions" declaration; that form is manual. A
+built AAB that a stale validation rule rejected can be re-validated and named
+without a new versionCode via `android-play.sh --validate <aab>`.
+
 If the user requests all three, run them sequentially, not concurrently. For a
 configuration-only request, use the selected script's `--check`. Respect an
 explicit no-upload request for iOS by adding `--build-only`.
