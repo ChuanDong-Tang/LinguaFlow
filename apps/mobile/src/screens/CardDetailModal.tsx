@@ -4955,7 +4955,8 @@ function Cloze({ onlySegmentIds, detail, contentBinding, clozeState, clozeVersio
     const activeBlank = clozeState.blanks[blankIndex];
     if (!activeBlank || choiceFeedback?.blankId === activeBlank.id) return;
     const selectedIds = choiceSelectedTokenIds[activeBlank.id] ?? [];
-    if (!isClozeAnswerPuzzleComplete(choicePuzzle, selectedIds)) return;
+    // 检查 before the answer is complete counts as 不记得: a miss, answer shown (round 4).
+    if (!isClozeAnswerPuzzleComplete(choicePuzzle, selectedIds)) { forgetChoice(); return; }
     const answerCorrect = isClozeAnswerPuzzleCorrect(choicePuzzle, selectedIds);
     void check(blankIndex, answerCorrect ? activeBlank.answer : clozeAnswerPuzzleText(choicePuzzle, selectedIds));
     setChoiceFeedback({ blankId: activeBlank.id, correct: answerCorrect, answer: activeBlank.answer });
@@ -5026,12 +5027,9 @@ function Cloze({ onlySegmentIds, detail, contentBinding, clozeState, clozeVersio
   function forgetChoice(): void {
     const blankIndex = effectiveActiveChoiceBlankIndex;
     const blank = blankIndex === null ? undefined : clozeState.blanks[blankIndex];
-    if (!blank || saving || choiceFeedback?.blankId === blank.id) return;
-    haptic.warning();
-    void playIncorrectFeedbackSound().catch(() => undefined);
-    onClozeAttempt?.({ recordId: detail.id, blankId: blank.id, correct: false });
-    recordPracticeAttempt(detail.id, blank.id, false);
-    setCheckedAnswers((current) => ({ ...current, [blank.id]: "incorrect" }));
+    if (blankIndex === null || !blank || saving || choiceFeedback?.blankId === blank.id) return;
+    // The same path as a wrong check: saved as a miss (yellow next time), counted in the set.
+    void check(blankIndex, FORGOT_ANSWER);
     setChoiceFeedback({ blankId: blank.id, correct: false, answer: blank.answer });
   }
   const forgetChoiceRef = useRef(forgetChoice);
@@ -5656,6 +5654,9 @@ function CardBlankSentenceFlow({ row, answers, checkedAnswers, revealed, saving,
     </> : null}
   </View>;
 }
+
+/** Submitted for 不记得: never matches an answer, so it is graded (and saved) as a miss. */
+const FORGOT_ANSWER = "\u2205";
 
 function buildCardClozeAnswerRanges(
   sentenceText: string,

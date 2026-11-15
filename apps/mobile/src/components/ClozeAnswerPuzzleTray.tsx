@@ -138,7 +138,8 @@ export function ClozeAnswerPuzzleTray({
         radius={23}
         fill={answered ? (feedback?.correct ? theme.colors.accent : theme.colors.warning) : complete ? theme.colors.accent : theme.colors.fill2}
         feedback={null}
-        disabled={disabled || (!answered && !complete)}
+        // Always tappable: checking an unfinished answer counts as 不记得.
+        disabled={disabled}
         accessibilityRole="button"
         style={answered ? styles.primaryAlone : styles.actionSlot}
         contentStyle={[styles.primaryInner, !answered && styles.primaryFill]}
