@@ -2,136 +2,424 @@
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>OIO App · 记录生活，无痛用英文</title>
-  <meta name="description" content="记录生活，无痛用英文。">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>OIO · 记录生活，无痛用英文</title>
+  <meta name="description" content="随手记下今天，OIO 把它变成你自己的地道英文，再用挖空、盲盒、播客和 OIO AI，让它在生活里一次次出现。">
   <link rel="canonical" href="https://yueyantech.com/app.html">
+  <meta name="theme-color" content="#fbfbf8">
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="OIO">
   <meta property="og:locale" content="zh_CN">
-  <meta property="og:title" content="OIO · 让英文在生活里自然长出来">
-  <meta property="og:description" content="记录生活，无痛用英文。">
+  <meta property="og:title" content="OIO · 记录生活，无痛用英文">
+  <meta property="og:description" content="随手记下今天，OIO 把它变成你自己的地道英文。">
   <meta property="og:url" content="https://yueyantech.com/app.html">
   <meta property="og:image" content="https://yueyantech.com/assets/shared/brand/og-card.png">
   <meta property="og:image:width" content="1200"><meta property="og:image:height" content="630">
   <meta name="twitter:card" content="summary_large_image">
   <script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareApplication","name":"OIO","applicationCategory":"EducationalApplication","operatingSystem":"iOS, Android","description":"从真实生活中学习英文的 App。","url":"https://yueyantech.com/app.html","downloadUrl":"https://apps.apple.com/cn/app/oio/id6776898160","publisher":{"@type":"Organization","name":"永嘉跃言科技有限责任公司","url":"https://yueyantech.com/"}}</script>
   <link rel="icon" href="assets/shared/brand/favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="site.css">
+  <link rel="stylesheet" href="landing.css">
 </head>
-<body class="app-page">
-  <header class="site-header">
-    <a class="header-brand" href="index.html" aria-label="OIO 首页"><strong>OIO</strong><span>Life × Language</span></a>
-    <nav aria-label="主导航"><a href="wiki/">Wiki</a><a class="active" href="app.html">App</a><a class="account-nav-link" href="account.html" data-account-link>账号</a><a href="wiki/contact.html">加入群聊</a><a href="index.html" hidden>首页</a><a href="community.html" hidden>社群</a></nav>
+<body>
+  <!-- Illustrations: drawn, never real user photos. -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+      <symbol id="art-river" viewBox="0 0 300 200" preserveAspectRatio="xMidYMid slice">
+        <rect width="300" height="200" fill="#dfeedd"/>
+        <path d="M0 70 C60 50 120 80 180 60 S280 50 300 58 V0 H0Z" fill="#cfe3f1"/>
+        <path d="M0 78 Q40 40 80 70 T160 62 T240 52 T300 66 V96 H0Z" fill="#9cc49a"/>
+        <path d="M0 120 C70 104 140 132 210 116 S290 104 300 110 V160 C230 150 160 170 90 156 S20 150 0 156Z" fill="#a9d1e6"/>
+        <path d="M30 130 h40 M120 140 h30 M210 126 h40" stroke="#fff" stroke-width="3" stroke-linecap="round" opacity=".7"/>
+        <g transform="translate(150 150)"><ellipse cx="0" cy="16" rx="22" ry="4" fill="#000" opacity=".1"/><path d="M-16 6 q0-14 14-14 h10 q8 0 10 -8 l6 2 q-2 10 -4 14 v12 h-4 v-6 h-18 v6 h-4z" fill="#3a3330"/><circle cx="12" cy="-12" r="2" fill="#fff"/></g>
+      </symbol>
+      <symbol id="art-cafe" viewBox="0 0 300 200" preserveAspectRatio="xMidYMid slice">
+        <rect width="300" height="200" fill="#f4e7d6"/>
+        <rect y="140" width="300" height="60" fill="#d8b98f"/>
+        <rect x="190" y="30" width="80" height="70" rx="6" fill="#fff6e8" stroke="#e5cfae" stroke-width="3"/>
+        <path d="M190 65 h80 M230 30 v70" stroke="#e5cfae" stroke-width="3"/>
+        <g transform="translate(110 104)"><path d="M0 0 h56 l-6 40 h-44z" fill="#fff"/><path d="M56 10 q16 2 10 16 q-4 8 -12 6" fill="none" stroke="#fff" stroke-width="6"/><ellipse cx="28" cy="2" rx="28" ry="5" fill="#7a4b2a"/><path d="M18 -14 q4 -8 0 -16 M30 -12 q4 -8 0 -16" stroke="#c9a77e" stroke-width="3" fill="none" stroke-linecap="round"/></g>
+      </symbol>
+      <symbol id="art-city" viewBox="0 0 300 200" preserveAspectRatio="xMidYMid slice">
+        <rect width="300" height="200" fill="#fde1c8"/>
+        <circle cx="220" cy="70" r="30" fill="#f7b267"/>
+        <path d="M0 120 h40 v-50 h30 v30 h24 v-60 h34 v80 h26 v-40 h30 v50 h40 v-30 h30 v20 h46 V200 H0z" fill="#6b5b7b"/>
+        <path d="M0 160 H300 V200 H0z" fill="#4b3f58"/>
+        <g fill="#ffd27d"><rect x="104" y="70" width="6" height="8"/><rect x="116" y="70" width="6" height="8"/><rect x="104" y="88" width="6" height="8"/><rect x="190" y="104" width="6" height="8"/></g>
+      </symbol>
+      <symbol id="art-food" viewBox="0 0 300 200" preserveAspectRatio="xMidYMid slice">
+        <rect width="300" height="200" fill="#fbe9e3"/>
+        <ellipse cx="150" cy="118" rx="96" ry="60" fill="#fff"/>
+        <ellipse cx="150" cy="118" rx="70" ry="42" fill="#f3d9a8"/>
+        <g fill="#e2a64b"><circle cx="122" cy="108" r="11"/><circle cx="146" cy="100" r="11"/><circle cx="170" cy="108" r="11"/><circle cx="134" cy="128" r="11"/><circle cx="160" cy="128" r="11"/></g>
+        <path d="M60 60 l30 40 M240 50 l-24 46" stroke="#c9b6a8" stroke-width="5" stroke-linecap="round"/>
+      </symbol>
+      <symbol id="art-room" viewBox="0 0 300 200" preserveAspectRatio="xMidYMid slice">
+        <rect width="300" height="200" fill="#eef0ea"/>
+        <rect y="140" width="300" height="60" fill="#cdbfa9"/>
+        <rect x="30" y="40" width="70" height="60" fill="#d7e8f2" stroke="#fff" stroke-width="5"/>
+        <rect x="150" y="70" width="110" height="74" rx="10" fill="#7f9c84"/>
+        <rect x="160" y="96" width="90" height="36" rx="8" fill="#93b099"/>
+        <path d="M200 36 v34 M186 36 h28" stroke="#b8a98e" stroke-width="4"/>
+      </symbol>
+      <symbol id="ic-arrow-up" viewBox="0 0 24 24"><path d="M12 19V5m0 0-6 6m6-6 6 6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    </defs>
+  </svg>
+
+  <header class="lp-header" id="top">
+    <div class="wrap">
+      <a class="lp-brand" href="app.html" aria-label="OIO 首页"><img src="assets/shared/mascot/oio-character-green.svg" alt=""><strong>OIO</strong></a>
+      <nav class="lp-nav" aria-label="主导航">
+        <a href="#features">功能</a>
+        <a href="#how">怎么用</a>
+        <a href="#faq">常见问题</a>
+        <a class="keep" href="wiki/">Wiki</a>
+        <a class="keep" href="account.html" data-account-link>账号</a>
+        <a class="lp-nav-cta" href="#download">下载</a>
+      </nav>
+    </div>
   </header>
 
   <main>
-    <section class="app-hero page-width">
-      <div class="app-hero-copy">
-        <h1>让英文在生活里自然长出来</h1>
-        <p>记录生活，无痛用英文。</p>
-        <div class="app-actions">
-          <a class="official-store-link" href="https://apps.apple.com/cn/app/oio/id6776898160" target="_blank" rel="noopener noreferrer" aria-label="在 App Store 下载 OIO"><img class="app-store-badge" src="assets/app/stores/app-store.svg" width="109" height="40" alt="从 App Store 下载"></a>
-          <a class="android-download-button" href="https://download.yueyantech.com/OIO-1.1.9-165.apk" download aria-label="下载 OIO 安卓版 1.1.9"><svg class="android-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.2 8.1h9.6v7.7a1.4 1.4 0 0 1-1.4 1.4h-.7v2.2a1 1 0 0 1-2 0v-2.2h-1.4v2.2a1 1 0 0 1-2 0v-2.2h-.7a1.4 1.4 0 0 1-1.4-1.4V8.1Zm-2.4.2a1 1 0 0 1 2 0v6a1 1 0 0 1-2 0v-6Zm12.4 0a1 1 0 0 1 2 0v6a1 1 0 0 1-2 0v-6ZM8 7.2a4 4 0 0 1 1.1-2.7L8.2 3.2a.5.5 0 1 1 .8-.5l.9 1.2a4.8 4.8 0 0 1 4.2 0l.9-1.2a.5.5 0 1 1 .8.5l-.9 1.3A4 4 0 0 1 16 7.2H8Zm2.1-1.5a.6.6 0 1 0 0 1.2.6.6 0 0 0 0-1.2Zm3.8 0a.6.6 0 1 0 0 1.2.6.6 0 0 0 0-1.2Z"/></svg><span><small>Android 1.1.9</small>下载</span></a>
+    <!-- Hero -->
+    <section class="lp-hero">
+      <div class="wrap">
+        <div class="lp-hero-copy">
+          <span class="lp-eyebrow"><i></i>用你自己的生活学英文</span>
+          <h1>记录生活，<br><em>无痛</em>用英文</h1>
+          <p class="lp-lead">随手记下今天发生的事，OIO 把它变成你自己的地道英文；再用挖空、盲盒和播客，让这些英文在生活里一次次出现。</p>
+          <div class="lp-actions" id="download">
+            <a class="lp-store lp-store-ios official-store-link" href="https://apps.apple.com/cn/app/oio/id6776898160" target="_blank" rel="noopener noreferrer" aria-label="在 App Store 下载 OIO">
+              <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16.4 12.6c0-2.4 2-3.6 2.1-3.7-1.1-1.7-2.9-1.9-3.5-1.9-1.5-.2-2.9.9-3.7.9-.8 0-1.9-.9-3.2-.8-1.6 0-3.1 1-4 2.4-1.7 3-.4 7.4 1.2 9.8.8 1.2 1.8 2.5 3 2.4 1.2 0 1.7-.8 3.1-.8 1.5 0 1.9.8 3.2.8 1.3 0 2.1-1.2 2.9-2.4.9-1.4 1.3-2.7 1.3-2.8-.1 0-2.4-.9-2.4-3.9ZM14 5.3c.7-.8 1.1-1.9 1-3-1 0-2.1.7-2.8 1.5-.6.7-1.2 1.8-1 2.9 1 .1 2.1-.6 2.8-1.4Z"/></svg>
+              <span><small>下载于</small>App Store</span>
+            </a>
+            <a class="lp-store lp-store-android android-download-button" href="https://download.yueyantech.com/OIO-1.1.9-165.apk" download aria-label="下载 OIO 安卓版 1.1.9">
+              <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7.2 8.1h9.6v7.7a1.4 1.4 0 0 1-1.4 1.4h-.7v2.2a1 1 0 0 1-2 0v-2.2h-1.4v2.2a1 1 0 0 1-2 0v-2.2h-.7a1.4 1.4 0 0 1-1.4-1.4V8.1Zm-2.4.2a1 1 0 0 1 2 0v6a1 1 0 0 1-2 0v-6Zm12.4 0a1 1 0 0 1 2 0v6a1 1 0 0 1-2 0v-6ZM8 7.2a4 4 0 0 1 1.1-2.7L8.2 3.2a.5.5 0 1 1 .8-.5l.9 1.2a4.8 4.8 0 0 1 4.2 0l.9-1.2a.5.5 0 1 1 .8.5l-.9 1.3A4 4 0 0 1 16 7.2H8Z"/></svg>
+              <span><small>Android 1.1.9</small>直接下载</span>
+            </a>
+          </div>
+          <p class="lp-hero-note">iPhone、iPad 和 Android 通用，同一个账号的卡片互通。</p>
+        </div>
+
+        <div class="hero-visual">
+          <div class="phone" id="hero-phone" data-scene="compose" aria-label="演示：写下一句中文，OIO 改写成英文，再挖空练习" role="img">
+            <div class="phone-screen">
+              <div class="phone-status"><span>21:30</span><b></b></div>
+              <div class="demo">
+                <div class="demo-compose">
+                  <div class="demo-title-input">标题（可选）</div>
+                  <div class="demo-text" id="demo-typing"><span class="caret"></span></div>
+                  <div class="demo-toolbar">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="6" width="18" height="14" rx="3"/><circle cx="12" cy="13" r="3.5"/></svg>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="m3 16 5-5 4 4 3-3 6 6"/></svg>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
+                    <span class="demo-count" id="demo-count">0/5000</span>
+                    <span class="demo-send" id="demo-send">改写</span>
+                  </div>
+                </div>
+                <div class="demo-card">
+                  <div class="demo-photo"><svg><use href="#art-river"/></svg></div>
+                  <h4>河边遛豆豆 <span>英文</span></h4>
+                  <div class="demo-en" id="demo-en"></div>
+                  <div class="demo-tray">
+                    <div class="tray-feedback"><img src="assets/shared/mascot/oio-character-green.svg" alt=""><div><b>✓ 答对了</b><br>bolted</div></div>
+                    <div class="tray-slots" id="tray-slots"></div>
+                    <div class="tray-tiles" id="tray-tiles"></div>
+                    <div class="tray-buttons"><span>不记得</span><span id="tray-check">检查</span></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <img class="mascot" src="assets/shared/mascot/oio-character-green.svg" alt="">
+          <div class="hero-chip hero-chip-a"><i>✓</i>生活 → 地道英文</div>
+          <div class="hero-chip hero-chip-b"><i>✦</i>挖空 · 盲盒 · 播客</div>
         </div>
       </div>
-      <div class="app-hero-visual">
-        <div class="hero-context hero-context-life" aria-hidden="true"><strong>Life</strong><i></i></div>
-        <div class="hero-context hero-context-language" aria-hidden="true"><strong>Language</strong><i></i></div>
-        <svg class="hero-mascot" viewBox="20 75 120 115" aria-hidden="true">
-          <path class="person-body" d="M32 124c3-25 20-39 42-39s39 14 42 39v55H32z"/>
-          <circle class="person-eye" cx="59" cy="119" r="14"/><circle class="person-eye" cx="89" cy="119" r="14"/>
-          <circle class="person-pupil" cx="63" cy="119" r="2.8"/><circle class="person-pupil" cx="93" cy="119" r="2.8"/>
-          <path class="person-i" d="M74 112v16"/><circle class="person-i-dot" cx="74" cy="105" r="2.5"/>
-          <path class="person-accent" d="M54 150h40v18H54z"/>
-          <path class="person-arm" d="M106 139c15 0 24-4 35-13"/>
-        </svg>
-        <div class="hero-product-shots">
-          <figure><img src="assets/app/hero/profile.png" alt="OIO 个人主页"></figure>
-          <figure><img src="assets/app/hero/life-collection.png" alt="OIO 生活集"></figure>
-          <figure><img src="assets/app/hero/memories.png" alt="OIO 回忆页面"></figure>
+    </section>
+
+    <!-- Three steps -->
+    <section class="lp-section" id="how" style="padding-top:40px">
+      <div class="wrap">
+        <div class="lp-section-head reveal">
+          <span class="lp-kicker">How it works</span>
+          <h2>三步，把今天变成英文</h2>
+          <p>不用背单词表，学的每一句，都是你自己的生活。</p>
+        </div>
+        <div class="steps">
+          <article class="step reveal" data-delay="1">
+            <span class="step-num">01</span>
+            <div class="step-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></div>
+            <h3>随手记</h3>
+            <p>想到什么就写下来。可以打字、说话或者拍照，中文、英文混着写也没关系。</p>
+          </article>
+          <article class="step reveal" data-delay="2">
+            <span class="step-num">02</span>
+            <div class="step-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h10M9 4v3m-3 0c0 4 3 7 7 8M5 17l4-9 4 9M6.5 14h5"/><path d="m15 13 3 6 3-6" /></svg></div>
+            <h3>一键改写</h3>
+            <p>OIO 把它改写成你自己会说的地道英文，原话、双语对照随时切换。</p>
+          </article>
+          <article class="step reveal" data-delay="3">
+            <span class="step-num">03</span>
+            <div class="step-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12a9 9 0 1 1-3-6.7L21 8M21 3v5h-5"/></svg></div>
+            <h3>再遇见</h3>
+            <p>挖空、盲盒、播客、OIO AI，让这些英文在之后的日子里一次次回来。</p>
+          </article>
         </div>
       </div>
     </section>
 
-    <section class="app-process page-width" id="how">
-      <div class="process-loop" aria-label="生活长出英文，英文表达生活">
-        <div class="loop-node loop-life"><strong>生活</strong></div>
-        <span class="loop-relation loop-grow">长出</span>
-        <svg class="loop-arrows" viewBox="0 0 800 260" aria-hidden="true">
-          <defs>
-            <path id="oio-loop-grow" d="M205 130C205 60 595 60 595 130"/>
-            <path id="oio-loop-express" d="M595 130C595 200 205 200 205 130"/>
-          </defs>
-          <path class="loop-track" d="M205 130C205 60 595 60 595 130C595 200 205 200 205 130Z"/>
-          <g class="loop-token loop-token-life">
-            <rect x="-11" y="-8" width="22" height="16" rx="3"/>
-            <path d="M-6-3h12M-6 2h8"/>
-            <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;.08;.92;1" dur="4.6s" repeatCount="indefinite"/>
-            <animateMotion dur="4.6s" repeatCount="indefinite" rotate="auto"><mpath href="#oio-loop-grow"/></animateMotion>
-          </g>
-          <g class="loop-token loop-token-language">
-            <rect x="-11" y="-8" width="22" height="16" rx="3"/>
-            <path d="M-6-3h12M-6 2h8"/>
-            <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;.08;.92;1" dur="4.6s" repeatCount="indefinite"/>
-            <animateMotion dur="4.6s" repeatCount="indefinite" rotate="auto"><mpath href="#oio-loop-express"/></animateMotion>
-          </g>
-        </svg>
-        <span class="loop-relation loop-express">表达</span>
-        <div class="loop-node loop-language"><strong>英文</strong></div>
+    <!-- Features -->
+    <section class="lp-section" id="features" style="padding-top:20px">
+      <div class="wrap">
+        <div class="lp-section-head reveal">
+          <span class="lp-kicker">Features</span>
+          <h2>每个功能，都从你的生活开始</h2>
+          <p>下面是 OIO 最常用的几种玩法，以及上手的方法。</p>
+        </div>
+
+        <!-- A. Capture -->
+        <article class="feature">
+          <div class="feature-copy reveal">
+            <span class="feature-tag">记录</span>
+            <h3>想到什么，就记下什么</h3>
+            <p>一句话、一张照片、一段语音，都能成为一张卡片。没想好写什么？翻翻相册，总有一张照片会让你想起那天。</p>
+            <ul class="howto">
+              <li>点底部的 <span class="kbd">＋</span>，写下这一刻；按 <b>麦克风</b> 可以直接说。</li>
+              <li>点 <span class="kbd">灵感</span> 翻最近的照片，看到有感觉的那张，<b>上滑写一句</b>。</li>
+              <li>贴一个 <b>B 站或 YouTube 链接</b>，视频也能变成一张卡片，App 里直接播放。</li>
+            </ul>
+          </div>
+          <div class="stage reveal" data-delay="1" data-play="flow">
+            <div class="flow">
+              <div class="flow-photo"><svg><use href="#art-cafe"/></svg></div>
+              <div class="flow-photo"><svg><use href="#art-city"/></svg></div>
+              <div class="flow-photo"><svg><use href="#art-river"/></svg><div class="flow-hint"><svg><use href="#ic-arrow-up"/></svg>上滑，写点什么</div></div>
+              <div class="flow-note">今天带豆豆去河边，它一看到水就冲过去 <b>→ 改写</b></div>
+            </div>
+          </div>
+        </article>
+
+        <!-- B. Rewrite -->
+        <article class="feature flip">
+          <div class="feature-copy reveal">
+            <span class="feature-tag">改写</span>
+            <h3>不是翻译，是你会说的英文</h3>
+            <p>OIO 保留你的语气和细节，改写成母语者会说的样子。想看怎么对应的，一点就能切到双语对照。</p>
+            <ul class="howto">
+              <li>点标题旁的 <span class="kbd">英文</span>，在 <b>英文 → 双语对照 → 原文</b> 之间切换。</li>
+              <li><b>长按任意单词或短语</b>，就能查词、挖空，或者加进练习。</li>
+              <li>每句话都能点 <b>▶</b> 听发音，跟着读一遍。</li>
+            </ul>
+          </div>
+          <div class="stage reveal" data-delay="1" data-play="toggle">
+            <div class="panel toggle-demo" id="toggle-demo" data-mode="en">
+              <div class="head"><strong>周末的咖啡</strong><span class="pill" id="toggle-pill">英文</span></div>
+              <div class="lines">
+                <div><div class="en">Finally had a slow Saturday morning — just me, a <span class="hl">flat white</span>, and no plans.</div><div class="zh">终于有个慢悠悠的周六早上，一杯澳白，什么计划都没有。</div></div>
+                <div><div class="en">I could <span class="hl">get used to this</span>.</div><div class="zh">这种日子我能习惯。</div></div>
+              </div>
+              <div class="lookup"><b>get used to</b><span>习惯于…… · used to doing sth. 表示逐渐适应</span></div>
+            </div>
+          </div>
+        </article>
+
+        <!-- C. Cloze -->
+        <article class="feature">
+          <div class="feature-copy reveal">
+            <span class="feature-tag">挖空练习</span>
+            <h3>答对变绿，答错变黄</h3>
+            <p>OIO 自动挑出值得练的表达挖成空，你也可以自己挖。每个空都记得你上次答得怎样，下次一眼就知道该练哪里。</p>
+            <ul class="howto">
+              <li>三种模式随意切换：<b>选择</b>（拼词块）、<b>填空</b>（自己打）、<b>听写</b>。</li>
+              <li>想不起来别硬猜，点 <span class="kbd">不记得</span> 直接看答案，这个空下次会优先再练。</li>
+              <li>上次答对的空是绿色的，有把握就点 <span class="kbd">已掌握</span> 跳过。</li>
+            </ul>
+          </div>
+          <div class="stage reveal" data-delay="1" data-play="cloze">
+            <div class="panel cloze-demo">
+              <div class="legend"><span><i style="background:#20904e"></i>答对过</span><span><i style="background:#d19a00"></i>答错过</span><span><i style="background:#cfd2cc"></i>还没答</span></div>
+              <p>Took Doudou for a walk by the river — the second he saw the water he <span class="cz gray" data-final="green">bolted</span>, and I couldn't <span class="cz gray" data-final="yellow">hold him back</span>. We <span class="cz gray" data-final="gray">ended up</span> both soaked.</p>
+              <div class="cloze-buttons"><span>不记得</span><span class="check">检查</span><span class="known">✓ 已掌握</span></div>
+            </div>
+          </div>
+        </article>
+
+        <!-- D. Blind box -->
+        <article class="feature flip">
+          <div class="feature-copy reveal">
+            <span class="feature-tag">盲盒</span>
+            <h3>一卡一句，停不下来</h3>
+            <p>不知道下一句会是哪天的生活。每次只练一句，翻得快，记得牢，碎片时间刷几组就好。</p>
+            <ul class="howto">
+              <li>首页切到 <span class="kbd">盲盒</span>，点任意一张卡片就开始。</li>
+              <li>前后两句来自<b>不同的卡片</b>，先出你还没填或填错过的空。</li>
+              <li>在 <b>盲盒设置</b> 里选每组 6 到 100 张，练完看这一组的正确率。</li>
+            </ul>
+          </div>
+          <div class="stage reveal" data-delay="1" data-play="deck">
+            <div class="deck" id="deck">
+              <div class="deck-progress"><i id="deck-progress"></i></div>
+              <div class="deck-card s0"><div class="art"><svg><use href="#art-food"/></svg></div><span>The egg waffle was <b>way too</b> good to share.</span><small>9 月 29 日 · 吃吃喝喝</small></div>
+              <div class="deck-card s1"><div class="art"><svg><use href="#art-room"/></svg></div><span>We finally <b>settled on</b> the sofa for the living room.</span><small>8 月 21 日 · 新房装修</small></div>
+              <div class="deck-card s2"><div class="art"><svg><use href="#art-city"/></svg></div><span>The sunset was <b>worth the climb</b>.</span><small>10 月 3 日 · 旅行</small></div>
+            </div>
+          </div>
+        </article>
+
+        <!-- E. Memories -->
+        <article class="feature">
+          <div class="feature-copy reveal">
+            <span class="feature-tag">回忆 · 今日</span>
+            <h3>过去的你，会再出现</h3>
+            <p>所有卡片按时间铺开，像翻一本会说英文的相册。今天写下的一件事，会把以前相关的回忆一起带出来。</p>
+            <ul class="howto">
+              <li><b>回忆</b>：方格、瀑布流、列表三种看法，可以按文件夹、有没有照片、练习情况筛选。</li>
+              <li><b>今日</b>：前后翻日子，点 <span class="kbd">1 年前</span> <span class="kbd">1 月前</span> 看看历史上的今天。</li>
+              <li>卡片底部的 <b>相关回忆</b>，会把同一件事的不同片段串起来。</li>
+            </ul>
+          </div>
+          <div class="stage reveal" data-delay="1" data-play="memories">
+            <div class="chips"><span>1 周前</span><span>1 月前</span><span class="lit">1 年前</span></div>
+            <div class="memories" style="margin-top:28px">
+              <div class="mem" style="transition-delay:.05s"><div class="art"><svg><use href="#art-river"/></svg></div><p>河边遛豆豆</p></div>
+              <div class="mem" style="transition-delay:.12s"><div class="txt" style="background:#eef3e6">Rough day, but the noodles made up for it.</div><p>加班后的面</p></div>
+              <div class="mem" style="transition-delay:.19s"><div class="art"><svg><use href="#art-city"/></svg></div><p>第一次去成都</p></div>
+              <div class="mem" style="transition-delay:.26s"><div class="art"><svg><use href="#art-cafe"/></svg></div><p>周末的咖啡</p></div>
+              <div class="mem" style="transition-delay:.33s"><div class="art"><svg><use href="#art-room"/></svg></div><p>敲定沙发</p></div>
+              <div class="mem" style="transition-delay:.40s"><div class="txt" style="background:#fbefe6">Mom called just to ask if I'd eaten. Classic.</div><p>妈妈的电话</p></div>
+            </div>
+          </div>
+        </article>
+
+        <!-- F. Podcast -->
+        <article class="feature flip">
+          <div class="feature-copy reveal">
+            <span class="feature-tag">播客</span>
+            <h3>把自己的生活，听一遍</h3>
+            <p>通勤、做饭、散步的时候，打开播客，听自己的生活被一句句读出来。听的是你自己的事，耳朵就不会走神。</p>
+            <ul class="howto">
+              <li>按 <b>文件夹</b>、<b>某一天</b> 或 <b>主题</b> 一键生成播放列表。</li>
+              <li>可以<b>整张连续播</b>，也可以<b>一句一句循环</b>跟读。</li>
+              <li>切到下一张卡片时有一声轻提示，知道换了一段回忆。</li>
+            </ul>
+          </div>
+          <div class="stage reveal" data-delay="1" data-play="podcast">
+            <div class="panel player">
+              <div class="cover"><svg><use href="#art-river"/></svg></div>
+              <h4>和豆豆的周末</h4><small>12 张卡片 · 按主题</small>
+              <div class="wave" aria-hidden="true"><i style="animation-delay:-.1s"></i><i style="animation-delay:-.5s"></i><i style="animation-delay:-.3s"></i><i style="animation-delay:-.8s"></i><i style="animation-delay:-.2s"></i><i style="animation-delay:-.6s"></i><i style="animation-delay:-.4s"></i><i style="animation-delay:-.9s"></i><i style="animation-delay:-.15s"></i><i style="animation-delay:-.7s"></i><i style="animation-delay:-.35s"></i><i style="animation-delay:-.55s"></i></div>
+              <div class="line" id="podcast-line">Took Doudou for a walk by the river today.</div>
+              <div class="ctrl">
+                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h2v14H6zM19 5v14l-10-7z"/></svg>
+                <span class="play"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 5h4v14H7zM13 5h4v14h-4z"/></svg></span>
+                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 5h2v14h-2zM5 5v14l10-7z"/></svg>
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <!-- G. OIO AI -->
+        <article class="feature">
+          <div class="feature-copy reveal">
+            <span class="feature-tag">OIO AI <span class="new">1.2.0 新功能</span></span>
+            <h3>聊着聊着，就成了一张卡</h3>
+            <p>OIO AI 记得你常写的事，会从你关心的话题聊起。像跟朋友聊天一样说说今天，聊完一键存成一张对话卡。</p>
+            <ul class="howto">
+              <li>点首页右上角的 <b>OIO 小人</b>，它会先开口问你，不想聊这个可以点 <span class="kbd">换一个</span>。</li>
+              <li>聊完点 <span class="kbd">存成卡片</span>：你说的话改写成英文，OIO 的回复也一起存下，一句对一句。</li>
+              <li>还可以问它「我最近老错哪些词？」「去年这时候我在干嘛？」，它会帮你找出来、带你练。</li>
+            </ul>
+          </div>
+          <div class="stage reveal" data-delay="1" data-play="chat">
+            <div class="panel chat" id="chat">
+              <div class="bubble oio">今天豆豆乖吗？又去河边了？</div>
+              <div class="bubble me">去了！它一看到水就冲过去，拉都拉不住</div>
+              <div class="bubble oio">哈哈，它是不是最后变成了一只落汤狗？</div>
+              <div class="bubble me">两个都湿透了 😂</div>
+              <div class="save-offer" id="save-offer">▢ 把这段对话存成卡片</div>
+              <div class="dialogue-card" id="dialogue-card">
+                <strong>河边的落汤狗</strong>
+                <div class="u">He bolted the second he saw the water.</div>
+                <div class="o">Did he end up a soggy dog?</div>
+                <div class="u">We both got soaked 😂</div>
+              </div>
+            </div>
+          </div>
+        </article>
       </div>
-      <article class="app-process-row">
-        <div class="app-process-copy"><h2>捕捉生活</h2><p>中、英，或混合，随时捕捉。</p></div>
-        <figure class="screen-card"><img src="assets/app/process/capture.png" alt="从照片或文字捕捉生活，再形成英文记录"></figure>
-      </article>
-
-      <article class="app-process-row">
-        <div class="app-process-copy"><h2>生活变成英文</h2><p>你捕捉的瞬间，自动变成能说会用的地道英文。</p></div>
-        <figure class="screen-card"><img src="assets/app/process/rewrite.png" alt="把生活记录改写成可以理解和使用的英文"></figure>
-      </article>
-
-      <article class="app-process-row">
-        <div class="app-process-copy"><h2>用英文连接生活</h2><p>再打开，不用背。让英文在生活里自然浮现。</p></div>
-        <figure class="screen-card"><img src="assets/app/process/reconnect.png" alt="通过相关记录让英文重新连接过去的生活"></figure>
-      </article>
     </section>
 
-    <section class="app-features page-width">
-      <h2 class="app-features-title">用独特的方式偶遇</h2>
-      <div class="app-feature-grid">
-        <figure class="feature-photo-memory">
-          <div class="feature-image"><svg class="memory-connection memory-photo-connection" viewBox="0 0 1000 600" preserveAspectRatio="none" aria-hidden="true"><path d="M285 360 C430 325 545 265 735 255"/><circle cx="285" cy="360" r="8"/><circle cx="735" cy="255" r="8"/></svg><div class="feature-shots feature-shots-pair"><img src="assets/app/encounters/photo-memory/picker.png" alt="从生活照片中选择一段记忆"><img src="assets/app/encounters/photo-memory/result.png" alt="照片唤醒对应的生活记录和英文"></div></div>
-          <figcaption>用图片，唤醒那天的记忆和英文</figcaption>
-        </figure>
-        <figure class="feature-past-connections">
-          <div class="feature-image"><svg class="memory-connection memory-related-connection" viewBox="0 0 1000 600" preserveAspectRatio="none" aria-hidden="true"><g class="connection-desktop"><path d="M180 485 C356 470 526 274 720 198"/><circle cx="180" cy="485" r="8"/><circle cx="720" cy="198" r="8"/></g><g class="connection-mobile"><path d="M137 480 C330 468 520 270 735 200"/><circle cx="137" cy="480" r="8"/><circle cx="735" cy="200" r="8"/></g></svg><div class="feature-shots feature-shots-pair"><img src="assets/app/encounters/related-memory/current.png" alt="当下生活里的英文记录"><img src="assets/app/encounters/related-memory/related.png" alt="由当下记录关联起过去的英文记忆"></div></div>
-          <figcaption>当下的生活，激活过往的记忆和英文</figcaption>
-        </figure>
-        <figure class="feature-encounter-modes">
-          <div class="feature-image"><div class="feature-shots feature-shots-modes"><img src="assets/app/encounters/modes/dictation.png" alt="听写模式"><img src="assets/app/encounters/modes/fill.png" alt="填空模式"><img src="assets/app/encounters/modes/choice.png" alt="选择模式"></div></div>
-          <figcaption>自由选择偶遇英文的方式</figcaption>
-        </figure>
+    <!-- A day with OIO -->
+    <section class="lp-section" style="background:var(--feed)">
+      <div class="wrap">
+        <div class="lp-section-head reveal">
+          <span class="lp-kicker">A day with OIO</span>
+          <h2>每天十分钟，刚刚好</h2>
+          <p>不用打卡，不用凑时长。生活在哪里，英文就在哪里。</p>
+        </div>
+        <div class="day">
+          <article class="reveal" data-delay="1"><span class="emoji">🎧</span><br><time>早上 · 通勤</time><h3>听一段播客</h3><p>听昨天写下的事，被一句句读出来。</p></article>
+          <article class="reveal" data-delay="2"><span class="emoji">🎲</span><br><time>午间 · 碎片时间</time><h3>刷一组盲盒</h3><p>6 张一组，两三分钟，答错的明天还会来。</p></article>
+          <article class="reveal" data-delay="3"><span class="emoji">🌙</span><br><time>晚上 · 睡前</time><h3>记下今天</h3><p>写一句，或者跟 OIO 聊几句，存成卡片。</p></article>
+        </div>
       </div>
     </section>
 
-    <section class="app-cta page-width">
-      <h2>记录生活，无痛用英文</h2>
-      <div class="app-actions">
-        <a class="official-store-link" href="https://apps.apple.com/cn/app/oio/id6776898160" target="_blank" rel="noopener noreferrer" aria-label="在 App Store 下载 OIO"><img class="app-store-badge" src="assets/app/stores/app-store.svg" width="109" height="40" alt="从 App Store 下载"></a>
-        <a class="android-download-button" href="https://download.yueyantech.com/OIO-1.1.9-165.apk" download aria-label="下载 OIO 安卓版 1.1.9"><svg class="android-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7.2 8.1h9.6v7.7a1.4 1.4 0 0 1-1.4 1.4h-.7v2.2a1 1 0 0 1-2 0v-2.2h-1.4v2.2a1 1 0 0 1-2 0v-2.2h-.7a1.4 1.4 0 0 1-1.4-1.4V8.1Zm-2.4.2a1 1 0 0 1 2 0v6a1 1 0 0 1-2 0v-6Zm12.4 0a1 1 0 0 1 2 0v6a1 1 0 0 1-2 0v-6ZM8 7.2a4 4 0 0 1 1.1-2.7L8.2 3.2a.5.5 0 1 1 .8-.5l.9 1.2a4.8 4.8 0 0 1 4.2 0l.9-1.2a.5.5 0 1 1 .8.5l-.9 1.3A4 4 0 0 1 16 7.2H8Zm2.1-1.5a.6.6 0 1 0 0 1.2.6.6 0 0 0 0-1.2Zm3.8 0a.6.6 0 1 0 0 1.2.6.6 0 0 0 0-1.2Z"/></svg><span><small>Android 1.1.9</small>下载</span></a>
+    <!-- FAQ -->
+    <section class="lp-section" id="faq">
+      <div class="wrap">
+        <div class="lp-section-head reveal">
+          <span class="lp-kicker">FAQ</span>
+          <h2>常见问题</h2>
+        </div>
+        <div class="faq reveal">
+          <details><summary>英文不好也能用吗？</summary><p>可以。用中文写就行，中英混写也没问题。OIO 会改写成地道的英文，你可以随时切回原文或双语对照，对照着看。</p></details>
+          <details><summary>OIO 点数是什么？练习要花点数吗？</summary><p>OIO 点数用于需要生成内容的能力，比如记录改写和 OIO 回复，按实际生成的字符计算。查词、语音输入、整理生活集和普通练习不会消耗点数。在「我 → 用量」可以看到剩余点数和刷新时间。</p></details>
+          <details><summary>浏览相册会上传我的照片吗？</summary><p>不会。在「灵感」里翻照片只在手机上浏览，只有你确认把某张照片做成卡片时，才会上传这一张。</p></details>
+          <details><summary>换手机、iPhone 和 Android 之间能互通吗？</summary><p>能。用同一个 OIO 账号登录，云端的卡片、图片和账号权益都会重新加载，跟着账号走，不跟着设备走。</p></details>
+          <details><summary>还有别的问题？</summary><p>可以看看 <a href="wiki/faq.html">Wiki 常见问题</a>，或者 <a href="wiki/contact.html">加入群聊</a> 直接问我们。</p></details>
+        </div>
       </div>
     </section>
 
+    <!-- CTA -->
+    <section class="wrap" style="padding-bottom:40px">
+      <div class="lp-cta reveal">
+        <img class="mascot" src="assets/shared/mascot/oio-character-green.svg" alt="">
+        <h2>今天发生了什么？</h2>
+        <p>写下来，它就是你明天的英文。</p>
+        <div class="lp-actions">
+          <a class="lp-store lp-store-ios official-store-link" href="https://apps.apple.com/cn/app/oio/id6776898160" target="_blank" rel="noopener noreferrer" aria-label="在 App Store 下载 OIO">
+            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16.4 12.6c0-2.4 2-3.6 2.1-3.7-1.1-1.7-2.9-1.9-3.5-1.9-1.5-.2-2.9.9-3.7.9-.8 0-1.9-.9-3.2-.8-1.6 0-3.1 1-4 2.4-1.7 3-.4 7.4 1.2 9.8.8 1.2 1.8 2.5 3 2.4 1.2 0 1.7-.8 3.1-.8 1.5 0 1.9.8 3.2.8 1.3 0 2.1-1.2 2.9-2.4.9-1.4 1.3-2.7 1.3-2.8-.1 0-2.4-.9-2.4-3.9ZM14 5.3c.7-.8 1.1-1.9 1-3-1 0-2.1.7-2.8 1.5-.6.7-1.2 1.8-1 2.9 1 .1 2.1-.6 2.8-1.4Z"/></svg>
+            <span><small>下载于</small>App Store</span>
+          </a>
+          <a class="lp-store lp-store-android android-download-button" href="https://download.yueyantech.com/OIO-1.1.9-165.apk" download aria-label="下载 OIO 安卓版 1.1.9">
+            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7.2 8.1h9.6v7.7a1.4 1.4 0 0 1-1.4 1.4h-.7v2.2a1 1 0 0 1-2 0v-2.2h-1.4v2.2a1 1 0 0 1-2 0v-2.2h-.7a1.4 1.4 0 0 1-1.4-1.4V8.1Zm-2.4.2a1 1 0 0 1 2 0v6a1 1 0 0 1-2 0v-6Zm12.4 0a1 1 0 0 1 2 0v6a1 1 0 0 1-2 0v-6ZM8 7.2a4 4 0 0 1 1.1-2.7L8.2 3.2a.5.5 0 1 1 .8-.5l.9 1.2a4.8 4.8 0 0 1 4.2 0l.9-1.2a.5.5 0 1 1 .8.5l-.9 1.3A4 4 0 0 1 16 7.2H8Z"/></svg>
+            <span><small>Android 1.1.9</small>直接下载</span>
+          </a>
+        </div>
+      </div>
+    </section>
   </main>
 
-  <footer class="site-footer app-footer">
-    <span>© 2026 永嘉跃言科技有限责任公司</span>
-    <nav class="legal-links" aria-label="法律信息">
-      <a href="legal/terms/">用户协议</a>
-      <a href="legal/privacy/">隐私政策</a>
-    </nav>
+  <footer class="lp-footer">
+    <div class="wrap">
+      <span>© 2026 永嘉跃言科技有限责任公司</span>
+      <nav aria-label="页脚导航">
+        <a href="wiki/">Wiki</a>
+        <a href="wiki/changelog.html">更新日志</a>
+        <a href="wiki/contact.html">加入群聊</a>
+        <a href="legal/terms/">用户协议</a>
+        <a href="legal/privacy/">隐私政策</a>
+      </nav>
+      <div class="lp-filings">
+        <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener noreferrer">浙ICP备2026035182号</a>
+        <a href="https://beian.mps.gov.cn/#/query/webSearch?code=33032402002698" target="_blank" rel="noopener noreferrer">浙公网安备33032402002698号</a>
+      </div>
+    </div>
   </footer>
-  <dialog class="wecom-dialog group-dialog" id="group-dialog" aria-labelledby="group-dialog-title">
+
+  <dialog class="group-dialog" id="group-dialog" aria-labelledby="group-dialog-title">
     <button class="dialog-close" type="button" aria-label="关闭群聊二维码窗口">×</button>
     <h2 id="group-dialog-title">加入群聊</h2>
     <p>获取 App 的一手资讯。</p>
@@ -139,16 +427,6 @@
   </dialog>
   <script type="module" src="site-auth.js"></script>
   <script type="module" src="site-metrics.js"></script>
-  <script>
-    if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
-    if (location.hash === '#how') {
-      history.replaceState(null, '', location.pathname + location.search);
-    }
-    window.addEventListener('pageshow', () => window.scrollTo(0, 0));
-    var groupDialog = document.getElementById('group-dialog');
-    document.addEventListener('click', function (event) { if (event.target.closest('[data-join-group]')) groupDialog.showModal(); });
-    groupDialog.querySelector('.dialog-close').addEventListener('click', function () { groupDialog.close(); });
-    groupDialog.addEventListener('click', function (event) { if (event.target === groupDialog) groupDialog.close(); });
-  </script>
+  <script src="landing.js" defer></script>
 </body>
 </html>

@@ -4,6 +4,7 @@ const wikiGroups = [
     links: [
       { page: "home", href: "index.html", label: "什么是 OIO", mark: "○" },
       { page: "card", href: "card.html", label: "制作第一张 Card", mark: "+", keywords: "卡片 新建" },
+      { page: "guide", href: "guide.html", label: "核心玩法", mark: "✦", keywords: "挖空 不记得 已掌握 盲盒 今日 历史上的今天 播客 OIO AI 对话卡 灵感 照片" },
     ],
   },
   {
@@ -52,9 +53,9 @@ const currentPage = document.body.dataset.wikiPage;
 const topbarNav = document.querySelector(".wiki-topbar nav");
 const topbarBrand = document.querySelector(".wiki-brand");
 
-topbarBrand.outerHTML = '<a class="wiki-product-link" href="../app.html" aria-label="返回 OIO 官网"><strong>OIO</strong><span>Life × Language</span></a>';
+topbarBrand.outerHTML = '<a class="wiki-product-link" href="../app.html" aria-label="返回 OIO 官网"><img src="../assets/shared/mascot/oio-character-green.svg" alt=""><strong>OIO</strong><em>Wiki</em></a>';
 document.querySelector(".wiki-what")?.remove();
-topbarNav.innerHTML = '<a href="download.html">App</a><a href="contact.html">加入群聊</a>';
+topbarNav.innerHTML = '<a href="../app.html">官网</a><a href="download.html">下载</a><a href="../account.html" data-account-link>账号</a>';
 
 sidebar.innerHTML = `
   <div class="wiki-sidebar-head">

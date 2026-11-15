@@ -1,0 +1,125 @@
+/* 2026-11 refresh for Wiki and Account: the landing look (system sans,
+   OIO green, quiet surfaces) laid over site.css without touching its layout
+   or the class names wiki.js / account.js depend on. Load after site.css. */
+:root {
+  --paper: #fbfbf8;
+  --surface: #ffffff;
+  --ink: #1d221e;
+  --muted: #6c736e;
+  --green: #20904e;
+  --green-light: #e8f5ec;
+  --orange: #20904e;
+  --orange-light: #e8f5ec;
+  --line: #e9ebe5;
+  --wiki-blue: #20904e;
+  --wiki-yellow: #a8d65e;
+  --serif: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", "Helvetica Neue", Arial, sans-serif;
+  --sans: var(--serif);
+  --heading: var(--serif);
+  --oio-green-deep: #176e3b;
+  --oio-feed: #f3f4ef;
+  --oio-ease: cubic-bezier(.2, .8, .2, 1);
+}
+body { background: var(--paper); color: #2f3430; -webkit-font-smoothing: antialiased; }
+h1, h2, h3 { letter-spacing: -.01em; }
+
+/* ---------- shared header (account) ---------- */
+.site-header { background: color-mix(in srgb, var(--paper) 86%, transparent); backdrop-filter: saturate(1.4) blur(14px); -webkit-backdrop-filter: saturate(1.4) blur(14px); border-bottom: 1px solid var(--line); }
+.header-brand { display: inline-flex; align-items: center; gap: 8px; }
+.header-brand::before { content: ""; width: 30px; height: 28px; background: url("assets/shared/mascot/oio-character-green.svg") center/contain no-repeat; }
+.header-brand strong { font-weight: 800; letter-spacing: .06em; font-size: 21px; }
+.header-brand span { display: none; }
+.site-header nav a { font-weight: 500; }
+.site-header nav a.active { color: var(--ink); }
+.site-header nav a.active::after { background: var(--green) !important; }
+
+/* ---------- wiki topbar + sidebar ---------- */
+.wiki-topbar { background: color-mix(in srgb, var(--paper) 86%, transparent); backdrop-filter: saturate(1.4) blur(14px); -webkit-backdrop-filter: saturate(1.4) blur(14px); border-bottom-color: var(--line); }
+.wiki-product-link { display: inline-flex; align-items: center; gap: 8px; text-decoration: none; color: var(--ink); }
+.wiki-product-link img { width: 30px; height: 28px; }
+.wiki-product-link strong { font-weight: 800; letter-spacing: .06em; font-size: 21px; font-family: var(--sans); }
+.wiki-product-link em { font-style: normal; font-size: 13px; font-weight: 600; color: var(--muted); padding: 2px 8px; border-radius: 999px; background: var(--oio-feed); }
+.wiki-search input, .wiki-sidebar-search input { font-family: var(--sans); }
+.wiki-search, .wiki-sidebar-search { border-radius: 12px !important; background: var(--oio-feed) !important; border-color: transparent !important; }
+.wiki-search:focus-within, .wiki-sidebar-search:focus-within { box-shadow: 0 0 0 2px rgba(32, 144, 78, .35); }
+.wiki-global-nav h2 { color: var(--muted); font-weight: 700; letter-spacing: .04em; }
+.wiki-global-nav a { border-radius: 10px; transition: background .2s, color .2s; }
+.wiki-global-nav a:hover { background: var(--oio-feed); }
+.wiki-global-nav a.active { color: var(--oio-green-deep); background: var(--green-light); font-weight: 700; }
+.wiki-global-nav a.active > i { color: var(--green); }
+.wiki-toc nav a.active, .wiki-toc a[aria-current] { color: var(--oio-green-deep); border-color: var(--green); }
+.wiki-search-results a.active, .wiki-search-results a:hover { background: var(--green-light); color: var(--oio-green-deep); }
+
+/* ---------- wiki article ---------- */
+.wiki-eyebrow { color: var(--green) !important; letter-spacing: .12em; font-weight: 700; }
+.wiki-article h1 { font-weight: 800; letter-spacing: -.02em; }
+.wiki-article h2 { font-weight: 800; }
+.wiki-article-head p { color: var(--muted); }
+.wiki-article a:not(.wiki-next a) { color: var(--oio-green-deep); text-decoration-color: rgba(32, 144, 78, .35); text-underline-offset: 3px; }
+.wiki-feature figure, .wiki-wide-shot, .wiki-shot-row figure, .wiki-shot-pair figure { background: var(--oio-feed) !important; border-radius: 24px !important; border: 0 !important; box-shadow: none !important; }
+.wiki-feature figure img, .wiki-wide-shot img { border-radius: 16px; }
+.wiki-next a { border-radius: 18px !important; border: 1px solid var(--line) !important; background: var(--surface) !important; transition: transform .25s var(--oio-ease), box-shadow .25s; }
+.wiki-next a:hover { transform: translateY(-2px); box-shadow: 0 18px 34px -24px rgba(0, 0, 0, .35); }
+.wiki-next a i { color: var(--green); }
+.wiki-faq-item { border-radius: 16px !important; border-color: var(--line) !important; background: var(--surface); }
+.wiki-faq-item summary::after, .wiki-faq-item > button::after { color: var(--green); }
+.wiki-release-badge, .wiki-release-version { background: var(--green-light) !important; color: var(--oio-green-deep) !important; border-color: transparent !important; }
+.wiki-quote { border-left-color: var(--green) !important; }
+.android-download-button { background: var(--green) !important; border-color: var(--green) !important; color: #fff !important; border-radius: 14px !important; }
+.android-download-button:hover { background: var(--oio-green-deep) !important; }
+
+/* Guide page: numbered how-to steps. */
+.wiki-steps { list-style: none; padding: 0; margin: 16px 0 8px; display: grid; gap: 12px; counter-reset: step; }
+.wiki-steps li { position: relative; padding-left: 40px; line-height: 1.7; counter-increment: step; }
+.wiki-steps li::before { content: counter(step); position: absolute; left: 0; top: 1px; width: 26px; height: 26px; border-radius: 50%; background: var(--green-light); color: var(--oio-green-deep); font-weight: 800; font-size: 13px; display: grid; place-items: center; }
+.wiki-kbd { display: inline-block; padding: 0 7px; border-radius: 6px; background: var(--oio-feed); border: 1px solid var(--line); font-size: .88em; font-weight: 600; color: var(--ink); }
+.wiki-tip { margin: 18px 0 0; padding: 14px 16px; border-radius: 14px; background: var(--green-light); color: var(--oio-green-deep); font-size: 15px; }
+.wiki-legend { display: flex; flex-wrap: wrap; gap: 14px; margin: 12px 0; font-size: 14px; color: var(--muted); }
+.wiki-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; }
+.wiki-new { display: inline-block; vertical-align: 3px; margin-left: 8px; padding: 2px 8px; border-radius: 999px; background: var(--ink); color: #fff; font-size: 11px; font-weight: 700; letter-spacing: .04em; }
+
+/* ---------- account ---------- */
+.account-page { background: var(--paper); }
+.account-intro h1 { font-weight: 800 !important; letter-spacing: -.02em; color: var(--ink); }
+.account-intro h1 { font: 800 clamp(40px, 5vw, 60px)/1.2 var(--sans) !important; }
+.account-intro > span, .account-card-heading > span { color: var(--green) !important; }
+.account-card-heading h1 { font-weight: 800; }
+.account-intro::before { content: ""; display: block; width: 96px; height: 90px; margin-bottom: 18px; background: url("assets/shared/mascot/oio-character-green.svg") center/contain no-repeat; animation: oio-bob 4.5s ease-in-out infinite; }
+@keyframes oio-bob { 0%, 100% { transform: translateY(0) rotate(-4deg); } 50% { transform: translateY(-8px) rotate(-1deg); } }
+.login-card, .account-overview, .account-profile, .account-metrics, .account-dashboard > section {
+  background: var(--surface); border-radius: 24px !important; border: 1px solid var(--line) !important;
+  box-shadow: 0 30px 60px -40px rgba(29, 34, 30, .35);
+}
+.login-card { padding: 32px !important; }
+.login-tabs button, .channel-switch button { font-family: var(--sans); }
+.login-tabs button[aria-selected="true"], .login-tabs .active { color: var(--ink) !important; border-color: var(--green) !important; }
+.channel-switch .active, .channel-switch button[aria-pressed="true"] { color: var(--oio-green-deep) !important; }
+.channel-switch .active::after { background: var(--green) !important; }
+.form-field input, .code-input input, .phone-input input, .login-card input[type="email"], .login-card input[type="password"], .login-card input[type="tel"], .login-card input[type="text"] {
+  border-radius: 12px !important; border-color: var(--line) !important; background: var(--oio-feed) !important; font-family: var(--sans); transition: box-shadow .2s, background .2s;
+}
+.login-card input:focus { outline: none; background: var(--surface) !important; box-shadow: 0 0 0 2px rgba(32, 144, 78, .4); }
+.code-input, .phone-input { border-radius: 12px !important; border-color: var(--line) !important; background: var(--oio-feed) !important; }
+.code-input button { color: var(--oio-green-deep) !important; border-color: var(--green) !important; font-weight: 700; }
+.account-primary-button, .membership-button {
+  background: var(--green) !important; border-color: var(--green) !important; color: #fff !important; border-radius: 999px !important;
+  font-family: var(--sans); font-weight: 700; transition: transform .2s var(--oio-ease), background .2s, box-shadow .2s;
+  box-shadow: 0 12px 24px -14px rgba(32, 144, 78, .8);
+}
+.account-primary-button:hover, .membership-button:hover { background: var(--oio-green-deep) !important; transform: translateY(-1px); }
+.account-primary-button:disabled { opacity: .55; box-shadow: none; transform: none; }
+.account-secondary-button { border-radius: 999px !important; border-color: var(--line) !important; background: var(--oio-feed) !important; color: var(--ink) !important; font-family: var(--sans); }
+.agreement input { accent-color: var(--green); }
+.agreement a { color: var(--oio-green-deep); }
+.account-avatar { box-shadow: 0 0 0 3px var(--green-light); }
+
+/* ---------- footer ---------- */
+.site-footer { border-top-color: var(--line); color: var(--muted); }
+
+@media (prefers-reduced-motion: reduce) {
+  .account-intro::before { animation: none; }
+}
+
+/* Wiki home loop: the language step in brand green (was yellow). */
+.wiki-life-loop .is-language { background: var(--green-light) !important; border-color: rgba(32, 144, 78, .35) !important; }
+.wiki-topbar nav [data-account-link] { display: inline; }
