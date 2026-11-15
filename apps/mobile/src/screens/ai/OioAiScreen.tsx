@@ -12,6 +12,7 @@ import { theme } from "../../theme";
 import { createStyles } from "../../styles";
 import { motion } from "../../motion";
 import { useAndroidBack } from "../../hooks/useAndroidBack";
+import { generateCardAutomaticCloze } from "../../services/api/cardApi";
 import {
   listOioAiMessages, listOioAiThreads, OioAiError, saveOioAiThreadAsCard, streamOioAi,
   type OioAiAction, type OioAiBlock, type OioAiCard, type OioAiThread,
@@ -72,6 +73,8 @@ export function OioAiScreen({ visible, onClose, onOpenCard, onStartBlindBox, con
     setSavingCard(true);
     try {
       const saved = await saveOioAiThreadAsCard(threadId);
+      // Like any new card: automatic blanks on the user's lines and OIO's replies.
+      if (saved.created) await generateCardAutomaticCloze(saved.recordId, ["rewrite", "reply"]).catch(() => undefined);
       setCardId(saved.recordId);
       haptic.success();
     } catch (error) {

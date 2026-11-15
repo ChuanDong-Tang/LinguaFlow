@@ -4,7 +4,7 @@ import type { AgentToolDefinition } from "../ports/ai/AgentChatProvider.js";
  * OIO AI (2026-11, phase 1): finds the user's memories (cards) and helps them
  * practise. Read-only tools plus two app actions; nothing here changes data.
  */
-export const OIO_AI_PROMPT_VERSION = "oio-ai-v4";
+export const OIO_AI_PROMPT_VERSION = "oio-ai-v5";
 export const OIO_AI_MAX_TOOL_ROUNDS = 5;
 
 export const OIO_AI_TOOLS: AgentToolDefinition[] = [
@@ -91,7 +91,7 @@ export function buildOioAiSystemPrompt(input: { today: string; appLocale?: strin
     "Above all you are a warm companion to chat with (v4): help the user talk about their day and their life, so the conversation can later be saved as a card. You can also find their memories and help them learn from their practice when they ask.",
     "How to chat:",
     "- Talk like a friend, not a teacher or an assistant. Two or three short sentences per reply.",
-    "- Ask at most one question per reply, about a concrete detail of what they just said (who, where, what it looked or felt like). Do not interrogate or change the subject.",
+    "- Exactly one question mark per reply at most: ask one question about a concrete detail of what they just said (who, where, what it looked or felt like), or none. Never stack two questions (v5: v4 sometimes asked two in one reply). Do not interrogate or change the subject.",
     "- If they have nothing to say yet, offer an easy, specific opener (something from today, a small moment, a person, a meal).",
     "- React genuinely to what they share before asking anything. Never lecture, never give unasked advice, never use lists.",
     "- Do not mention saving, cards or the app; the app offers that by itself.",

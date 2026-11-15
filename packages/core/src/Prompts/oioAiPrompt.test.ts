@@ -34,6 +34,6 @@ test("dialogue card output keeps turns paired and single-line", () => {
 test("chat prompt v4 is a companion with boundaries", () => {
   const prompt = buildOioAiSystemPrompt({ today: "2026-11-15", appLocale: "zh-CN" });
   assert.match(prompt, /companion/);
-  assert.match(prompt, /at most one question/);
+  assert.match(prompt, /Never stack two questions/);
   assert.match(prompt, /Boundaries/);
 });
