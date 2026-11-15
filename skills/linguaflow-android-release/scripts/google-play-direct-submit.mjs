@@ -261,7 +261,9 @@ try {
     releases: [{
       name: `OIO ${expectedVersionCode}`,
       versionCodes: [String(expectedVersionCode)],
-      status: "completed",
+      // draft: registers the bundle without rolling it out, e.g. so Play
+      // Console shows a pending permission declaration for it.
+      status: process.env.GOOGLE_PLAY_RELEASE_STATUS === "draft" ? "draft" : "completed",
     }],
   };
   await request({
