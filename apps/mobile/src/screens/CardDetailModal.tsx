@@ -4010,7 +4010,7 @@ function Review({ sentencePractice = false, sentenceOccurrence = 1, onSentenceDo
         onCheck={() => { if (activeChoiceOwnerKey) choiceAnswerHandlersRef.current.get(activeChoiceOwnerKey)?.({ type: "check" }); }}
         onProceed={() => { if (activeChoiceOwnerKey) choiceAnswerHandlersRef.current.get(activeChoiceOwnerKey)?.({ type: "proceed" }); }}
         onMastered={choiceTrayState.remembered ? () => { if (activeChoiceOwnerKey) choiceAnswerHandlersRef.current.get(activeChoiceOwnerKey)?.({ type: "mastered" }); } : undefined}
-        onForgot={choiceTrayState.remembered ? undefined : () => { if (activeChoiceOwnerKey) choiceAnswerHandlersRef.current.get(activeChoiceOwnerKey)?.({ type: "forgot" }); }}
+        onForgot={() => { if (activeChoiceOwnerKey) choiceAnswerHandlersRef.current.get(activeChoiceOwnerKey)?.({ type: "forgot" }); }}
         onLookup={lookupChoiceAnswer}
       />
     </View> : null}
@@ -5021,7 +5021,8 @@ function Cloze({ onlySegmentIds, detail, contentBinding, clozeState, clozeVersio
   }
   const masterChoiceRef = useRef(masterChoice);
   masterChoiceRef.current = masterChoice;
-  // 忘记了: no guessing needed — counts as wrong and shows the right answer.
+  // 不记得: no guessing needed — counts as wrong and shows the right answer (yellow),
+  // also for a blank answered right before (round 4).
   function forgetChoice(): void {
     const blankIndex = effectiveActiveChoiceBlankIndex;
     const blank = blankIndex === null ? undefined : clozeState.blanks[blankIndex];
@@ -5214,7 +5215,7 @@ function Cloze({ onlySegmentIds, detail, contentBinding, clozeState, clozeVersio
             </View>;
           })}
           {!onChoiceTrayChange && fillMode && inputMode === "choice" && externalChoiceTray ? <View style={styles.clozeChoiceTray}>
-            <ClozeAnswerPuzzleTray puzzle={externalChoiceTray.puzzle} selectedIds={externalChoiceTray.selectedIds} incorrect={externalChoiceTray.incorrect} feedback={externalChoiceTray.feedback} disabled={saving} onChange={changeChoiceSelection} onCheck={checkChoiceSelection} onProceed={proceedChoice} onMastered={externalChoiceTray.remembered ? masterChoice : undefined} onForgot={externalChoiceTray.remembered ? undefined : forgetChoice} onLookup={(answer, anchor) => {
+            <ClozeAnswerPuzzleTray puzzle={externalChoiceTray.puzzle} selectedIds={externalChoiceTray.selectedIds} incorrect={externalChoiceTray.incorrect} feedback={externalChoiceTray.feedback} disabled={saving} onChange={changeChoiceSelection} onCheck={checkChoiceSelection} onProceed={proceedChoice} onMastered={externalChoiceTray.remembered ? masterChoice : undefined} onForgot={forgetChoice} onLookup={(answer, anchor) => {
               const blank = effectiveActiveChoiceBlankIndex === null ? undefined : clozeState.blanks[effectiveActiveChoiceBlankIndex];
               const row = blank ? sentenceRows.find((candidate) => candidate.blanks.some((item) => item.blank.id === blank.id)) : undefined;
               if (row && blank) lookupInSentence(row, answer, blank.startUtf16, blank.endUtf16, anchor);

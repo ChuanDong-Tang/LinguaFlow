@@ -51,7 +51,7 @@ export function ClozeAnswerPuzzleTray({
   onLookup?: (answer: string, anchor: ClozeLookupAnchor) => void;
   /** Shown for a blank answered right last time: 已掌握 reveals it and moves on. */
   onMastered?: () => void;
-  /** Shown for an unanswered or missed blank: 忘记了 counts it wrong and shows the answer. */
+  /** 不记得 (every blank, round 4): counts it wrong and shows the answer. */
   onForgot?: () => void;
 }) {
   const answerRef = useRef<View>(null);
@@ -104,6 +104,11 @@ export function ClozeAnswerPuzzleTray({
             : <View key={`slot-${slot}`} style={[styles.slotEmpty, words ? styles.slotEmptyWord : styles.slotEmptyCharacter]} />;
         })}
       </View>
+      {/* 归位 sits on the answer row (round 4), out of the way of the main buttons. */}
+      {placed.size > 0 ? <Pressable accessibilityRole="button" disabled={locked} hitSlop={8} style={({ pressed }) => [styles.resetButton, pressed && styles.pressed]} onPress={() => { haptic.light(); onChange([]); }}>
+        <Icon name="arrow-undo-outline" size={14} color={theme.colors.textSecondary} />
+        <Text style={styles.resetText}>{t("cloze.reset")}</Text>
+      </Pressable> : null}
     </View>}
     {answered ? null : <View style={styles.wrap}>
       {available.map((token) => <Pressable key={token.id} accessibilityRole="button" accessibilityLabel={token.text} disabled={locked} style={({ pressed }) => [styles.tile, !words && styles.characterTile, pressed && styles.pressed]} onPress={() => place(token.id)}>
@@ -123,42 +128,37 @@ export function ClozeAnswerPuzzleTray({
         </Pressable>
       </View>
     </Reanimated.View> : null}
+    {/* Unanswered: 不记得 · 检查 · 已掌握 (已掌握 only for a blank answered right
+        before). 不记得 is always there — even a known word can slip (round 4). */}
     <View style={styles.actions}>
-      {!answered && placed.size > 0 ? <Reanimated.View entering={FadeIn.duration(motion.duration.quick)}>
-        <Pressable accessibilityRole="button" disabled={locked} hitSlop={6} style={({ pressed }) => [styles.resetButton, pressed && styles.pressed]} onPress={() => { haptic.light(); onChange([]); }}>
-          <Text style={styles.resetText}>{t("cloze.reset")}</Text>
-        </Pressable>
-      </Reanimated.View> : <View />}
-      <View style={styles.actionsRight}>
-      {!answered && onMastered ? <Pressable accessibilityRole="button" hitSlop={6} style={({ pressed }) => [styles.mastered, pressed && styles.pressed]} onPress={onMastered}>
-        <CheckMark size={14} />
-        <Text style={styles.masteredText}>{t("cloze.mastered")}</Text>
-      </Pressable> : null}
-      {!answered && !onMastered && onForgot ? <Pressable accessibilityRole="button" disabled={disabled} hitSlop={6} style={({ pressed }) => [styles.forgot, pressed && styles.pressed]} onPress={onForgot}>
+      {!answered && onForgot ? <Pressable accessibilityRole="button" disabled={disabled} style={({ pressed }) => [styles.actionButton, styles.forgot, pressed && styles.pressed]} onPress={onForgot}>
         <Text style={styles.forgotText}>{t("cloze.forgot")}</Text>
       </Pressable> : null}
       {onCheck && onProceed ? <PressableSurface
-        radius={22}
+        radius={23}
         fill={answered ? (feedback?.correct ? theme.colors.accent : theme.colors.warning) : complete ? theme.colors.accent : theme.colors.fill2}
         feedback={null}
         disabled={disabled || (!answered && !complete)}
         accessibilityRole="button"
-        style={styles.primary}
-        contentStyle={styles.primaryInner}
+        style={answered ? styles.primaryAlone : styles.actionSlot}
+        contentStyle={[styles.primaryInner, !answered && styles.primaryFill]}
         onPress={() => (answered ? onProceed() : onCheck())}
       >
         <Text style={[styles.primaryText, (answered || complete) && styles.primaryTextOn, answered && !feedback?.correct && { color: theme.colors.onWarning }]}>
           {t(answered ? (feedback?.correct ? "cloze.continue" : "cloze.got_it") : "cloze.check")}
         </Text>
       </PressableSurface> : null}
-      </View>
+      {!answered && onMastered ? <Pressable accessibilityRole="button" disabled={disabled} style={({ pressed }) => [styles.actionButton, styles.mastered, pressed && styles.pressed]} onPress={onMastered}>
+        <CheckMark size={14} />
+        <Text style={styles.masteredText}>{t("cloze.mastered")}</Text>
+      </Pressable> : null}
     </View>
   </View>;
 }
 
 const styles = createStyles(() => ({
   root: { gap: 12 },
-  answer: { minHeight: 60, borderRadius: 12, backgroundColor: theme.colors.fill1, padding: 10, justifyContent: "center" },
+  answer: { minHeight: 60, borderRadius: 12, backgroundColor: theme.colors.fill1, padding: 10, paddingRight: 64, paddingLeft: 64, justifyContent: "center" },
   answerIncorrect: { backgroundColor: theme.colors.fill2 },
   wrap: { flexDirection: "row", flexWrap: "wrap", gap: 8, justifyContent: "center" },
   answerWrap: { minHeight: 40, alignItems: "flex-end" },
@@ -184,16 +184,18 @@ const styles = createStyles(() => ({
   feedbackTitle: { color: theme.colors.text, fontSize: 17, fontWeight: "700" },
   feedbackLabel: { color: theme.colors.textSecondary, fontSize: 12, fontWeight: "600" },
   feedbackAnswer: { color: theme.colors.text, fontSize: 18, fontWeight: "700" },
-  actions: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
-  actionsRight: { flexDirection: "row", alignItems: "center", gap: 10 },
-  mastered: { minHeight: 46, paddingHorizontal: 16, borderRadius: 23, borderWidth: 1.5, borderColor: theme.colors.accent, backgroundColor: theme.colors.accentSoft, flexDirection: "row", alignItems: "center", gap: 5 },
-  forgot: { minHeight: 46, paddingHorizontal: 16, borderRadius: 23, backgroundColor: theme.colors.fill2, alignItems: "center", justifyContent: "center" },
+  actions: { flexDirection: "row", alignItems: "center", gap: 10 },
+  actionButton: { flex: 1, minHeight: 46, borderRadius: 23, alignItems: "center", justifyContent: "center" },
+  primaryAlone: { marginLeft: "auto" },
+  actionSlot: { flex: 1 },
+  primaryFill: { minWidth: 0 },
+  mastered: { borderWidth: 1.5, borderColor: theme.colors.accent, backgroundColor: theme.colors.accentSoft, flexDirection: "row", gap: 4 },
+  forgot: { backgroundColor: theme.colors.fill2 },
   forgotText: { color: theme.colors.textSecondary, fontSize: 15, fontWeight: "600" },
   masteredText: { color: theme.colors.accent, fontSize: 15, fontWeight: "700" },
-  resetButton: { minHeight: 44, paddingHorizontal: 6, justifyContent: "center" },
-  resetText: { color: theme.colors.textSecondary, fontSize: 14, fontWeight: "600" },
-  primary: { flexGrow: 0 },
-  primaryInner: { minHeight: 46, minWidth: 128, paddingHorizontal: 26, alignItems: "center", justifyContent: "center" },
+  resetButton: { position: "absolute", right: 8, top: 0, bottom: 0, flexDirection: "row", alignItems: "center", gap: 3, paddingHorizontal: 6 },
+  resetText: { color: theme.colors.textSecondary, fontSize: 13, fontWeight: "600" },
+  primaryInner: { minHeight: 46, minWidth: 110, paddingHorizontal: 18, alignItems: "center", justifyContent: "center" },
   primaryText: { color: theme.colors.textMuted, fontSize: 16, fontWeight: "700" },
   primaryTextOn: { color: theme.colors.onAccent },
 }));
