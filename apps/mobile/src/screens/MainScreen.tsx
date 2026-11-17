@@ -87,6 +87,7 @@ import {
 } from "../services/card/cardDraftStorage";
 import { libraryCaptureTime, pickedImageSource, type PickedImageSource } from "../services/card/photoCaptureTime";
 import { photoTakenTime } from "../services/device/memoryPhotoPolicy";
+import { isExpiredImageUploadError } from "../services/card/cardImageUploadErrors";
 import { ensureImageUploadQuota } from "../services/usage/imageUploadQuota";
 import { quotaExhaustionKindForCode } from "../services/usage/quotaExhaustion";
 import { theme } from "../theme";
@@ -965,6 +966,10 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
       };
       await commitDraft(retryable);
       if (error instanceof CardApiError && error.code === "TOKEN_QUOTA_EXCEEDED") return;
+      if (isExpiredImageUploadError(error)) {
+        await recoverExpiredDraftImages(snapshot.images);
+        return;
+      }
       Alert.alert(t("card_detail.error.send"), t("card_detail.draft_retained"));
     } finally {
       submitInFlightRef.current = false;
@@ -1185,6 +1190,10 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
       if (error instanceof CardApiError && error.code === "TOKEN_QUOTA_EXCEEDED") {
         return;
       }
+      if (isExpiredImageUploadError(error)) {
+        await recoverExpiredDraftImages(snapshot.images);
+        return;
+      }
       if (isCardResourceLimitedError(error)) {
         Alert.alert(t("main.error.try_later"), t("main.error.card_processing"));
         return;
@@ -1198,6 +1207,35 @@ export function MainScreen({ isActive, refreshRevision, incomingCardDraft, onInc
     } finally {
       submitInFlightRef.current = false;
       setSending(false);
+    }
+  }
+
+  /**
+   * A draft keeps its images' upload ids, but an upload is only claimable for
+   * 24 hours (and only once). A draft retried later would fail forever with
+   * CARD_IMAGE_NOT_READY, so upload the same local files again under fresh ids
+   * and let the user send once more.
+   */
+  async function recoverExpiredDraftImages(images: CardDraftImage[]): Promise<void> {
+    try {
+      const fresh: CardDraftImage[] = [];
+      for (const image of images) {
+        fresh.push(await uploadCardDraftImage({ ...image, uploadId: null, status: "pending" }, persistDraftImage));
+      }
+      await updateCommittedDraft((current) => ({
+        ...current,
+        images: current.images.map((candidate) => fresh.find((image) => image.localUri === candidate.localUri) ?? candidate),
+      }));
+      Alert.alert(t("card_detail.photo.reuploaded_title"), t("card_detail.photo.reuploaded_message"));
+    } catch (error) {
+      console.warn("[card] re-upload expired draft images failed", error);
+      await updateCommittedDraft((current) => ({
+        ...current,
+        images: current.images.map((candidate) => images.some((image) => image.localUri === candidate.localUri) && candidate.status !== "ready"
+          ? { ...candidate, status: "failed" as const }
+          : candidate),
+      }));
+      Alert.alert(t("card_detail.photo.add_failed_title"), t("card_detail.photo.add_failed_message"));
     }
   }
 

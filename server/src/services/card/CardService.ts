@@ -605,6 +605,9 @@ export class CardService {
         createdAt: input.trustedSource?.createdAt,
       }); } catch (error) {
         if (error instanceof Error && error.message === "CARD_COLLECTION_NOT_FOUND") throw new CardNotFoundError();
+        // An upload id that expired (24 h) or was already claimed: a client
+        // error the app can recover from by uploading again, not a 500.
+        if (error instanceof Error && error.message === "CARD_IMAGE_NOT_READY") throw new CardImageNotReadyError("Image upload is not ready");
         throw error;
       }
       await attachLink(created.id);
