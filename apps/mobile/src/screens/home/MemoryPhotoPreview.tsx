@@ -4,17 +4,17 @@ import { Text } from "../../components/Typography";
 import * as MediaLibrary from "expo-media-library/legacy";
 import { getLanguage } from "../../i18n";
 import { theme } from "../../theme";
-import { readMemoryPhotoSource } from "../../services/device/memoryPhotoLibrary";
+import { readMemoryPhotoPreview } from "../../services/device/memoryPhotoLibrary";
 
 // Resolve only mounted deck cards, never the whole library. ph:// identifiers
-// are not file URLs; do not hand them directly to React Native's Image loader.
+// are not file URLs; readMemoryPhotoPreview turns them into a cached file on iOS.
 export function MemoryPhotoPreview({ asset, style, cover = false }: { asset: MediaLibrary.Asset; style: StyleProp<ViewStyle>; cover?: boolean }) {
   const [preview, setPreview] = useState<{ id: string; uri: string | null } | null>(null);
   const [failed, setFailed] = useState(false);
   useEffect(() => {
     let active = true;
     setPreview(null); setFailed(false);
-    void readMemoryPhotoSource(asset).then(source => {
+    void readMemoryPhotoPreview(asset).then(source => {
       if (active) setPreview({ id: asset.id, uri: source.uri });
     }).catch(() => { if (active) setPreview({ id: asset.id, uri: null }); });
     return () => { active = false; };

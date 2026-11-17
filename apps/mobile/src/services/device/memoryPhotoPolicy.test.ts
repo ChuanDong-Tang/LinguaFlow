@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { memoryPhotoAccess, photoDayRange, mergePhotoPage, photoBatch, nextPhotoSet, memoryPhotoPreviewUri, isRecentPhoto, relativePhotoDay, resizePhotoSet } from "./memoryPhotoPolicy";
+import { memoryPhotoAccess, photoDayRange, mergePhotoPage, photoBatch, nextPhotoSet, memoryPhotoPreviewUri, memoryPhotoPreviewResize, isRecentPhoto, relativePhotoDay, resizePhotoSet } from "./memoryPhotoPolicy";
 
 test("photo previews resolve local files without passing Photos IDs or cloud URLs to Image", () => {
   assert.equal(memoryPhotoPreviewUri({ uri: "ph://asset", localUri: "file:///photo.jpg" }), "file:///photo.jpg");
@@ -79,4 +79,11 @@ test("resizing the set applies now and never drops what was seen", () => {
   assert.deepEqual(resizePhotoSet(deck, library, 2, 3, () => 0).map((item) => item.id), ["a", "b", "c", "d"]);
   // Not enough photos left: append what there is.
   assert.equal(resizePhotoSet(deck, library.slice(0, 6), 30, 0).length, 6);
+});
+
+test("iOS photo previews are bounded to 1600 px on the longest side", () => {
+  assert.equal(memoryPhotoPreviewResize(1200, 900), null);
+  assert.deepEqual(memoryPhotoPreviewResize(5712, 4284), { width: 1600 });
+  assert.deepEqual(memoryPhotoPreviewResize(4284, 5712), { height: 1600 });
+  assert.deepEqual(memoryPhotoPreviewResize(0, 0), { width: 1600 });
 });

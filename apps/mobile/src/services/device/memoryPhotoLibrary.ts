@@ -1,6 +1,7 @@
+import * as ImageManipulator from "expo-image-manipulator";
 import * as MediaLibrary from "expo-media-library/legacy";
 import { Image, Platform } from "react-native";
-import { androidPhotoDayPage, memoryPhotoAccess, photoDayRange } from "./memoryPhotoPolicy";
+import { androidPhotoDayPage, memoryPhotoAccess, memoryPhotoPreviewResize, photoDayRange } from "./memoryPhotoPolicy";
 import { resolveMemoryPhotoSource } from "./memoryPhotoSource";
 
 export function readMemoryPhotoSource(asset: MediaLibrary.Asset, allowNetwork = false) {
@@ -8,6 +9,45 @@ export function readMemoryPhotoSource(asset: MediaLibrary.Asset, allowNetwork = 
     contentUri: MediaLibrary.getAssetContentUriAsync,
     info: MediaLibrary.getAssetInfoAsync,
   });
+}
+
+type MemoryPhotoPreviewSource = { id: string; uri: string; width: number; height: number };
+const iosPreviewCache = new Map<string, Promise<MemoryPhotoPreviewSource>>();
+const IOS_PREVIEW_CACHE_LIMIT = 60;
+let iosPreviewQueue: Promise<unknown> = Promise.resolve();
+
+/**
+ * Pixels for showing a library photo on screen.
+ *
+ * iOS: the asset's own file path is often missing (iCloud "Optimize Storage")
+ * or not readable by the app, which left previews gray. PhotoKit (through
+ * ImageManipulator, which accepts ph:// and may fetch from iCloud) renders a
+ * bounded JPEG into the app cache instead. One decode at a time: PhotoKit
+ * decodes the original first, so a grid must not decode many at once.
+ */
+export function readMemoryPhotoPreview(asset: MediaLibrary.Asset): Promise<MemoryPhotoPreviewSource> {
+  if (Platform.OS === "android") return readMemoryPhotoSource(asset);
+  const cached = iosPreviewCache.get(asset.id);
+  if (cached) return cached;
+  const task = iosPreviewQueue.then(async () => {
+    const resize = memoryPhotoPreviewResize(asset.width, asset.height);
+    const result = await ImageManipulator.manipulateAsync(asset.uri, resize ? [{ resize }] : [], {
+      compress: 0.82,
+      format: ImageManipulator.SaveFormat.JPEG,
+    });
+    return { id: asset.id, uri: result.uri, width: result.width, height: result.height };
+  });
+  iosPreviewQueue = task.catch(() => undefined);
+  const cachedTask = task.catch((error) => {
+    iosPreviewCache.delete(asset.id);
+    throw error;
+  });
+  iosPreviewCache.set(asset.id, cachedTask);
+  if (iosPreviewCache.size > IOS_PREVIEW_CACHE_LIMIT) {
+    const oldest = iosPreviewCache.keys().next().value;
+    if (oldest !== undefined) iosPreviewCache.delete(oldest);
+  }
+  return cachedTask;
 }
 
 // This module only reads the user's library. Upload/generation belongs to the

@@ -49,6 +49,16 @@ export function mergePhotoPage<T extends { id: string }>(current: readonly T[], 
 }
 
 /** Preview must stay local: an iOS Photos identifier is not a readable file. */
+/**
+ * iOS previews are rendered from PhotoKit into a cached JPEG; keep the longest
+ * side at most `maxSide` so a 24–48 MP original never becomes the preview.
+ */
+export function memoryPhotoPreviewResize(width: number, height: number, maxSide = 1600): { width: number } | { height: number } | null {
+  if (!(width > 0) || !(height > 0)) return { width: maxSide };
+  if (Math.max(width, height) <= maxSide) return null;
+  return width >= height ? { width: maxSide } : { height: maxSide };
+}
+
 export function memoryPhotoPreviewUri(info: { localUri?: string | null; uri: string }): string | null {
   return [info.localUri, info.uri].find(uri => uri && /^(file|content):\/\//i.test(uri)) ?? null;
 }
