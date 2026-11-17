@@ -370,6 +370,14 @@ a { color: inherit; }
 .group-dialog p { margin: 0 0 16px; color: var(--muted); }
 .group-dialog .dialog-close { position: absolute; right: 14px; top: 10px; border: 0; background: none; font-size: 26px; color: var(--muted); cursor: pointer; }
 .group-dialog { position: relative; }
+.group-dialog .group-qr { display: block; margin: 0 auto; border-radius: 12px; }
+.group-dialog .group-hint { margin: 12px 0 0; font-size: 13px; }
+
+/* WeChat group QR inside the download block. */
+.lp-group { display: inline-flex; align-items: center; gap: 16px; margin-top: 34px; padding: 14px 20px 14px 14px; border-radius: 22px; background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.12); text-align: left; max-width: 100%; }
+.lp-group img { width: 112px; height: 112px; border-radius: 12px; background: #fff; padding: 6px; flex: none; }
+.lp-group strong { display: block; color: #fff; font-size: 17px; margin-bottom: 6px; }
+.lp-group span { display: block; color: rgba(255,255,255,.7); font-size: 14px; line-height: 1.55; max-width: 260px; }
 
 /* ---------- responsive ---------- */
 @media (max-width: 960px) {
@@ -384,6 +392,8 @@ a { color: inherit; }
   .lp-nav a:not(.lp-nav-cta):not(.keep) { display: none; }
 }
 @media (max-width: 520px) {
+  .lp-group { flex-direction: column; text-align: center; gap: 10px; padding: 16px; }
+  .lp-group span { max-width: none; }
   .wrap { width: calc(100% - 32px); }
   .stage { padding: 26px 18px; min-height: 360px; }
   .hero-chip-a { right: 0; }

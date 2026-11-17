@@ -13,7 +13,11 @@
   // Group QR dialog (kept from the old page).
   const groupDialog = document.getElementById("group-dialog");
   if (groupDialog) {
-    document.addEventListener("click", (event) => { if (event.target.closest("[data-join-group]")) groupDialog.showModal(); });
+    document.addEventListener("click", (event) => {
+      if (!event.target.closest("[data-join-group]")) return;
+      event.preventDefault(); // the href (Wiki contact page) is only the no-script fallback
+      groupDialog.showModal();
+    });
     groupDialog.querySelector(".dialog-close")?.addEventListener("click", () => groupDialog.close());
     groupDialog.addEventListener("click", (event) => { if (event.target === groupDialog) groupDialog.close(); });
   }
