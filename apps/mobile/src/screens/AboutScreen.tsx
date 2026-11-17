@@ -13,6 +13,7 @@ import { theme } from "../theme";
 import { createStyles } from "../styles";
 
 const CHANGELOG_URL = "https://yueyantech.com/wiki/changelog.html";
+const WECHAT_GROUP_URL = "https://yueyantech.com/wiki/contact.html";
 
 export function getAppVersionText() {
   const version =
@@ -68,7 +69,8 @@ export function AboutScreen({ onBack }: AboutScreenProps) {
         </View>
 
         <SectionCard title={t("about.contact")}>
-          <InfoRow icon="globe-outline" label={t("about.website")} value="www.yueyantech.com" onPress={() => openUrl("https://yueyantech.com")} isLast />
+          <InfoRow icon="globe-outline" label={t("about.website")} value="www.yueyantech.com" onPress={() => openUrl("https://yueyantech.com")} />
+          <InfoRow icon="people-outline" label={t("about.wechat_group")} value="" onPress={() => openUrl(WECHAT_GROUP_URL)} isLast />
         </SectionCard>
 
         <SectionCard title={t("about.more")}>
