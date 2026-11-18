@@ -587,10 +587,6 @@ export default function App() {
   }
 
   async function startDeleteAccountVerification(): Promise<void> {
-    if (!authingConfigured || !authingDiscovery || !deleteAuthingRequest) {
-      Alert.alert(t("app.delete.unavailable_title"), t("app.delete.unavailable_message"));
-      return;
-    }
     if (deleteAccountLoading) return;
 
     const session = await getSession();
@@ -603,23 +599,35 @@ export default function App() {
     const runId = ++deleteAccountRunIdRef.current;
     setDeleteAccountLoading(true);
     try {
-      const result = await promptDeleteAuthingAsync();
-      if (!(await isCurrentDeleteAccountRun(runId, userId))) return;
-      if (result.type !== "success") {
-        Alert.alert(t("app.delete.cancelled"));
-        return;
+      // Self-hosted verification sends the code straight away; only the legacy
+      // Authing path asks for a fresh Authing sign-in (AUTHING_REAUTH_REQUIRED).
+      let prepared: Awaited<ReturnType<typeof prepareDeleteAccount>>;
+      try {
+        prepared = await prepareDeleteAccount({ authingToken: (await getAuthingAccessToken()) ?? "" });
+      } catch (error) {
+        if (!(error instanceof ApiError) || error.code !== "AUTHING_REAUTH_REQUIRED") throw error;
+        if (!authingConfigured || !authingDiscovery || !deleteAuthingRequest) {
+          Alert.alert(t("app.delete.unavailable_title"), t("app.delete.unavailable_message"));
+          return;
+        }
+        const result = await promptDeleteAuthingAsync();
+        if (!(await isCurrentDeleteAccountRun(runId, userId))) return;
+        if (result.type !== "success") {
+          Alert.alert(t("app.delete.cancelled"));
+          return;
+        }
+        const tokenResult = await AuthSession.exchangeCodeAsync(
+          {
+            clientId: authingClientId,
+            code: result.params.code,
+            redirectUri: authingRedirectUri,
+            extraParams: { code_verifier: deleteAuthingRequest.codeVerifier ?? "" },
+          },
+          authingDiscovery,
+        );
+        if (!(await isCurrentDeleteAccountRun(runId, userId))) return;
+        prepared = await prepareDeleteAccount({ authingToken: tokenResult.accessToken });
       }
-      const tokenResult = await AuthSession.exchangeCodeAsync(
-        {
-          clientId: authingClientId,
-          code: result.params.code,
-          redirectUri: authingRedirectUri,
-          extraParams: { code_verifier: deleteAuthingRequest.codeVerifier ?? "" },
-        },
-        authingDiscovery,
-      );
-      if (!(await isCurrentDeleteAccountRun(runId, userId))) return;
-      const prepared = await prepareDeleteAccount({ authingToken: tokenResult.accessToken });
       if (!(await isCurrentDeleteAccountRun(runId, userId))) return;
       setDeleteAccountAuthingToken(prepared.authingToken);
       setDeleteAccountMethod(prepared.method);
@@ -764,9 +772,9 @@ export default function App() {
   }
 
   async function resolveBindEmailAuthingToken(): Promise<string> {
-    const cachedToken = await getAuthingAccessToken();
-    if (cachedToken) return cachedToken;
-    return requestFreshBindEmailAuthingToken();
+    // Empty is fine for self-hosted verification; the legacy Authing path
+    // answers AUTHING_REAUTH_REQUIRED and the caller falls back to sign-in.
+    return (await getAuthingAccessToken()) ?? "";
   }
 
   async function prepareBindEmailWithReauthFallback(authingToken: string, email: string) {

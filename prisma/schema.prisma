@@ -15,6 +15,9 @@ model User {
   email                       String?
   phone                       String?
   avatarUrl                   String?
+  /// Self-hosted password (scrypt). Null until set or lazily migrated from Authing.
+  passwordHash                String?
+  passwordUpdatedAt           DateTime?
   status                      UserStatus                         @default(active)
   role                        UserRole                           @default(user)
   createdAt                   DateTime                           @default(now())
@@ -1397,6 +1400,27 @@ model SystemEventLog {
   @@index([level, createdAt])
   @@index([status, createdAt])
   @@map("system_event_logs")
+}
+
+/// One-time verification codes for self-hosted login, account deletion and
+/// email binding. Only a keyed hash of the code is stored.
+model AuthVerificationCode {
+  id          String    @id @default(cuid())
+  channel     String
+  target      String
+  purpose     String
+  userId      String?
+  codeHash    String
+  attempts    Int       @default(0)
+  expiresAt   DateTime
+  consumedAt  DateTime?
+  requestIp   String?
+  createdAt   DateTime  @default(now())
+
+  @@index([target, purpose, createdAt])
+  @@index([requestIp, createdAt])
+  @@index([createdAt])
+  @@map("auth_verification_codes")
 }
 
 model TrustedCert {

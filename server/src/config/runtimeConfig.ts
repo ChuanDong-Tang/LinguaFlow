@@ -173,6 +173,21 @@ export interface RuntimeConfig {
   authingDomain: string | null;
   authingAppId: string | null;
   authingAppSecret: string | null;
+  /** "authing" until our SMS/email templates are approved; then "local". */
+  authPasscodeProvider: "authing" | "local";
+  /** Verify unmigrated passwords against Authing once and keep a local hash. Off after Authing expires. */
+  authAuthingPasswordFallback: boolean;
+  authVerification: {
+    secretId: string;
+    secretKey: string;
+    smsSdkAppId: string;
+    smsSignName: string;
+    smsTemplateId: string;
+    smsRegion: string;
+    emailFrom: string;
+    emailTemplateId: number;
+    emailRegion: string;
+  };
   authJwtSecret: string;
   authAccessTokenTtlSeconds: number;
   authRefreshTokenTtlSeconds: number;
@@ -382,6 +397,19 @@ export function getRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeC
     authingDomain: trimToNull(env.AUTHING_DOMAIN),
     authingAppId: trimToNull(env.AUTHING_APP_ID),
     authingAppSecret: trimToNull(env.AUTHING_APP_SECRET),
+    authPasscodeProvider: env.LF_AUTH_PASSCODE_PROVIDER?.trim() === "local" ? "local" : "authing",
+    authAuthingPasswordFallback: readBoolean(env.LF_AUTH_AUTHING_PASSWORD_FALLBACK, true),
+    authVerification: {
+      secretId: env.LF_VERIFY_TENCENT_SECRET_ID?.trim() || env.TENCENTCLOUD_SECRET_ID?.trim() || "",
+      secretKey: env.LF_VERIFY_TENCENT_SECRET_KEY?.trim() || env.TENCENTCLOUD_SECRET_KEY?.trim() || "",
+      smsSdkAppId: env.LF_SMS_SDK_APP_ID?.trim() || "",
+      smsSignName: env.LF_SMS_SIGN_NAME?.trim() || "",
+      smsTemplateId: env.LF_SMS_TEMPLATE_ID?.trim() || "",
+      smsRegion: env.LF_SMS_REGION?.trim() || "ap-guangzhou",
+      emailFrom: env.LF_SES_FROM?.trim() || "",
+      emailTemplateId: Number(env.LF_SES_TEMPLATE_ID?.trim() || 0),
+      emailRegion: env.LF_SES_REGION?.trim() || "ap-hongkong",
+    },
     authJwtSecret: env.AUTH_JWT_SECRET?.trim() || "dev-only-change-me",
     authAccessTokenTtlSeconds: readPositiveInt(env.AUTH_ACCESS_TOKEN_TTL_SECONDS, 60 * 30),
     authRefreshTokenTtlSeconds: readPositiveInt(env.AUTH_REFRESH_TOKEN_TTL_SECONDS, 60 * 60 * 24 * 30),

@@ -1,6 +1,7 @@
 import type { UserEntity, UserRepository } from "@lf/core/ports/repository/UserRepository.js";
 import { AuthenticationClient, Models } from "authing-node-sdk";
 import { getRuntimeConfig } from "../../config/runtimeConfig.js";
+import type { VerificationCodeService } from "./VerificationCodeService.js";
 
 export class EmailAlreadyBoundError extends Error {
   readonly code = "EMAIL_ALREADY_BOUND";
@@ -27,15 +28,34 @@ export class EmailBindingUnsupportedError extends Error {
 }
 
 export class AccountEmailBindingService {
-  constructor(private readonly userRepository: UserRepository) {}
+  constructor(
+    private readonly userRepository: UserRepository,
+    private readonly options: {
+      verificationCodes?: VerificationCodeService;
+      passcodeProvider?: () => "authing" | "local";
+    } = {},
+  ) {}
 
-  async prepare(input: { userId: string; authingToken: string; email: string }): Promise<{
+  private get local(): VerificationCodeService | null {
+    if ((this.options.passcodeProvider?.() ?? "authing") !== "local") return null;
+    if (!this.options.verificationCodes) throw new Error("Self-hosted verification codes are not configured");
+    return this.options.verificationCodes;
+  }
+
+  async prepare(input: { userId: string; authingToken?: string; email: string }): Promise<{
     authingToken: string;
     email: string;
     target: string;
   }> {
     const email = normalizeEmail(input.email);
     await this.assertEmailCanBeBound(input.userId, email);
+
+    const codes = this.local;
+    if (codes) {
+      await codes.issue({ channel: "email", target: email, purpose: "bind_email", userId: input.userId });
+      return { authingToken: input.authingToken?.trim() || "local", email, target: maskEmail(email) };
+    }
+    if (!input.authingToken?.trim()) throw new Error("Authing token validation failed: missing");
 
     const authingUser = await this.resolveAuthingUserFromToken(input.authingToken);
     await this.assertTokenBelongsToUser(input.userId, authingUser.sub);
@@ -59,9 +79,17 @@ export class AccountEmailBindingService {
     };
   }
 
-  async confirm(input: { userId: string; authingToken: string; email: string; passCode: string }): Promise<UserEntity> {
+  async confirm(input: { userId: string; authingToken?: string; email: string; passCode: string }): Promise<UserEntity> {
     const email = normalizeEmail(input.email);
     await this.assertEmailCanBeBound(input.userId, email);
+
+    const codes = this.local;
+    if (codes) {
+      const verified = await codes.verify({ target: email, purpose: "bind_email", code: input.passCode });
+      if (verified.userId !== input.userId) throw new Error("Verification code belongs to another account");
+      return this.userRepository.updateEmailById(input.userId, email);
+    }
+    if (!input.authingToken?.trim()) throw new Error("Authing token validation failed: missing");
 
     const authingUser = await this.resolveAuthingUserFromToken(input.authingToken);
     await this.assertTokenBelongsToUser(input.userId, authingUser.sub);

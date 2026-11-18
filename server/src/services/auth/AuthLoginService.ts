@@ -13,10 +13,14 @@ import { getRuntimeConfig } from "../../config/runtimeConfig.js";
 import { AuthenticationClient, Models } from "authing-node-sdk";
 import {
   signAccessTokenWithSession,
+  signAccountToken,
   signRefreshTokenWithSession,
   verifyRefreshToken,
 } from "./JwtSessionToken.js";
 import { createHash, randomUUID } from "node:crypto";
+import type { VerificationCodeService } from "./VerificationCodeService.js";
+import { InvalidContactError, normalizeCnPhone, normalizeEmailAddress } from "./contactNormalization.js";
+import { hashPassword, verifyPassword } from "./PasswordHasher.js";
 
 export interface AuthingLoginInput {
   authingToken: string;
@@ -42,7 +46,7 @@ export interface SessionContextInput {
   ip?: string | null;
 }
 
-interface AuthingUserInfo {
+export interface AuthingUserInfo {
   sub: string;
   nickname: string | null;
   email: string | null;
@@ -50,17 +54,57 @@ interface AuthingUserInfo {
   picture: string | null;
 }
 
+/** Authing calls, injectable so the lazy password migration can be tested. */
+export interface AuthingIdentityGateway {
+  passwordToken(input: AuthingPasswordLoginInput): Promise<string>;
+  userInfo(authingToken: string): Promise<AuthingUserInfo>;
+}
+
+export interface AuthLoginServiceOptions {
+  /** Self-hosted codes; required when passcodeProvider() is "local". */
+  verificationCodes?: VerificationCodeService;
+  passcodeProvider?: () => "authing" | "local";
+  /** Whether a password without a local hash may still be checked by Authing. */
+  authingPasswordFallback?: () => boolean;
+  authing?: AuthingIdentityGateway;
+  /** Logged, never thrown: a failed hash capture must not fail the login. */
+  onPasswordCaptureFailed?: (error: unknown) => void;
+}
+
+export class PasswordLoginError extends Error {
+  constructor(readonly reason: "PASSWORD_MISMATCH" | "PASSWORD_NOT_SET" | "ACCOUNT_NOT_FOUND") {
+    super(`Password login failed: ${reason}`);
+  }
+}
+
 export class AuthLoginService {
+  private readonly authing: AuthingIdentityGateway;
+
   constructor(
     private readonly userRepository: UserRepository,
-    private readonly userSessionRepository: UserSessionRepository
-  ) {}
+    private readonly userSessionRepository: UserSessionRepository,
+    private readonly options: AuthLoginServiceOptions = {},
+  ) {
+    this.authing = options.authing ?? {
+      passwordToken: (input) => this.resolveAuthingTokenByPassword(input),
+      userInfo: (token) => this.resolveAuthingUserFromToken(token),
+    };
+  }
+
+  private get passcodeProvider(): "authing" | "local" {
+    return this.options.passcodeProvider?.() ?? "authing";
+  }
+
+  private requireVerificationCodes(): VerificationCodeService {
+    if (!this.options.verificationCodes) throw new Error("Self-hosted verification codes are not configured");
+    return this.options.verificationCodes;
+  }
 
   async loginWithAuthing(
     input: AuthingLoginInput,
     sessionContext: SessionContextInput = {}
   ): Promise<AuthingLoginResponse> {
-    const authingUser = await this.resolveAuthingUserFromToken(input.authingToken);
+    const authingUser = await this.authing.userInfo(input.authingToken);
     const providerUserId = authingUser.sub;
     const result = await this.userRepository.findOrCreateByAuthIdentity({
       provider: "authing",
@@ -82,16 +126,42 @@ export class AuthLoginService {
     return this.buildLoginResult(result.user, result.isNewUser, sessionContext);
   }
 
+  /**
+   * Local hash first. Without one, Authing checks the password once (while it
+   * is still available) and the hash is kept, so the account no longer needs
+   * Authing afterwards.
+   */
   async loginWithAuthingPassword(
     input: AuthingPasswordLoginInput,
     sessionContext: SessionContextInput = {}
   ): Promise<AuthingPasswordLoginResponse> {
-    const authingToken = await this.resolveAuthingTokenByPassword(input);
+    const localUser = await this.findUserByAccount(input.account);
+    const localHash = localUser ? await this.userRepository.getPasswordHash(localUser.id) : null;
+    if (localUser && localHash) {
+      if (!await verifyPassword(input.password, localHash)) throw new PasswordLoginError("PASSWORD_MISMATCH");
+      assertUserCanLogin(localUser);
+      const result = await this.buildLoginResult(localUser, false, sessionContext);
+      return { ...result, authingToken: signAccountToken(localUser.id) };
+    }
+    if (!(this.options.authingPasswordFallback?.() ?? true)) {
+      throw new PasswordLoginError(localUser ? "PASSWORD_NOT_SET" : "ACCOUNT_NOT_FOUND");
+    }
+    const authingToken = await this.authing.passwordToken(input);
     const result = await this.loginWithAuthing({ authingToken }, sessionContext);
+    try {
+      await this.userRepository.setPasswordHash(result.user.id, await hashPassword(input.password));
+    } catch (error) {
+      this.options.onPasswordCaptureFailed?.(error);
+    }
     return { ...result, authingToken };
   }
 
-  async sendAuthingPasscode(input: AuthingPasscodeInput): Promise<void> {
+  async sendAuthingPasscode(input: AuthingPasscodeInput, context: { requestIp?: string | null } = {}): Promise<void> {
+    if (this.passcodeProvider === "local") {
+      const target = normalizePasscodeTarget(input);
+      await this.requireVerificationCodes().issue({ channel: input.channel, target, purpose: "login", requestIp: context.requestIp ?? null });
+      return;
+    }
     const client = this.createAuthingClient();
     const response = input.channel === "phone"
       ? await client.sendSms({
@@ -113,6 +183,16 @@ export class AuthLoginService {
     input: AuthingPasscodeLoginInput,
     sessionContext: SessionContextInput = {}
   ): Promise<AuthingPasscodeLoginResponse> {
+    if (this.passcodeProvider === "local") {
+      const target = normalizePasscodeTarget(input);
+      await this.requireVerificationCodes().verify({ target, purpose: "login", code: input.passCode });
+      const { user, isNewUser } = await this.userRepository.findOrCreateByContact(
+        input.channel === "phone" ? { phone: target } : { email: target },
+      );
+      assertUserCanLogin(user);
+      const result = await this.buildLoginResult(user, isNewUser, sessionContext);
+      return { ...result, authingToken: signAccountToken(user.id) };
+    }
     const client = this.createAuthingClient();
     const options = {
       scope: "openid profile email phone",
@@ -224,6 +304,17 @@ export class AuthLoginService {
         id: session.id,
         revokedAt: new Date(),
       });
+    }
+  }
+
+  private async findUserByAccount(account: string): Promise<UserEntity | null> {
+    const value = account.trim();
+    if (isEmail(value)) return this.userRepository.findByEmail(value.toLowerCase());
+    try {
+      return await this.userRepository.findByPhone(normalizeCnPhone(value));
+    } catch (error) {
+      if (error instanceof InvalidContactError) return null; // a username: only Authing knows it
+      throw error;
     }
   }
 
@@ -368,6 +459,17 @@ export class AuthingPasscodeError extends Error {
   constructor(message: string, readonly apiCode?: number) {
     super(message);
   }
+}
+
+function assertUserCanLogin(user: UserEntity): void {
+  if (user.status === "pending_delete") throw new Error("Account deletion is in progress");
+  if (user.status !== "active") throw new Error("Account is disabled");
+}
+
+function normalizePasscodeTarget(input: AuthingPasscodeInput): string {
+  return input.channel === "phone"
+    ? normalizeCnPhone(input.phone, input.phoneCountryCode)
+    : normalizeEmailAddress(input.email);
 }
 
 function isEmail(value: string): boolean {

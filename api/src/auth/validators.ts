@@ -77,18 +77,22 @@ export function isRefreshTokenBody(value: unknown): value is RefreshTokenRequest
   return typeof v.refreshToken === "string" && v.refreshToken.trim().length > 0;
 }
 
+/** Self-hosted verification no longer needs it; old clients still send one. */
+function isOptionalToken(value: unknown): boolean {
+  return value === undefined || value === null || typeof value === "string";
+}
+
 export function isPrepareDeleteAccountBody(value: unknown): value is PrepareDeleteAccountRequestBody {
   if (!value || typeof value !== "object") return false;
   const v = value as Record<string, unknown>;
-  return typeof v.authingToken === "string" && v.authingToken.trim().length > 0;
+  return isOptionalToken(v.authingToken);
 }
 
 export function isConfirmDeleteAccountBody(value: unknown): value is ConfirmDeleteAccountRequestBody {
   if (!value || typeof value !== "object") return false;
   const v = value as Record<string, unknown>;
   return (
-    typeof v.authingToken === "string" &&
-    v.authingToken.trim().length > 0 &&
+    isOptionalToken(v.authingToken) &&
     (v.method === "PHONE_PASSCODE" || v.method === "EMAIL_PASSCODE") &&
     typeof v.passCode === "string" &&
     v.passCode.trim().length > 0
@@ -99,8 +103,7 @@ export function isPrepareBindEmailBody(value: unknown): value is PrepareBindEmai
   if (!value || typeof value !== "object") return false;
   const v = value as Record<string, unknown>;
   return (
-    typeof v.authingToken === "string" &&
-    v.authingToken.trim().length > 0 &&
+    isOptionalToken(v.authingToken) &&
     typeof v.email === "string" &&
     v.email.trim().length > 0
   );
@@ -110,8 +113,7 @@ export function isConfirmBindEmailBody(value: unknown): value is ConfirmBindEmai
   if (!value || typeof value !== "object") return false;
   const v = value as Record<string, unknown>;
   return (
-    typeof v.authingToken === "string" &&
-    v.authingToken.trim().length > 0 &&
+    isOptionalToken(v.authingToken) &&
     typeof v.email === "string" &&
     v.email.trim().length > 0 &&
     typeof v.passCode === "string" &&

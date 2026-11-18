@@ -362,7 +362,7 @@ export function LoginScreen({ onLoginSuccess }: LoginScreenProps) {
 
 function resolveLoginError(error: unknown, action: "send" | "login"): string {
   if (error instanceof ApiError) {
-    if (error.code === "RATE_LIMITED") return t("auth.login.too_frequent");
+    if (error.code === "RATE_LIMITED" || error.code === "PASSCODE_TOO_FREQUENT" || error.code === "PASSCODE_LIMIT_REACHED") return t("auth.login.too_frequent");
     if (error.code === "PASSCODE_INVALID") return t("auth.login.code_invalid");
     if (error.code === "PASSCODE_SEND_FAILED") return t("auth.login.send_failed");
     if (error.code === "PASSWORD_INVALID") return t("auth.login.password_invalid");

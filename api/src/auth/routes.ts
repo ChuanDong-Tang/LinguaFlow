@@ -59,7 +59,7 @@ export interface AuthRouteDeps {
       phone?: string;
       phoneCountryCode?: string;
       email?: string;
-    }) => Promise<void>;
+    }, context?: { requestIp?: string | null }) => Promise<void>;
     loginWithAuthingPasscode: (input: {
       channel: "phone" | "email";
       phone?: string;
@@ -83,7 +83,7 @@ export interface AuthRouteDeps {
   accountDeletionService: {
     prepare: (input: {
       userId: string;
-      authingToken: string;
+      authingToken?: string;
     }) => Promise<{
       authingToken: string;
       method: "PHONE_PASSCODE" | "EMAIL_PASSCODE";
@@ -91,7 +91,7 @@ export interface AuthRouteDeps {
     }>;
     confirm: (input: {
       userId: string;
-      authingToken: string;
+      authingToken?: string;
       method: "PHONE_PASSCODE" | "EMAIL_PASSCODE";
       passCode: string;
     }) => Promise<{ success: true }>;
@@ -99,7 +99,7 @@ export interface AuthRouteDeps {
   accountEmailBindingService: {
     prepare: (input: {
       userId: string;
-      authingToken: string;
+      authingToken?: string;
       email: string;
     }) => Promise<{
       authingToken: string;
@@ -108,7 +108,7 @@ export interface AuthRouteDeps {
     }>;
     confirm: (input: {
       userId: string;
-      authingToken: string;
+      authingToken?: string;
       email: string;
       passCode: string;
     }) => Promise<{
@@ -317,7 +317,7 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDeps): v
     }
 
     try {
-      await deps.authLoginService.sendAuthingPasscode(body);
+      await deps.authLoginService.sendAuthingPasscode(body, { requestIp: resolveClientIpFromRequest(req) });
       await writeSystemEventLog(deps.systemEventLogRepository, {
         requestId,
         module: "auth",
@@ -338,6 +338,8 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDeps): v
         errorMessage: error instanceof Error ? error.message : String(error),
         metadata: { channel: body.channel },
       });
+      const mapped = mapVerificationCodeError(error);
+      if (mapped) return reply.status(mapped.status).send({ ok: false, error: { code: mapped.code, message: mapped.message } });
       return reply.status(400).send({
         ok: false,
         error: { code: "PASSCODE_SEND_FAILED", message: "Verification code could not be sent" },
@@ -687,6 +689,11 @@ export function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDeps): v
         errorCode: "DELETE_ACCOUNT_PREPARE_FAILED",
         errorMessage: message,
       });
+      if ((error as { code?: unknown } | null)?.code === "AUTHING_REAUTH_REQUIRED") {
+        return reply.status(401).send({ ok: false, error: { code: "AUTHING_REAUTH_REQUIRED", message: "请重新验证身份后注销" } });
+      }
+      const mapped = mapVerificationCodeError(error);
+      if (mapped) return reply.status(mapped.status).send({ ok: false, error: { code: mapped.code, message: mapped.message } });
       return reply.status(400).send({
         ok: false,
         error: { code: "DELETE_ACCOUNT_FAILED", message: "Delete account failed" },
@@ -1002,7 +1009,19 @@ function sendAccountPendingDeleteError(reply: FastifyReply) {
   });
 }
 
+/** Self-hosted verification failures, shared by login, deletion and binding. */
+function mapVerificationCodeError(error: unknown): { status: number; code: string; message: string } | null {
+  const code = (error as { code?: unknown } | null)?.code;
+  if (code === "PASSCODE_TOO_FREQUENT") return { status: 429, code: "PASSCODE_TOO_FREQUENT", message: "验证码发送太频繁，请稍后再试" };
+  if (code === "PASSCODE_LIMIT_REACHED") return { status: 429, code: "PASSCODE_LIMIT_REACHED", message: "今天获取验证码次数过多，请明天再试" };
+  if (code === "PASSCODE_INVALID") return { status: 400, code: "PASSCODE_INVALID", message: "验证码错误或已过期" };
+  if (code === "CONTACT_INVALID") return { status: 400, code: "REQUEST_INVALID", message: "手机号或邮箱格式不正确" };
+  return null;
+}
+
 function mapBindEmailError(error: unknown): { status: number; code: string; message: string } {
+  const verification = mapVerificationCodeError(error);
+  if (verification) return verification;
   const err = error as { code?: unknown; message?: unknown };
   const code = typeof err.code === "string" ? err.code : "";
   if (code === "EMAIL_TAKEN") {

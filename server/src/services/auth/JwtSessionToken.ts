@@ -6,7 +6,7 @@ export interface SessionTokenPayload {
   sid?: string;
   iat: number;
   exp: number;
-  typ: "access" | "refresh";
+  typ: "access" | "refresh" | "account";
 }
 
 export function signAccessToken(userId: string): string {
@@ -29,9 +29,18 @@ export function signSessionToken(userId: string): string {
   return signAccessToken(userId);
 }
 
+/**
+ * Opaque proof of a completed login, returned in the legacy `authingToken`
+ * field once login is self-hosted. Clients store it and send it back for
+ * account deletion / email binding; it never authorizes API calls.
+ */
+export function signAccountToken(userId: string): string {
+  return signTypedToken(userId, "account", getRefreshTokenTtlSeconds());
+}
+
 function signTypedToken(
   userId: string,
-  typ: "access" | "refresh",
+  typ: "access" | "refresh" | "account",
   ttlSeconds: number,
   sessionId?: string
 ): string {

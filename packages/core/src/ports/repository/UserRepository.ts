@@ -71,6 +71,19 @@ export interface UserRepository {
 
   markPendingDeleteById(userId: string): Promise<UserEntity>;
 
+  /** Any non-deleted user with this normalized phone (11-digit CN), newest first. */
+  findByPhone(phone: string): Promise<UserEntity | null>;
+
+  /**
+   * Find the user who owns this phone or email, or create one. Serialized per
+   * contact so two concurrent first logins cannot create two accounts.
+   */
+  findOrCreateByContact(input: { phone?: string | null; email?: string | null }): Promise<{ user: UserEntity; isNewUser: boolean }>;
+
+  getPasswordHash(userId: string): Promise<string | null>;
+
+  setPasswordHash(userId: string, passwordHash: string): Promise<void>;
+
   findOrCreateByAuthIdentity(input:{
     provider: AuthProvider;
     providerUserId: string;

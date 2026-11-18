@@ -2,25 +2,63 @@ import type { UserRepository } from "@lf/core/ports/repository/UserRepository.js
 import type { UserSessionRepository } from "@lf/core/ports/repository/UserSessionRepository.js";
 import { AuthenticationClient, Models } from "authing-node-sdk";
 import { getRuntimeConfig } from "../../config/runtimeConfig.js";
+import type { VerificationCodeService } from "./VerificationCodeService.js";
+import { maskEmail as maskLocalEmail, maskPhone as maskLocalPhone } from "./contactNormalization.js";
 
 export interface ConfirmDeleteAccountInput {
   userId: string;
-  authingToken: string;
+  authingToken?: string;
   method: "PHONE_PASSCODE" | "EMAIL_PASSCODE";
   passCode: string;
+}
+
+export class AuthingReauthRequiredError extends Error {
+  readonly code = "AUTHING_REAUTH_REQUIRED";
 }
 
 export class AccountDeletionService {
   constructor(
     private readonly userRepository: UserRepository,
-    private readonly userSessionRepository: UserSessionRepository
+    private readonly userSessionRepository: UserSessionRepository,
+    private readonly options: {
+      verificationCodes?: VerificationCodeService;
+      passcodeProvider?: () => "authing" | "local";
+    } = {},
   ) {}
 
-  async prepare(input: { userId: string; authingToken: string }): Promise<{
+  private get local(): VerificationCodeService | null {
+    if ((this.options.passcodeProvider?.() ?? "authing") !== "local") return null;
+    if (!this.options.verificationCodes) throw new Error("Self-hosted verification codes are not configured");
+    return this.options.verificationCodes;
+  }
+
+  async prepare(input: { userId: string; authingToken?: string }): Promise<{
     authingToken: string;
     method: "PHONE_PASSCODE" | "EMAIL_PASSCODE";
     target: string;
   }> {
+    const codes = this.local;
+    if (codes) {
+      // The caller is already authenticated by our session; the code goes to
+      // the account's own phone (preferred) or email.
+      const user = await this.userRepository.findById(input.userId);
+      if (!user) throw new Error("User not found");
+      const phone = user.phone?.trim() || null;
+      const email = user.email?.trim().toLowerCase() || null;
+      if (!phone && !email) throw new Error("Account has no phone or email");
+      await codes.issue({
+        channel: phone ? "phone" : "email",
+        target: (phone ?? email)!,
+        purpose: "delete_account",
+        userId: user.id,
+      });
+      return {
+        authingToken: input.authingToken?.trim() || "local",
+        method: phone ? "PHONE_PASSCODE" : "EMAIL_PASSCODE",
+        target: phone ? maskLocalPhone(phone) : maskLocalEmail(email!),
+      };
+    }
+    if (!input.authingToken?.trim()) throw new AuthingReauthRequiredError("Authing token is required");
     const authingUser = await this.resolveAuthingUserFromToken(input.authingToken);
     await this.assertTokenBelongsToUser(input.userId, authingUser.sub);
 
@@ -56,6 +94,19 @@ export class AccountDeletionService {
   }
 
   async confirm(input: ConfirmDeleteAccountInput): Promise<{ success: true }> {
+    const codes = this.local;
+    if (codes) {
+      const user = await this.userRepository.findById(input.userId);
+      if (!user) throw new Error("User not found");
+      const target = input.method === "PHONE_PASSCODE" ? user.phone?.trim() : user.email?.trim().toLowerCase();
+      if (!target) throw new Error("Account has no contact for this method");
+      const verified = await codes.verify({ target, purpose: "delete_account", code: input.passCode });
+      if (verified.userId !== input.userId) throw new Error("Verification code belongs to another account");
+      await this.userSessionRepository.revokeAllByUserId(input.userId, new Date());
+      await this.userRepository.markPendingDeleteById(input.userId);
+      return { success: true };
+    }
+    if (!input.authingToken?.trim()) throw new AuthingReauthRequiredError("Authing token is required");
     const authingUser = await this.resolveAuthingUserFromToken(input.authingToken);
     await this.assertTokenBelongsToUser(input.userId, authingUser.sub);
 
@@ -135,7 +186,7 @@ export class AccountDeletionService {
       headers: { Authorization: `Bearer ${authingToken}` },
     });
     if (!response.ok) {
-      throw new Error(`Authing token validation failed: ${response.status}`);
+      throw new AuthingReauthRequiredError(`Authing token validation failed: ${response.status}`);
     }
 
     const payload = (await response.json()) as Record<string, unknown>;

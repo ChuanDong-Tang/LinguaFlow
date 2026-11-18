@@ -91,7 +91,8 @@ export interface LogoutResponse {
 export type DeleteAccountVerifyMethod = "PHONE_PASSCODE" | "EMAIL_PASSCODE";
 
 export interface PrepareDeleteAccountRequestBody {
-  authingToken: string;
+  /** Legacy Authing token; ignored once verification is self-hosted. */
+  authingToken?: string;
 }
 
 export interface PrepareDeleteAccountResponse {
@@ -101,7 +102,8 @@ export interface PrepareDeleteAccountResponse {
 }
 
 export interface ConfirmDeleteAccountRequestBody {
-  authingToken: string;
+  /** Legacy Authing token; ignored once verification is self-hosted. */
+  authingToken?: string;
   method: DeleteAccountVerifyMethod;
   passCode: string;
 }
@@ -111,7 +113,8 @@ export interface DeleteAccountResponse {
 }
 
 export interface PrepareBindEmailRequestBody {
-  authingToken: string;
+  /** Legacy Authing token; ignored once verification is self-hosted. */
+  authingToken?: string;
   email: string;
 }
 
@@ -122,7 +125,8 @@ export interface PrepareBindEmailResponse {
 }
 
 export interface ConfirmBindEmailRequestBody {
-  authingToken: string;
+  /** Legacy Authing token; ignored once verification is self-hosted. */
+  authingToken?: string;
   email: string;
   passCode: string;
 }

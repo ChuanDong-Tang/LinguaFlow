@@ -14,6 +14,9 @@ import { PrismaSttRequestLogRepository } from "@lf/server/infrastructure/reposit
 import { AuthLoginService } from "@lf/server/services/auth/AuthLoginService.js";
 import { AccountDeletionService } from "@lf/server/services/auth/AccountDeletionService.js";
 import { AccountEmailBindingService } from "@lf/server/services/auth/AccountEmailBindingService.js";
+import { VerificationCodeService } from "@lf/server/services/auth/VerificationCodeService.js";
+import { PrismaAuthVerificationCodeRepository } from "@lf/server/infrastructure/repository/PrismaAuthVerificationCodeRepository.js";
+import { TencentVerificationCodeSender } from "@lf/server/infrastructure/auth/TencentVerificationCodeSender.js";
 import { UserProfileService } from "@lf/server/services/auth/UserProfileService.js";
 import { UserAvatarService } from "@lf/server/services/auth/UserAvatarService.js";
 import { CardService } from "@lf/server/services/card/CardService.js";
@@ -180,9 +183,37 @@ export function createApp() {
   const ttsAssetRepository = new PrismaTtsAssetRepository(prisma);
   const ttsRequestLogRepository = new PrismaTtsRequestLogRepository(prisma);
   const sttRequestLogRepository = new PrismaSttRequestLogRepository(prisma);
-  const authLoginService = new AuthLoginService(userRepository, userSessionRepository);
-  const accountDeletionService = new AccountDeletionService(userRepository, userSessionRepository);
-  const accountEmailBindingService = new AccountEmailBindingService(userRepository);
+  // Self-hosted verification (replacing Authing). The switch and the Authing
+  // password fallback are read per request so an env change + API restart
+  // flips them without a code deploy.
+  const verificationConfig = getRuntimeConfig().authVerification;
+  const verificationCodes = new VerificationCodeService(
+    new PrismaAuthVerificationCodeRepository(prisma),
+    new TencentVerificationCodeSender({
+      credentials: { secretId: verificationConfig.secretId, secretKey: verificationConfig.secretKey },
+      sms: {
+        sdkAppId: verificationConfig.smsSdkAppId,
+        signName: verificationConfig.smsSignName,
+        templateId: verificationConfig.smsTemplateId,
+        region: verificationConfig.smsRegion,
+      },
+      email: {
+        from: verificationConfig.emailFrom,
+        templateId: verificationConfig.emailTemplateId,
+        region: verificationConfig.emailRegion,
+      },
+    }),
+    getRuntimeConfig().authJwtSecret,
+  );
+  const passcodeProvider = () => getRuntimeConfig().authPasscodeProvider;
+  const authLoginService = new AuthLoginService(userRepository, userSessionRepository, {
+    verificationCodes,
+    passcodeProvider,
+    authingPasswordFallback: () => getRuntimeConfig().authAuthingPasswordFallback,
+    onPasswordCaptureFailed: (error) => app.log.warn({ err: error }, "password hash capture failed"),
+  });
+  const accountDeletionService = new AccountDeletionService(userRepository, userSessionRepository, { verificationCodes, passcodeProvider });
+  const accountEmailBindingService = new AccountEmailBindingService(userRepository, { verificationCodes, passcodeProvider });
   const runtimeConfig = getRuntimeConfig();
   const aiProvider = createAIProvider(runtimeConfig);
   const embeddingConfigValues = [

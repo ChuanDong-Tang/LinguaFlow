@@ -15,6 +15,7 @@ type PrismaUserClient = {
   user: {
     create: (args: any) => Promise<any>;
     findFirst: (args: any) => Promise<any>;
+    findMany: (args: any) => Promise<any[]>;
     findUnique: (args: any) => Promise<any>;
     upsert: (args: any) => Promise<any>;
     update: (args: any) => Promise<any>;
@@ -214,6 +215,50 @@ export class PrismaUserRepository implements UserRepository {
       },
     });
     return row ? this.toUserEntity(row) : null;
+  }
+
+  async findByPhone(phone: string): Promise<UserEntity | null> {
+    const normalized = phone.trim();
+    if (!normalized) return null;
+    const rows = await this.prisma.user.findMany({
+      where: { phone: normalized, status: { not: "pending_delete" } },
+      orderBy: { createdAt: "desc" },
+      take: 5,
+    });
+    const row = rows.find((candidate: { status: string }) => candidate.status === "active") ?? rows[0];
+    return row ? this.toUserEntity(row) : null;
+  }
+
+  async findOrCreateByContact(input: { phone?: string | null; email?: string | null }): Promise<{ user: UserEntity; isNewUser: boolean }> {
+    const phone = input.phone?.trim() || null;
+    const email = input.email?.trim().toLowerCase() || null;
+    const key = phone ? `phone:${phone}` : email ? `email:${email}` : "";
+    if (!key) throw new Error("A phone or email is required");
+    return this.prisma.$transaction(async (tx) => {
+      // Serialize first logins for the same contact (released at commit).
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${key}))`;
+      const rows = await tx.user.findMany({
+        where: phone
+          ? { phone, status: { not: "pending_delete" } }
+          : { email: { equals: email!, mode: "insensitive" }, status: { not: "pending_delete" } },
+        orderBy: { createdAt: "desc" },
+        take: 5,
+      });
+      const existing = rows.find((candidate: { status: string }) => candidate.status === "active") ?? rows[0];
+      if (existing) return { user: this.toUserEntity(existing), isNewUser: false };
+      const created = await tx.user.create({ data: { phone, email, status: "active" } });
+      await ensureUserProfile(tx, created);
+      return { user: this.toUserEntity(created), isNewUser: true };
+    });
+  }
+
+  async getPasswordHash(userId: string): Promise<string | null> {
+    const row = await this.prisma.user.findUnique({ where: { id: userId }, select: { passwordHash: true } });
+    return row?.passwordHash ?? null;
+  }
+
+  async setPasswordHash(userId: string, passwordHash: string): Promise<void> {
+    await this.prisma.user.update({ where: { id: userId }, data: { passwordHash, passwordUpdatedAt: new Date() } });
   }
 
   async updateEmailById(userId: string, email: string): Promise<UserEntity> {
