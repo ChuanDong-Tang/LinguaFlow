@@ -202,6 +202,7 @@ export function createApp() {
         templateId: verificationConfig.emailTemplateId,
         region: verificationConfig.emailRegion,
       },
+      smtp: verificationConfig.smtp,
     }),
     getRuntimeConfig().authJwtSecret,
   );

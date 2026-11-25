@@ -1,6 +1,8 @@
 import type { VerificationCodeSender } from "@lf/core/ports/auth/VerificationCodeSender.js";
 import type { VerificationPurpose } from "@lf/core/ports/repository/AuthVerificationCodeRepository.js";
 import { callTencentCloudApi, type TencentCloudCredentials } from "../tencent/TencentCloudApi.js";
+import { sendSmtpMail, type SmtpConfig } from "../email/SmtpMailer.js";
+import { buildVerificationEmail } from "../email/verificationEmail.js";
 
 /**
  * Sends verification codes with Tencent Cloud SMS (SendSms 2021-01-11) and
@@ -9,6 +11,8 @@ import { callTencentCloudApi, type TencentCloudCredentials } from "../tencent/Te
  * One approved "verification code" template per channel is enough: SMS
  * `{1}` = code, `{2}` = minutes; email template variables `code`, `minutes`.
  * A purpose-specific template id, when configured, overrides the default.
+ * With `smtp` set, email goes through SES SMTP with our own body instead of a
+ * SendEmail template (no template review needed).
  */
 export interface TencentVerificationCodeSenderConfig {
   credentials: TencentCloudCredentials;
@@ -25,6 +29,7 @@ export interface TencentVerificationCodeSenderConfig {
     templateIds?: Partial<Record<VerificationPurpose, number>>;
     region: string;
   };
+  smtp?: SmtpConfig | null;
 }
 
 const EMAIL_SUBJECTS: Record<VerificationPurpose, string> = {
@@ -60,7 +65,11 @@ export class TencentVerificationCodeSender implements VerificationCodeSender {
   }
 
   async sendEmail(input: { email: string; code: string; purpose: VerificationPurpose; ttlMinutes: number }): Promise<void> {
-    const { email } = this.config;
+    const { email, smtp } = this.config;
+    if (smtp) {
+      await sendSmtpMail(smtp, buildVerificationEmail({ to: input.email, code: input.code, purpose: input.purpose, ttlMinutes: input.ttlMinutes }));
+      return;
+    }
     await callTencentCloudApi({
       credentials: this.config.credentials,
       service: "ses",

@@ -191,6 +191,8 @@ export interface RuntimeConfig {
     emailFrom: string;
     emailTemplateId: number;
     emailRegion: string;
+    /** SES SMTP (what Authing used). Takes precedence over the SendEmail API when set. */
+    smtp: { host: string; port: number; secure: boolean; user: string; pass: string; from: string } | null;
   };
   authJwtSecret: string;
   authAccessTokenTtlSeconds: number;
@@ -416,6 +418,16 @@ export function getRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeC
       emailFrom: env.LF_SES_FROM?.trim() || "",
       emailTemplateId: Number(env.LF_SES_TEMPLATE_ID?.trim() || 0),
       emailRegion: env.LF_SES_REGION?.trim() || "ap-hongkong",
+      smtp: env.LF_SMTP_HOST?.trim() && env.LF_SMTP_USER?.trim() && env.LF_SMTP_PASS
+        ? {
+            host: env.LF_SMTP_HOST.trim(),
+            port: readPositiveInt(env.LF_SMTP_PORT, 465),
+            secure: readBoolean(env.LF_SMTP_SECURE, true),
+            user: env.LF_SMTP_USER.trim(),
+            pass: env.LF_SMTP_PASS,
+            from: env.LF_SMTP_FROM?.trim() || env.LF_SMTP_USER.trim(),
+          }
+        : null,
     },
     authJwtSecret: env.AUTH_JWT_SECRET?.trim() || "dev-only-change-me",
     authAccessTokenTtlSeconds: readPositiveInt(env.AUTH_ACCESS_TOKEN_TTL_SECONDS, 60 * 30),
