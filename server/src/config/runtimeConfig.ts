@@ -173,8 +173,12 @@ export interface RuntimeConfig {
   authingDomain: string | null;
   authingAppId: string | null;
   authingAppSecret: string | null;
-  /** "authing" until our SMS/email templates are approved; then "local". */
-  authPasscodeProvider: "authing" | "local";
+  /**
+   * Per channel: "authing" until our own SMS / email sending is approved, then
+   * "local". LF_AUTH_SMS_PROVIDER / LF_AUTH_EMAIL_PROVIDER override the shared
+   * LF_AUTH_PASSCODE_PROVIDER.
+   */
+  authPasscodeProviders: { phone: "authing" | "local"; email: "authing" | "local" };
   /** Verify unmigrated passwords against Authing once and keep a local hash. Off after Authing expires. */
   authAuthingPasswordFallback: boolean;
   authVerification: {
@@ -397,7 +401,10 @@ export function getRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeC
     authingDomain: trimToNull(env.AUTHING_DOMAIN),
     authingAppId: trimToNull(env.AUTHING_APP_ID),
     authingAppSecret: trimToNull(env.AUTHING_APP_SECRET),
-    authPasscodeProvider: env.LF_AUTH_PASSCODE_PROVIDER?.trim() === "local" ? "local" : "authing",
+    authPasscodeProviders: {
+      phone: readPasscodeProvider(env.LF_AUTH_SMS_PROVIDER ?? env.LF_AUTH_PASSCODE_PROVIDER),
+      email: readPasscodeProvider(env.LF_AUTH_EMAIL_PROVIDER ?? env.LF_AUTH_PASSCODE_PROVIDER),
+    },
     authAuthingPasswordFallback: readBoolean(env.LF_AUTH_AUTHING_PASSWORD_FALLBACK, true),
     authVerification: {
       secretId: env.LF_VERIFY_TENCENT_SECRET_ID?.trim() || env.TENCENTCLOUD_SECRET_ID?.trim() || "",
@@ -761,4 +768,8 @@ function readTierCsv(value: string | undefined, fallback: MembershipFeatureTier[
   const allowed = new Set<MembershipFeatureTier>(["free", "plus", "pro"]);
   const parsed = tiers.filter((tier): tier is MembershipFeatureTier => allowed.has(tier as MembershipFeatureTier));
   return parsed.length ? parsed : fallback;
+}
+
+function readPasscodeProvider(value: string | undefined): "authing" | "local" {
+  return value?.trim().toLowerCase() === "local" ? "local" : "authing";
 }

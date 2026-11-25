@@ -18,6 +18,7 @@ import {
   verifyRefreshToken,
 } from "./JwtSessionToken.js";
 import { createHash, randomUUID } from "node:crypto";
+import type { PasscodeProvider, PasscodeProviderResolver, VerificationChannel } from "@lf/core/ports/repository/AuthVerificationCodeRepository.js";
 import type { VerificationCodeService } from "./VerificationCodeService.js";
 import { InvalidContactError, normalizeCnPhone, normalizeEmailAddress } from "./contactNormalization.js";
 import { hashPassword, verifyPassword } from "./PasswordHasher.js";
@@ -63,7 +64,8 @@ export interface AuthingIdentityGateway {
 export interface AuthLoginServiceOptions {
   /** Self-hosted codes; required when passcodeProvider() is "local". */
   verificationCodes?: VerificationCodeService;
-  passcodeProvider?: () => "authing" | "local";
+  /** Per channel, so email can move off Authing before SMS (or vice versa). */
+  passcodeProvider?: PasscodeProviderResolver;
   /** Whether a password without a local hash may still be checked by Authing. */
   authingPasswordFallback?: () => boolean;
   authing?: AuthingIdentityGateway;
@@ -91,8 +93,8 @@ export class AuthLoginService {
     };
   }
 
-  private get passcodeProvider(): "authing" | "local" {
-    return this.options.passcodeProvider?.() ?? "authing";
+  private passcodeProvider(channel: VerificationChannel): PasscodeProvider {
+    return this.options.passcodeProvider?.(channel) ?? "authing";
   }
 
   private requireVerificationCodes(): VerificationCodeService {
@@ -157,7 +159,7 @@ export class AuthLoginService {
   }
 
   async sendAuthingPasscode(input: AuthingPasscodeInput, context: { requestIp?: string | null } = {}): Promise<void> {
-    if (this.passcodeProvider === "local") {
+    if (this.passcodeProvider(input.channel) === "local") {
       const target = normalizePasscodeTarget(input);
       await this.requireVerificationCodes().issue({ channel: input.channel, target, purpose: "login", requestIp: context.requestIp ?? null });
       return;
@@ -183,7 +185,7 @@ export class AuthLoginService {
     input: AuthingPasscodeLoginInput,
     sessionContext: SessionContextInput = {}
   ): Promise<AuthingPasscodeLoginResponse> {
-    if (this.passcodeProvider === "local") {
+    if (this.passcodeProvider(input.channel) === "local") {
       const target = normalizePasscodeTarget(input);
       await this.requireVerificationCodes().verify({ target, purpose: "login", code: input.passCode });
       const { user, isNewUser } = await this.userRepository.findOrCreateByContact(

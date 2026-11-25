@@ -77,7 +77,7 @@ function loginService(options: {
   hashes?: Map<string, string>;
   authingPasswordFallback?: boolean;
   authingSub?: string;
-  passcodeProvider?: "authing" | "local";
+  passcodeProvider?: "authing" | "local" | ((channel: "phone" | "email") => "authing" | "local");
   codes?: VerificationCodeService;
 }) {
   const users = options.users ?? [];
@@ -99,7 +99,9 @@ function loginService(options: {
   };
   const sessions = { create: async () => undefined };
   const service = new AuthLoginService(repository as never, sessions as never, {
-    passcodeProvider: () => options.passcodeProvider ?? "local",
+    passcodeProvider: (channel) => typeof options.passcodeProvider === "function"
+      ? options.passcodeProvider(channel)
+      : options.passcodeProvider ?? "local",
     authingPasswordFallback: () => options.authingPasswordFallback ?? true,
     verificationCodes: options.codes,
     authing: {
@@ -234,7 +236,40 @@ test("after Authing is switched off an unmigrated password is refused, and usern
   assert.deepEqual(on.authingCalls, ["oio_reader"]);
 });
 
+test("email codes can be self-hosted while phone codes still go to Authing", async () => {
+  const codes = codeService();
+  const { service } = loginService({ codes: codes.service, passcodeProvider: (channel) => (channel === "email" ? "local" : "authing") });
+  await service.sendAuthingPasscode({ channel: "email", email: "split@example.com" });
+  assert.deepEqual(codes.sent, [{ to: "split@example.com", code: "123456" }]);
+  const result = await service.loginWithAuthingPasscode({ channel: "email", email: "split@example.com", passCode: "123456" });
+  assert.equal(result.isNewUser, true);
+
+  await assert.rejects(service.sendAuthingPasscode({ channel: "phone", phone: "13800000000" }));
+  assert.equal(codes.sent.length, 1, "no self-hosted SMS while the phone channel is on Authing");
+});
+
 // ---------------------------------------------------------------- deletion & email binding
+
+test("deletion uses the account's email when only email codes are self-hosted", async () => {
+  const codes = codeService();
+  const accounts = [
+    user({ id: "both", phone: "13800000000", email: "both@example.com" }),
+    user({ id: "phone-only", phone: "13900000000", email: null }),
+  ];
+  const repository = {
+    findById: async (id: string) => accounts.find((candidate) => candidate.id === id) ?? null,
+    markPendingDeleteById: async () => accounts[0],
+  };
+  const sessions = { revokeAllByUserId: async () => undefined };
+  const service = new AccountDeletionService(repository as never, sessions as never, {
+    verificationCodes: codes.service,
+    passcodeProvider: (channel) => (channel === "email" ? "local" : "authing"),
+  });
+
+  assert.deepEqual(await service.prepare({ userId: "both" }), { authingToken: "local", method: "EMAIL_PASSCODE", target: "bo***@example.com" });
+  assert.deepEqual(await service.confirm({ userId: "both", method: "EMAIL_PASSCODE", passCode: "123456" }), { success: true });
+  await assert.rejects(service.prepare({ userId: "phone-only" }), (error: unknown) => (error as { code?: string }).code === "AUTHING_REAUTH_REQUIRED");
+});
 
 
 test("self-hosted deletion sends the code to the account's own phone and only that account's code deletes it", async () => {

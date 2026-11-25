@@ -205,7 +205,7 @@ export function createApp() {
     }),
     getRuntimeConfig().authJwtSecret,
   );
-  const passcodeProvider = () => getRuntimeConfig().authPasscodeProvider;
+  const passcodeProvider = (channel: "phone" | "email") => getRuntimeConfig().authPasscodeProviders[channel];
   const authLoginService = new AuthLoginService(userRepository, userSessionRepository, {
     verificationCodes,
     passcodeProvider,

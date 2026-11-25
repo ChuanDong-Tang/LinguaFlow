@@ -1,6 +1,7 @@
 import type { UserEntity, UserRepository } from "@lf/core/ports/repository/UserRepository.js";
 import { AuthenticationClient, Models } from "authing-node-sdk";
 import { getRuntimeConfig } from "../../config/runtimeConfig.js";
+import type { PasscodeProviderResolver } from "@lf/core/ports/repository/AuthVerificationCodeRepository.js";
 import type { VerificationCodeService } from "./VerificationCodeService.js";
 
 export class EmailAlreadyBoundError extends Error {
@@ -32,12 +33,12 @@ export class AccountEmailBindingService {
     private readonly userRepository: UserRepository,
     private readonly options: {
       verificationCodes?: VerificationCodeService;
-      passcodeProvider?: () => "authing" | "local";
+      passcodeProvider?: PasscodeProviderResolver;
     } = {},
   ) {}
 
   private get local(): VerificationCodeService | null {
-    if ((this.options.passcodeProvider?.() ?? "authing") !== "local") return null;
+    if ((this.options.passcodeProvider?.("email") ?? "authing") !== "local") return null;
     if (!this.options.verificationCodes) throw new Error("Self-hosted verification codes are not configured");
     return this.options.verificationCodes;
   }

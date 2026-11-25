@@ -2,6 +2,7 @@ import type { UserRepository } from "@lf/core/ports/repository/UserRepository.js
 import type { UserSessionRepository } from "@lf/core/ports/repository/UserSessionRepository.js";
 import { AuthenticationClient, Models } from "authing-node-sdk";
 import { getRuntimeConfig } from "../../config/runtimeConfig.js";
+import type { PasscodeProviderResolver, VerificationChannel } from "@lf/core/ports/repository/AuthVerificationCodeRepository.js";
 import type { VerificationCodeService } from "./VerificationCodeService.js";
 import { maskEmail as maskLocalEmail, maskPhone as maskLocalPhone } from "./contactNormalization.js";
 
@@ -22,12 +23,12 @@ export class AccountDeletionService {
     private readonly userSessionRepository: UserSessionRepository,
     private readonly options: {
       verificationCodes?: VerificationCodeService;
-      passcodeProvider?: () => "authing" | "local";
+      passcodeProvider?: PasscodeProviderResolver;
     } = {},
   ) {}
 
-  private get local(): VerificationCodeService | null {
-    if ((this.options.passcodeProvider?.() ?? "authing") !== "local") return null;
+  private localFor(channel: VerificationChannel): VerificationCodeService | null {
+    if ((this.options.passcodeProvider?.(channel) ?? "authing") !== "local") return null;
     if (!this.options.verificationCodes) throw new Error("Self-hosted verification codes are not configured");
     return this.options.verificationCodes;
   }
@@ -37,25 +38,27 @@ export class AccountDeletionService {
     method: "PHONE_PASSCODE" | "EMAIL_PASSCODE";
     target: string;
   }> {
-    const codes = this.local;
-    if (codes) {
-      // The caller is already authenticated by our session; the code goes to
-      // the account's own phone (preferred) or email.
-      const user = await this.userRepository.findById(input.userId);
-      if (!user) throw new Error("User not found");
-      const phone = user.phone?.trim() || null;
-      const email = user.email?.trim().toLowerCase() || null;
-      if (!phone && !email) throw new Error("Account has no phone or email");
-      await codes.issue({
-        channel: phone ? "phone" : "email",
-        target: (phone ?? email)!,
+    // The caller is already authenticated by our session; the code goes to
+    // the account's own phone (preferred) or email, on the first of those
+    // channels we send ourselves. Otherwise Authing handles it.
+    const user = await this.userRepository.findById(input.userId);
+    if (!user) throw new Error("User not found");
+    const phone = user.phone?.trim() || null;
+    const email = user.email?.trim().toLowerCase() || null;
+    const phoneCodes = phone ? this.localFor("phone") : null;
+    const emailCodes = !phoneCodes && email ? this.localFor("email") : null;
+    if (phoneCodes || emailCodes) {
+      const channel: VerificationChannel = phoneCodes ? "phone" : "email";
+      await (phoneCodes ?? emailCodes)!.issue({
+        channel,
+        target: (channel === "phone" ? phone : email)!,
         purpose: "delete_account",
         userId: user.id,
       });
       return {
         authingToken: input.authingToken?.trim() || "local",
-        method: phone ? "PHONE_PASSCODE" : "EMAIL_PASSCODE",
-        target: phone ? maskLocalPhone(phone) : maskLocalEmail(email!),
+        method: channel === "phone" ? "PHONE_PASSCODE" : "EMAIL_PASSCODE",
+        target: channel === "phone" ? maskLocalPhone(phone!) : maskLocalEmail(email!),
       };
     }
     if (!input.authingToken?.trim()) throw new AuthingReauthRequiredError("Authing token is required");
@@ -94,7 +97,7 @@ export class AccountDeletionService {
   }
 
   async confirm(input: ConfirmDeleteAccountInput): Promise<{ success: true }> {
-    const codes = this.local;
+    const codes = this.localFor(input.method === "PHONE_PASSCODE" ? "phone" : "email");
     if (codes) {
       const user = await this.userRepository.findById(input.userId);
       if (!user) throw new Error("User not found");

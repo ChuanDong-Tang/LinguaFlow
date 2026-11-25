@@ -38,3 +38,7 @@ export interface AuthVerificationCodeRepository {
   consume(id: string, at: Date): Promise<boolean>;
   delete(id: string): Promise<void>;
 }
+
+/** Who sends and checks codes for a channel: Authing, or our own SMS/email. */
+export type PasscodeProvider = "authing" | "local";
+export type PasscodeProviderResolver = (channel: VerificationChannel) => PasscodeProvider;
